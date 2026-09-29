@@ -48,11 +48,11 @@
     if (err)
     {
         NSLog(@"Error while reading log file. Error: %@", err);
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Error"
-                                       message:[NSString stringWithFormat:@"Error while reading log file. Error message: %@", err]
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"错误"
+                                       message:[NSString stringWithFormat:@"读取日志文件时出错。错误信息：%@", err]
                                        preferredStyle:UIAlertControllerStyleAlert];
          
-        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault
            handler:^(UIAlertAction * action) {}];
          
         [alert addAction:defaultAction];
@@ -91,11 +91,11 @@
     if (err)
     {
         NSLog(@"Error while clearing log. Error: %@", err);
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Error"
-                                       message:[NSString stringWithFormat:@"Error while clearing log. Error message: %@", err]
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"错误"
+                                       message:[NSString stringWithFormat:@"清空日志时出错。错误信息：%@", err]
                                        preferredStyle:UIAlertControllerStyleAlert];
          
-        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault
            handler:^(UIAlertAction * action) {}];
          
         [alert addAction:defaultAction];

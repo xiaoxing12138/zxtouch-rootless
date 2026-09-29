@@ -11,7 +11,7 @@ NSString* inputTextFromRawData(UInt8 *eventData, NSError **error)
 
     if ([data count] < 1)
     {
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Keyboard related event length error. You have to specify the task id.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;键盘相关事件参数长度错误，必须指定任务 id。\r\n"}];
         return nil;
     }
 
@@ -26,7 +26,7 @@ NSString* inputTextFromRawData(UInt8 *eventData, NSError **error)
     {
         if ([data count] < 2)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Keyboard related event error. You have to specify the content you want to paste to clipboard.\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;键盘相关事件错误，必须指定要粘贴到剪贴板的内容。\r\n"}];
             return nil;
         }
         [UIPasteboard generalPasteboard].string = data[1];

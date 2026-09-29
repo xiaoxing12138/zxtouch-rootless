@@ -91,7 +91,7 @@
     UIViewController *scriptBundleContentViewController = [self.storyboard instantiateViewControllerWithIdentifier:@"scriptBundleContent"];
     [self.navigationController pushViewController:scriptBundleContentViewController animated:YES];
     
-    scriptBundleContentViewController.title = @"folder";
+    scriptBundleContentViewController.title = @"文件夹";
 }
 
 /*

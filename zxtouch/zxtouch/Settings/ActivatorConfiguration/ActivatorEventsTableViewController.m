@@ -31,8 +31,8 @@
     self.tableView.backgroundColor = [UIColor groupTableViewBackgroundColor];
     self.tableView.tableFooterView = [[UIView alloc] init];
     
-    titleArray = @[NSLocalizedString(@"runScript", nil), NSLocalizedString(@"showPopup", nil), NSLocalizedString(@"stopScriptPlay", nil)];
-    subtitleArray = @[NSLocalizedString(@"configOnScriptListPage", nil), NSLocalizedString(@"showPopup_description", nil), NSLocalizedString(@"stopScriptPlay_description", nil)];
+    titleArray = @[@"运行脚本", @"显示/隐藏控制面板", @"终止运行脚本"];
+    subtitleArray = @[@"在脚本列表界面配置此项", @"显示或隐藏 ZXTouch 后台弹出窗口", @"立刻终止运行所有脚本"];
 
     UINib *singleChoiceCellNib = [UINib nibWithNibName:@"TableViewCellSingleChoice" bundle:nil];
     [self.tableView registerNib:singleChoiceCellNib forCellReuseIdentifier:@"singleChoiceCell"];
@@ -84,7 +84,7 @@
         // checked
         if (indexPath.row == 0)
         {
-            [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"prompt", nil) message:NSLocalizedString(@"setActivatorRunTriggerOnScriptPage", nil)  buttonString:@"OK"];
+            [Util showAlertBoxWithOneOption:self title:@"提示" message:@"当前版本只能在脚本列表中设置 Activator 运行脚本的触发事件，未来版本将支持在此直接配置。"  buttonString:@"确定"];
             cell.check = NO;
             return;
         }

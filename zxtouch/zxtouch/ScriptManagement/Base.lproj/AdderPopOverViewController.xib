@@ -25,7 +25,7 @@
                         <constraint firstAttribute="height" constant="50" id="Cvy-f4-B5a"/>
                     </constraints>
                     <fontDescription key="fontDescription" type="system" pointSize="20"/>
-                    <state key="normal" title="Create Folder"/>
+                    <state key="normal" title="新建文件夹"/>
                     <connections>
                         <action selector="createFolderButtonClick:" destination="-1" eventType="touchUpInside" id="osL-Qy-nXr"/>
                     </connections>
@@ -36,7 +36,7 @@
                         <constraint firstAttribute="height" constant="50" id="MbZ-aL-DsI"/>
                     </constraints>
                     <fontDescription key="fontDescription" type="system" pointSize="20"/>
-                    <state key="normal" title="Create Script"/>
+                    <state key="normal" title="新建脚本"/>
                     <connections>
                         <action selector="createScriptButtonClick:" destination="-1" eventType="touchUpInside" id="Bu7-Su-nDg"/>
                     </connections>
@@ -47,7 +47,7 @@
                         <constraint firstAttribute="height" constant="50" id="mME-rH-U71"/>
                     </constraints>
                     <fontDescription key="fontDescription" type="system" pointSize="20"/>
-                    <state key="normal" title="Import Image"/>
+                    <state key="normal" title="导入图片"/>
                     <connections>
                         <action selector="importImageButtonClick:" destination="-1" eventType="touchUpInside" id="jef-vb-fHM"/>
                     </connections>
@@ -58,7 +58,7 @@
                         <constraint firstAttribute="height" constant="50" id="EEX-TE-7xV"/>
                     </constraints>
                     <fontDescription key="fontDescription" type="system" pointSize="20"/>
-                    <state key="normal" title="Import File"/>
+                    <state key="normal" title="导入文件"/>
                     <connections>
                         <action selector="importFileButtonClick:" destination="-1" eventType="touchUpInside" id="ocL-r1-7FH"/>
                     </connections>

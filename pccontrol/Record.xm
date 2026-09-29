@@ -25,7 +25,7 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
    if (isRecording)
     {
         NSLog(@"com.zjx.springboard: recording has already started.");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Recording has already started.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;录制已经开始。\r\n"}];
         return;
     }
 
@@ -35,8 +35,8 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
 
     if (device_screen_width == 0 || device_screen_height == 0)
     {
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to start recording. Cannot get screen size.\r\n"}];
-        showAlertBox(@"Error", @"Unable to start recording. Cannot get screen size.", 999);
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法开始录制：无法获取屏幕尺寸。\r\n"}];
+        showAlertBox(@"错误", @"无法开始录制：无法获取屏幕尺寸。", 999);
         return;
     }
     
@@ -56,8 +56,8 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
     if (err)
     {
         NSLog(@"com.zjx.springboard: create script recording folder error. Error: %@", err);
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Create script recording folder error.\r\n"}];
-        showAlertBox(@"Error", [NSString stringWithFormat:@"Cannot create script. Error info: %@", err], 999);
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;创建脚本录制文件夹失败。\r\n"}];
+        showAlertBox(@"错误", [NSString stringWithFormat:@"无法创建脚本。错误信息：%@", err], 999);
         return;
     }
 
@@ -189,7 +189,7 @@ static void recordIOHIDEventCallback(void* target, void* refcon, IOHIDServiceRef
     {
         isRecording = false;
 
-        showAlertBox(@"Error", @"Unknown error while recording script. Recording is now stopping. Error code: 31.", 999);
+        showAlertBox(@"错误", @"录制脚本时发生未知错误，录制即将停止。错误代码：31。", 999);
         return;
     }
     if (IOHIDEventGetType(parentEvent) == kIOHIDEventTypeDigitizer)

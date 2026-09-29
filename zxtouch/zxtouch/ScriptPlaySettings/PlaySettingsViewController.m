@@ -34,7 +34,7 @@
     
     // Uncomment the following line to display an Edit button in the navigation bar for this view controller.
     // self.navigationItem.rightBarButtonItem = self.editButtonItem;
-    self.title = NSLocalizedString(@"playSettings", nil);
+    self.title = @"播放设置";
     
     
     UINib *inputCellNib = [UINib nibWithNibName:@"TableViewCellWithInput" bundle:nil];
@@ -140,7 +140,7 @@
         }
         
         //[cell setButtonText:@"Rename"];
-        [cell.title setText:NSLocalizedString(@"repeatTime", nil)];
+        [cell.title setText:@"重复次数"];
 
         [cell.input setText:currentConfiguration[@"repeat_times"]];
 
@@ -162,7 +162,7 @@
             cell = [[TableViewCellWithInput alloc]initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellID];
         }
         
-        [cell.title setText:NSLocalizedString(@"interval", nil)];
+        [cell.title setText:@"运行间隔（秒）"];
         
         [cell.input setText:currentConfiguration[@"interval"]];
         [cell.input addTarget:self
@@ -183,7 +183,7 @@
             cell = [[TableViewCellWithInput alloc]initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellID];
         }
         
-        [cell.title setText:NSLocalizedString(@"speed", nil)];
+        [cell.title setText:@"播放速度"];
         
         [cell.input setText:currentConfiguration[@"speed"]];
         [cell.input addTarget:self
@@ -198,7 +198,7 @@
 
         TableViewCellWithEntry *cell = [tableView dequeueReusableCellWithIdentifier:cellID];
         
-        [cell.title setText:NSLocalizedString(@"setActivatorTrigger", nil)];
+        [cell.title setText:@"设置脚本运行/停止的触发方式"];
         [cell.subTitle setText:@""];
 
         result = cell;
@@ -318,7 +318,7 @@
     
     if (![self isInt:repeatTimesCell.input.text] || ![self isFloat:intervalCell.input.text] || ![self isFloat:speedCell.input.text])
     {
-        [Util showAlertBoxWithOneOption:self title:@"Error" message:@"Please input integer for repeat times and float for interval and speed" buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"重复次数请输入整数，运行间隔和播放速度请输入小数" buttonString:@"确定"];
         return;
     }
     

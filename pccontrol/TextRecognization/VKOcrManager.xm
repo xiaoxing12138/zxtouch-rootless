@@ -111,7 +111,7 @@ Return the string from a area
     if (inProgress)
     {
         NSLog(@"com.zjx.springboard: cannot start recognize text from this instance: %@ because another task is running.", self);
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Cannot start recognize text from this instance: %@ because another task is running.\r\n", self]}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;无法从此实例启动文字识别：%@，因为已有另一个识别任务正在运行。\r\n", self]}];
         return nil;
     }
     inProgress = true;
@@ -122,7 +122,7 @@ Return the string from a area
     if (err)
     {
         NSLog(@"com.zjx.springboard: error happened while performing ocr. %@", err);
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Error happened while performing ocr. Error: %@\r\n", err]}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;执行文字识别（OCR）时出错，错误信息：%@\r\n", err]}];
         return nil;
     }
     
@@ -239,7 +239,7 @@ Return area that contain text
         if (err)
         {
             NSLog(@"com.zjx.springboard: unable to output debug image for text recognization. Error: %@", err);
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Unable to output debug image for text recognization. Error: %@", err]}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;无法输出文字识别的调试图片，错误信息：%@", err]}];
             return nil;
         }
 

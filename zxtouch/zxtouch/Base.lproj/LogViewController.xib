@@ -30,8 +30,8 @@
                 <navigationBar contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="VoY-gU-GzZ">
                     <rect key="frame" x="0.0" y="44" width="414" height="44"/>
                     <items>
-                        <navigationItem title="Log" id="93b-4g-sU9">
-                            <barButtonItem key="leftBarButtonItem" title="Clear" id="gPg-sr-60s">
+                        <navigationItem title="日志" id="93b-4g-sU9">
+                            <barButtonItem key="leftBarButtonItem" title="清空" id="gPg-sr-60s">
                                 <connections>
                                     <action selector="clearButtonClick:" destination="-1" id="F63-1V-PM6"/>
                                 </connections>

@@ -163,7 +163,7 @@ static float nccScoreFast(const float *img, size_t imgW,
     float *imgGray = cgImageToGrayscaleFloat(img, &imgW, &imgH);
     if (!imgGray) {
         *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
-                userInfo:@{NSLocalizedDescriptionKey:@"-1;;image_match: failed to convert screenshot to grayscale\r\n"}];
+                userInfo:@{NSLocalizedDescriptionKey:@"-1;;图像匹配：截图转换为灰度图失败\r\n"}];
         return CGRectZero;
     }
 
@@ -173,7 +173,7 @@ static float nccScoreFast(const float *img, size_t imgW,
         free(imgGray);
         *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
                 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:
-                    @"-1;;image_match: failed to load template: %@\r\n", templatePath]}];
+                    @"-1;;图像匹配：加载模板图片失败：%@\r\n", templatePath]}];
         return CGRectZero;
     }
 
@@ -183,7 +183,7 @@ static float nccScoreFast(const float *img, size_t imgW,
         free(imgGray);
         free(tmplGray);
         *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
-                userInfo:@{NSLocalizedDescriptionKey:@"-1;;image_match: failed to allocate integral image buffers\r\n"}];
+                userInfo:@{NSLocalizedDescriptionKey:@"-1;;图像匹配：分配积分图内存缓冲区失败\r\n"}];
         return CGRectZero;
     }
 
@@ -279,7 +279,7 @@ static float nccScoreFast(const float *img, size_t imgW,
     NSLog(@"com.zjx.springboard: image_match failed. best score: %.3f elapsed:%.3fs", bestScore, elapsed);
     *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
             userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:
-                @"-1;;image_match: no match found (best score: %.3f, required: %.3f)\r\n",
+                @"-1;;图像匹配：未找到匹配结果（最高得分：%.3f，要求得分：%.3f）\r\n",
                 bestScore, _acceptableValue]}];
     return CGRectZero;
 }

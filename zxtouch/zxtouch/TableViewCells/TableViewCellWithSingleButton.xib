@@ -22,7 +22,7 @@
                         <constraints>
                             <constraint firstAttribute="height" constant="50" id="WfU-iN-4yC"/>
                         </constraints>
-                        <state key="normal" title="Button"/>
+                        <state key="normal" title="按钮"/>
                     </button>
                 </subviews>
                 <constraints>

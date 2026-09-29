@@ -10,7 +10,7 @@ NSDictionary* getRGBFromRawData(UInt8 *eventData, NSError **error)
     NSArray *data = [[NSString stringWithFormat:@"%s", eventData] componentsSeparatedByString:@";;"];
     if ([data count] < 2)
     {
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to pick color. The data format should be \"x;;y\"\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法取色，数据格式应为 \"x;;y\"（x、y 为坐标）\r\n"}];
         return @{@"blue": @(-1), @"red": @(-1), @"green": @(-1)};
     }
     CGImageRef screen = [Screen createScreenShotCGImageRef];
@@ -36,14 +36,14 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
         
         if ([data count] < 12)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to search color. The data format should be \"searchtype;;x;;y;;width;;height;;redMin;;redMax;;greenMin;;greenMax;;blueMin;;blueMax;;skip\"\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法搜索颜色，数据格式应为 \"searchtype;;x;;y;;width;;height;;redMin;;redMax;;greenMin;;greenMax;;blueMin;;blueMax;;skip\"（搜索类型;;x 坐标;;y 坐标;;宽度;;高度;;红色最小值;;红色最大值;;绿色最小值;;绿色最大值;;蓝色最小值;;蓝色最大值;;步长）\r\n"}];
             return @"";
         }
         CGImageRef screen = [Screen createScreenShotCGImageRef];
 
         if (!screen)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to search color. Internal error! Screenshot is null.\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法搜索颜色：内部错误，截图为空。\r\n"}];
             return @"";
         }
 
@@ -65,37 +65,37 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
 
         if (x > screenWidth)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;The range of the x coordinate should be less than the width of your screen. The width of your screen is %d. Your x: %d\r\n", screenWidth, x]}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;x 坐标超出屏幕宽度范围。屏幕宽度为 %d，你传入的 x 为 %d\r\n", screenWidth, x]}];
             NSLog(@"com.zjx.springboard: %@", *error);
             return @"";
         }
         if (y > screenHeight)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;The range of the y coordinate should be less than the height of your screen. The height of your screen is %d. Your y: %d\r\n", screenHeight, y]}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;y 坐标超出屏幕高度范围。屏幕高度为 %d，你传入的 y 为 %d\r\n", screenHeight, y]}];
             NSLog(@"com.zjx.springboard: %@", *error);
             return @"";
         }
         if (redMax < 0 || redMin < 0 || redMax > 255 || redMin > 255 || redMax < redMin)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Max red rgb and min reb rgb should <= 255  && >= 0 and max red rgb should be <= red min rgb. You redMax: %d, redMin: %d\r\n", redMax, redMin]}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;红色 RGB 的最大值和最小值应在 0 到 255 之间，且最大值应大于等于最小值。你传入的 redMax 为 %d，redMin 为 %d\r\n", redMax, redMin]}];
             NSLog(@"com.zjx.springboard: %@", *error);
             return @"";
         }
         if (greenMax < 0 || greenMin < 0 || greenMax > 255 || greenMin > 255 || greenMax < greenMin)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Max green rgb and min green rgb should <= 255 && >= 0 and max green rgb should be <= green min rgb. You greenMax: %d, greenMin: %d\r\n", greenMax, greenMin]}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;绿色 RGB 的最大值和最小值应在 0 到 255 之间，且最大值应大于等于最小值。你传入的 greenMax 为 %d，greenMin 为 %d\r\n", greenMax, greenMin]}];
             NSLog(@"com.zjx.springboard: %@", *error);
             return @"";
         }
         if (blueMax < 0 || blueMin < 0 || blueMax > 255 || blueMin > 255 || blueMax < blueMin)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Max blue rgb and min blue rgb should <= 255 && >= 0  and max blue rgb should be <= blue min rgb. You blueMax: %d, blueMin: %d\r\n", blueMax, blueMin]}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;蓝色 RGB 的最大值和最小值应在 0 到 255 之间，且最大值应大于等于最小值。你传入的 blueMax 为 %d，blueMin 为 %d\r\n", blueMax, blueMin]}];
             NSLog(@"com.zjx.springboard: %@", *error);
             return @"";
         }
         if (skip < 0)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Skip cannot be negative\r\n", skip]}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;skip（步长）不能为负数\r\n", skip]}];
             NSLog(@"com.zjx.springboard: %@", *error);
             return @"";
         }
@@ -116,7 +116,7 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
     }
     else
     {
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to search color. Unknown search color task type.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法搜索颜色：未知的颜色搜索任务类型。\r\n"}];
         NSLog(@"com.zjx.springboard: %@", *error);
         return nil;
     }

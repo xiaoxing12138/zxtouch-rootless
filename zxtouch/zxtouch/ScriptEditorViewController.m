@@ -40,7 +40,7 @@
 - (void) showSaveButton {
     if (!isSaveButtonShown)
     {
-        UIBarButtonItem *save = [[UIBarButtonItem alloc] initWithTitle:@"Save"
+        UIBarButtonItem *save = [[UIBarButtonItem alloc] initWithTitle:@"保存"
                                          style:UIBarButtonItemStylePlain
                                         target:self
                                         action:@selector(saveFile)];
@@ -117,11 +117,11 @@
     if (err)
     {
         NSLog(@"Error while saving file. Error: %@", err);
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Error"
-                                       message:[NSString stringWithFormat:@"Error saving file. Error message: %@", err]
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"错误"
+                                       message:[NSString stringWithFormat:@"保存文件时出错。错误信息：%@", err]
                                        preferredStyle:UIAlertControllerStyleAlert];
          
-        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault
            handler:^(UIAlertAction * action) {}];
          
         [alert addAction:defaultAction];

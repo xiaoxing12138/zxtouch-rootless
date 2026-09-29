@@ -27,7 +27,7 @@ int playScript(UInt8* path, NSError **error)
     if (!scriptPlayer)
     {
         NSLog(@"com.zjx.springboard: Unable to run the script. Internal error. scriptPlayer is null.");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to run the script. Internal error. scriptPlayer is null.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法运行脚本：内部错误，scriptPlayer 为空。\r\n"}];
         return -1;
     }
     // read config file to get repeat time etc
@@ -64,7 +64,7 @@ int playScriptWithSettings(UInt8* path, int repeatTime, float playSpeed, float s
     if (!scriptPlayer)
     {
         NSLog(@"com.zjx.springboard: Unable to run the script. Internal error. scriptPlayer is null.");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to run the script. Internal error. scriptPlayer is null.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法运行脚本：内部错误，scriptPlayer 为空。\r\n"}];
         return -1;
     }
     if (playSpeed <= 0) playSpeed = 1.0f;
@@ -113,10 +113,10 @@ void playHasStoppedCallBack()
     }
 
     NSString *bundlePath = [scriptPlayer getCurrentBundlePath];
-    NSString *scriptName = (bundlePath.length > 0) ? [[bundlePath lastPathComponent] stringByDeletingPathExtension] : @"Unknown";
+    NSString *scriptName = (bundlePath.length > 0) ? [[bundlePath lastPathComponent] stringByDeletingPathExtension] : @"未知";
     int completedRuns = [scriptPlayer getCompletedRuns];
 
-    NSString *msg = [NSString stringWithFormat:@"Script: %@\nSpeed: %.1f×\nPlayed: %d time(s)",
+    NSString *msg = [NSString stringWithFormat:@"脚本：%@\n播放速度：%.1f×\n已播放：%d 次",
                      scriptName, currentRunSpeed, completedRuns];
-    showAlertBox(@"Script Finished", msg, 0);
+    showAlertBox(@"脚本运行完成", msg, 0);
 }

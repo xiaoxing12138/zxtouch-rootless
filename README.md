@@ -1,216 +1,218 @@
-# ZXTouch Rootless
+# ZXTouch 无根版（Rootless）
 
-Rootless and roothide port of ZXTouch for iOS 15 to 17, maintained by [Epic0001](https://github.com/Epic0001/zxtouchrootless).
+适用于 iOS 15 至 17 的 ZXTouch 无根版（rootless）与 roothide 移植版本，基于 [Epic0001](https://github.com/Epic0001/zxtouchrootless) 的移植工作。
 
-A system-wide touch simulation library for iOS. It simulates touches, plays back recordings, and runs automation scripts without injecting into any app process.
+这是一个 iOS 系统级的触摸模拟库：可以模拟点击与滑动、回放录制的操作、运行自动化脚本，**不需要注入到任何 App 进程中**。
 
-Forked from [IOS13-SimulateTouch](https://github.com/xuan32546/IOS13-SimulateTouch) by xuan32546.
+原项目为 xuan32546 的 [IOS13-SimulateTouch](https://github.com/xuan32546/IOS13-SimulateTouch)。
 
-Discord: https://discord.gg/acSXfyz
+本版本特点：**App、音量键控制面板、网页控制台、弹窗提示全部已汉化为简体中文**。
 
 ---
 
-## Compatibility
+## 兼容性
 
-| Jailbreak | iOS | Status |
+| 越狱方式 | 系统版本 | 状态 |
 |-----------|-----|--------|
-| Roothide / Serotonin | 15.8, 16.6.1 | Working |
-| Dopamine (rootless) | 16.4.1, 16.6.1 | Working |
-| NathanLR (rootless, semi-untethered) | 16.5.1 to 16.6.1 | Working, install `_rootless.deb` |
-| Dopamine 3 (rootless) | 17.0 to 17.7 | Working, tested on 17.6 |
-| Dopamine 3 (rootless) | 18.x | Untested |
+| Roothide / Serotonin | 15.8、16.6.1 | 可用 |
+| Dopamine（rootless，多巴胺） | 16.4.1、16.6.1 | 可用 |
+| NathanLR（rootless，半不完美越狱） | 16.5.1 至 16.6.1 | 可用，请安装 `_rootless.deb` |
+| Dopamine 3（rootless） | 17.0 至 17.7 | 可用，已在 17.6 上测试 |
+| Dopamine 3（rootless） | 18.x | 未测试 |
 
-iOS 17 is tested on an iPad 7th generation running 17.6 with Dopamine 3 and ElleKit.
+iOS 17 在第 7 代 iPad（系统 17.6，Dopamine 3 + ElleKit）上测试通过。
 
-iOS 18 has not been tested. The same rootless build should install, since Dopamine 3 uses the same bootstrap layout, but nothing on 18 has been verified. Reports are welcome in Discord or the issue tracker.
-
----
-
-## What this fork changes
-
-Compared to the original ZXTouch:
-
-- Runs on iOS 15 to 17 under rootless (Dopamine, Dopamine 3, NathanLR) and roothide (Serotonin)
-- `image_match` rebuilt on `Accelerate.framework`, so OpenCV is gone and the package stays small
-- Color picker, color searcher, OCR, and volume-down stop all work again
-- Python scripts auto-detect Procursus Python 3.8 to 3.12, prefer versioned interpreters over the `python3` symlink, and report real tracebacks
-- Adds a rebuilt panel and script browser, dark mode, a recording editor, a remote dashboard, iOS Shortcuts actions, and button-pattern automation triggers
-- The "Script Finished" popup can be turned off in Settings, then Script
+iOS 18 尚未测试。由于 Dopamine 3 使用相同的引导目录结构，同一个无根版安装包理论上可以安装，但 18 上的任何功能都未经证实。欢迎在 Issues 中反馈。
 
 ---
 
-## Requirements
+## 本版本相对原版的改动
 
-Python 3 from Procursus is required for `.py` scripts on every jailbreak. Install it from Sileo by searching for `python3`. ZXTouch no longer ships its own runtime: the bundled `python3.7` aborted at dyld load on rootless because its libpython dylib pointed at a `/usr/lib` path that does not exist there.
+相比原始 ZXTouch：
 
-Dopamine and Dopamine 3 (rootless):
-
-- iOS 15.0 to 17.7
-- [Dopamine](https://ellekit.space/dopamine/), with Dopamine 3 for iOS 17
-
-NathanLR (rootless, iOS 16.5.1 to 16.6.1):
-
-- Semi-untethered, so reopen the [NathanLR](https://www.nathanlr.com/) app after each reboot to reactivate tweaks
-- Install the `_rootless.deb`, because NathanLR uses the rootless bootstrap under `/var/jb` rather than roothide
-
-Roothide and Serotonin:
-
-- iOS 15.0 to 16.6.1
-- [Serotonin](https://github.com/roothide/Serotonin) or another roothide-compatible jailbreak
+- 在 iOS 15 至 17 上以 rootless（Dopamine、Dopamine 3、NathanLR）和 roothide（Serotonin）方式运行
+- `image_match`（图像匹配）基于 `Accelerate.framework` 重写，不再依赖 OpenCV，安装包更小
+- 取色器、颜色搜索、文字识别（OCR）、按音量下键停止等功能恢复正常
+- Python 脚本自动识别 Procursus 的 Python 3.8 至 3.12，优先使用带版本号的解释器，并能输出真实的错误回溯
+- 新增重制的控制面板与脚本浏览器、深色模式、录制编辑器、远程网页面板、iOS 快捷指令操作、按键组合自动触发
+- 「脚本完成」弹窗可以在「设置 → 脚本」中关闭
+- **本仓库额外修复**：面板指令缺少 `\r\n` 导致网页控制台「连接无效」的问题；中文脚本名无法运行的编码问题；播放指示器异常可能导致 SpringBoard 进入安全模式的问题；全界面中文汉化
 
 ---
 
-## Installation
+## 运行环境
 
-From GitHub releases:
+所有越狱方式下，运行 `.py` 脚本都需要 Procursus 提供的 Python 3。请在 Sileo 中搜索 `python3` 安装。ZXTouch 不再自带运行时：旧版内置的 `python3.7` 在无根越狱上会因动态库路径不存在而启动失败。
 
-1. Download the latest `.deb` from [Releases](https://github.com/Epic0001/zxtouchrootless/releases). Use `*_rootless.deb` for Dopamine and NathanLR, or `*_roothide.deb` for Roothide and Serotonin.
-2. Install it with Filza, or over SSH:
+Dopamine 与 Dopamine 3（rootless）：
+
+- iOS 15.0 至 17.7
+- [Dopamine](https://ellekit.space/dopamine/)，iOS 17 请使用 Dopamine 3
+
+NathanLR（rootless，iOS 16.5.1 至 16.6.1）：
+
+- 属于半不完美越狱，每次重启后需要重新打开 [NathanLR](https://www.nathanlr.com/) App 激活插件
+- 请安装 `_rootless.deb`，因为 NathanLR 使用 `/var/jb` 下的 rootless 引导，而不是 roothide
+
+Roothide 与 Serotonin：
+
+- iOS 15.0 至 16.6.1
+- [Serotonin](https://github.com/roothide/Serotonin) 或其他兼容 roothide 的越狱
+
+---
+
+## 安装方法
+
+### 方法一：从 Releases 下载
+
+1. 从 [Releases](https://github.com/xiaoxing12138/zxtouch-rootless/releases) 下载最新的 `.deb`：Dopamine 和 NathanLR 用 `*_rootless.deb`，Roothide 和 Serotonin 用 `*_roothide.deb`
+2. 用 Filza 安装，或通过 SSH 安装：
 
 ```sh
-dpkg -i <file>.deb && killall -9 SpringBoard
+dpkg -i <文件>.deb && killall -9 SpringBoard
 ```
 
-From GitHub Actions, for the latest build:
+### 方法二：从 GitHub Actions 下载最新构建
 
-1. Open [Actions](https://github.com/Epic0001/zxtouchrootless/actions)
-2. Open the most recent successful run
-3. Download the `ZXTouch-rootless-deb` or `ZXTouch-roothide-deb` artifact
-
----
-
-## Demo videos (original)
-
-Remote controlling:
-[![Watch the video](img/remote_control_demo.jpg)](https://youtu.be/gdSGO6rJIL4)
-
-Instant controlling (PUBG Mobile):
-[![Watch the video](img/pubg_mobile_demo.jpg)](https://youtu.be/XvvWHL6B3Tk)
-
-Recording and playback:
-[![Watch the video](img/record_playback.jpg)](https://youtu.be/WeYMx4z8N2M)
-
-Demo #4: [OCR](https://youtu.be/xt4BvgsSGkc)
-
-Demo #5: [Touch Indicator](https://youtu.be/AU7zG_-W2tM)
-
-Demo #6: [Color Picker](https://youtu.be/tserB05_B9E)
+1. 打开 [Actions](https://github.com/xiaoxing12138/zxtouch-rootless/actions)
+2. 点开最近一次成功的构建
+3. 下载 `ZXTouch-rootless-deb`（Dopamine 用）或 `ZXTouch-roothide-deb` 产物
 
 ---
 
-## Usage
+## 演示视频（原版）
 
-After installation the tweak listens on port 6000. Send commands in the defined format from any language. A Python client is included for convenience.
+远程控制：
+[![观看视频](img/remote_control_demo.jpg)](https://youtu.be/gdSGO6rJIL4)
 
-### Panel (volume button)
+实时控制（PUBG 手游）：
+[![观看视频](img/pubg_mobile_demo.jpg)](https://youtu.be/XvvWHL6B3Tk)
 
-Double-click volume down to open or close the panel.
+录制与回放：
+[![观看视频](img/record_playback.jpg)](https://youtu.be/WeYMx4z8N2M)
 
-- Tap a script to run it immediately
-- Open the settings popup first to set repeat count, speed, and interval before running
-- REC starts a touch recording
-- STOP ends whichever is running, a recording or a script
-- Settings, then Dark Mode, toggles the dark theme for both the app and the panel
+演示 4：[文字识别 OCR](https://youtu.be/xt4BvgsSGkc)
 
-### Scripts and examples
+演示 5：[触点指示器](https://youtu.be/AU7zG_-W2tM)
 
-Example scripts install with the `.deb` under `/var/mobile/Library/ZXTouch/scripts/examples/`.
-
-The app keeps a script registry at `/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist`, which it uses for script metadata, icons, README previews, and trigger script selection.
-
-### Recording editor
-
-Tap a `.bdl` bundle whose entry file is a raw recording to open its timeline editor. From there you can:
-
-- Tap a step to edit its coordinates, delay, toast text, app identifier, or raw command
-- Reorder steps in edit mode
-- Swipe a step to duplicate it, or delete unwanted steps
-- Insert a tap, swipe, wait, toast, or app launch
-- Save the recording and play the edited result immediately
-
-### Remote dashboard
-
-Enable Settings, then Web Server, and tap the dashboard URL row to copy the private address. Open that address from a phone, tablet, or computer on the same Wi-Fi network.
-
-Scripts searches and filters the library, runs or stops scripts, downloads entries, and controls recording. Assets uploads files such as image-matching templates into a selected script bundle. Logs follows, filters, copies, exports, or clears runtime output. Device shows live service state, display size, orientation, battery, foreground app, and server diagnostics.
-
-The URL contains a private access token. Do not share it outside your local network. Dashboard hosting runs inside SpringBoard, so it remains available when the ZXTouch app is closed.
-
-### Automation triggers
-
-Open Settings, then Automation, in the app to assign actions to button click patterns. Volume Up, Volume Down, and the Home Button can each be set to 1-5 clicks and run Smart Toggle, Toggle Panel, Stop Script, Toggle Recording, or a selected `.bdl` script.
+演示 6：[取色器](https://youtu.be/tserB05_B9E)
 
 ---
 
-## Documentation (Python)
+## 使用方法
 
-### Installation
+安装后，插件会监听 **6000** 端口。你可以用任何编程语言按规定格式发送指令，也可以直接使用内置的 Python 客户端。
 
-On an iOS device, the ZXTouch Python module installs with the `.deb`.
+### 控制面板（音量键唤起）
 
-On a computer, for remote control, copy the `zxtouch` folder from [`layout/usr/lib/python3.7/site-packages`](https://github.com/xuan32546/IOS13-SimulateTouch/tree/0.0.6/layout/usr/lib/python3.7/site-packages) to your Python `site-packages` directory.
+**双击音量下键**即可打开或关闭控制面板。
 
-### Create a ZXTouch instance
+- 点按脚本：立即运行
+- 先打开设置（齿轮按钮）：可以在运行前设置重复次数、播放速度、运行间隔
+- 「录制」：开始录制触摸操作
+- 「停止」：结束当前正在进行的录制或脚本
+- 「设置 → 深色模式」：同时切换 App 和控制面板的深色主题
+
+### 脚本与示例
+
+示例脚本随 `.deb` 安装在 `/var/mobile/Library/ZXTouch/scripts/examples/`。
+
+App 的脚本注册表位于 `/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist`，用于保存脚本元数据、图标、说明预览和触发脚本选择。
+
+### 录制编辑器
+
+点按一个入口文件为录制文件（raw）的 `.bdl` 包，即可打开时间线编辑器。在编辑器中可以：
+
+- 点按任意步骤，编辑坐标、延迟、悬浮提示文字、应用包标识符或原始指令
+- 在编辑模式下调整步骤顺序
+- 滑动步骤进行复制，或删除不需要的步骤
+- 插入轻点、滑动、等待、悬浮提示、启动应用
+- 保存录制并立即播放编辑后的结果
+
+### 远程网页面板
+
+在 App 中打开「设置 → 服务器（网页服务器）」，点按面板地址那一行即可复制专属访问地址。在同一 Wi-Fi 下的手机、平板或电脑浏览器中打开该地址。
+
+- 脚本：搜索和筛选脚本库、运行/停止脚本、下载入口文件、控制录制
+- 素材：把图像匹配模板等文件上传到指定的脚本包中
+- 日志：查看、筛选、复制、导出或清空运行输出
+- 设备：实时显示服务状态、屏幕尺寸、方向、电量、前台应用和服务器诊断信息
+
+地址中包含私人访问令牌，请勿分享给局域网以外的人。网页面板运行在 SpringBoard 中，因此即使关闭 ZXTouch App，面板依然可以访问。
+
+### 自动触发
+
+在 App 中打开「设置 → 自动操作」，可以为按键组合分配动作。音量加、音量减、主屏幕按钮都可以设置为 1 至 5 次连击，触发：智能切换、显示/隐藏控制面板、终止脚本、开始/停止录制，或运行指定的 `.bdl` 脚本。
+
+---
+
+## Python 接口文档
+
+### 安装
+
+在 iOS 设备上，ZXTouch 的 Python 模块随 `.deb` 一起安装。
+
+在电脑上进行远程控制时，请将原版仓库中的 `zxtouch` 文件夹复制到你电脑 Python 的 `site-packages` 目录：[`layout/usr/lib/python3.7/site-packages`](https://github.com/xuan32546/IOS13-SimulateTouch/tree/0.0.6/layout/usr/lib/python3.7/site-packages)。
+
+### 创建 ZXTouch 实例
 
 ```python
 from zxtouch.client import zxtouch
-device = zxtouch("127.0.0.1")  # use device IP for remote control
+device = zxtouch("127.0.0.1")  # 远程控制时填写设备的 IP 地址
 ```
 
 ---
 
-## Instance methods
+## 实例方法一览
 
-### API status
-
-| Method | Status |
+| 方法 | 状态 |
 |--------|--------|
-| `touch` / `touch_with_list` | Working |
-| `switch_to_app` | Working |
-| `show_alert_box` | Working |
-| `prompt_input` | Working |
-| `run_shell_command` | Working |
-| `show_toast` | Working |
-| `pick_color` | Working |
-| `search_color` | Working |
-| `accurate_usleep` | Working |
-| `play_script` / `force_stop_script_play` | Working |
-| `get_screen_size` / `get_screen_orientation` / `get_screen_scale` | Working |
-| `get_device_info` / `get_battery_info` | Working |
-| `start_touch_recording` / `stop_touch_recording` | Working |
-| `ocr` / `get_supported_ocr_languages` | Working |
-| `image_match` | Working (Accelerate.framework, no OpenCV) |
-| `screenshot` | Working (direct in-memory JPEG over TCP) |
-| `insert_text` / `show_keyboard` / `hide_keyboard` / `move_cursor` | Working (via appdelegate tweak) |
+| `touch` / `touch_with_list` | 可用 |
+| `switch_to_app` | 可用 |
+| `show_alert_box` | 可用 |
+| `prompt_input` | 可用 |
+| `run_shell_command` | 可用 |
+| `show_toast` | 可用 |
+| `pick_color` | 可用 |
+| `search_color` | 可用 |
+| `accurate_usleep` | 可用 |
+| `play_script` / `force_stop_script_play` | 可用 |
+| `get_screen_size` / `get_screen_orientation` / `get_screen_scale` | 可用 |
+| `get_device_info` / `get_battery_info` | 可用 |
+| `start_touch_recording` / `stop_touch_recording` | 可用 |
+| `ocr` / `get_supported_ocr_languages` | 可用 |
+| `image_match` | 可用（基于 Accelerate.framework，无需 OpenCV） |
+| `screenshot` | 可用（直接通过 TCP 返回内存中的 JPEG 数据） |
+| `insert_text` / `show_keyboard` / `hide_keyboard` / `move_cursor` | 可用（通过 appdelegate 插件） |
 
 ---
 
-## Touch
+## 触摸操作
 
-Two methods for sending touch events.
+两种发送触摸事件的方法。
 
 ```python
 def touch(type, finger_index, x, y):
-	"""Perform a touch event
-	
-	Args:
-		type: touch event type. Import from zxtouch.touchtypes
-		finger_index: finger index 1-19
-		x: x coordinate
-		y: y coordinate
+	"""执行一次触摸事件
+
+	参数：
+		type: 触摸事件类型，从 zxtouch.touchtypes 导入
+		finger_index: 手指编号 1-19
+		x: x 坐标
+		y: y 坐标
 	"""
 ```
 
 ```python
 def touch_with_list(self, touch_list: list):
-    """Perform multiple touch events simultaneously
-    
-    Args:
-    	touch_list: [{"type": ?, "finger_index": ?, "x": ?, "y": ?}, ...]
+    """同时执行多个触摸事件
+
+    参数：
+    	touch_list: [{"type": 类型, "finger_index": 手指编号, "x": x, "y": y}, ...]
     """
 ```
 
-Code example:
+代码示例：
 
 ```python
 from zxtouch.client import zxtouch
@@ -226,7 +228,7 @@ time.sleep(1)
 device.touch(TOUCH_UP, 5, 400, 600)
 time.sleep(1)
 
-# Multitouch
+# 多点触控
 device.touch_with_list([
     {"type": TOUCH_DOWN, "finger_index": 1, "x": 300, "y": 300},
     {"type": TOUCH_DOWN, "finger_index": 2, "x": 500, "y": 500}
@@ -242,300 +244,297 @@ device.disconnect()
 
 ---
 
-## Bring application to foreground
+## 将应用切换到前台
 
 ```python
 def switch_to_app(bundle_identifier):
-	"""Bring an application to foreground
-	
-	Args:
-		bundle_identifier: bundle ID of the app (e.g. "com.apple.springboard")
-	
-	Returns:
-		Result tuple (success, error_or_empty)
+	"""将指定应用切换到前台
+
+	参数：
+		bundle_identifier: 应用的包标识符（例如 "com.apple.springboard"）
+
+	返回：
+		结果元组 (是否成功, 错误信息或空)
 	"""
 ```
 
 ---
 
-## Show alert box
+## 显示提示框
 
 ```python
 def show_alert_box(title, content, duration):
-    """Show a system-wide alert box
+    """显示一个系统级提示框
 
-    Args:
-        title: alert title
-        content: alert message
-        duration: seconds before auto-dismiss (0 = manual dismiss only)
+    参数：
+        title: 提示框标题
+        content: 提示内容
+        duration: 自动关闭前的秒数（0 = 只能手动关闭）
 
-    Returns:
-        Result tuple (success, error_or_empty)
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## Prompt for user input
+## 弹出输入框
 
 ```python
 def prompt_input(title, message="", placeholder="", default_value="", secure=False):
-    """Show a native input dialog and return the entered text
+    """显示原生输入对话框并返回输入的文本
 
-    Args:
-        title: dialog title
-        message: optional message shown above the text field
-        placeholder: optional text field placeholder
-        default_value: optional starting value
-        secure: True to hide typed text, useful for passwords
+    参数：
+        title: 对话框标题
+        message: 输入框上方的可选提示文字
+        placeholder: 输入框的可选占位文字
+        default_value: 可选的初始值
+        secure: 为 True 时隐藏输入内容，适用于密码
 
-    Returns:
-        Result tuple. On success, result[1] is the entered string.
-        Cancel returns (False, error_or_empty).
+    返回：
+        结果元组。成功时 result[1] 为输入的字符串。
+        点取消返回 (False, 错误信息或空)。
     """
 ```
 
-Code example:
+代码示例：
 
 ```python
 from zxtouch.client import zxtouch
 
 device = zxtouch("127.0.0.1")
 success, value = device.prompt_input(
-    "Search",
-    "What should the script look for?",
-    placeholder="Type a keyword"
+    "搜索",
+    "脚本要查找什么内容？",
+    placeholder="请输入关键词"
 )
 
 if success:
-    device.show_toast(0, "You entered: " + value, 2)
+    device.show_toast(0, "你输入了：" + value, 2)
 ```
 
 ---
 
-## Run shell command as root
+## 以 root 身份运行 Shell 命令
 
 ```python
 def run_shell_command(command):
-    """Run a shell command as root
-	
-    Args:
-    	command: shell command string
-        
-    Returns:
-        Result tuple (success, error_or_empty)
+    """以 root 身份运行 Shell 命令
+
+	参数：
+    	command: Shell 命令字符串
+
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## Image matching
+## 图像匹配
 
 ```python
 def image_match(template_path, acceptable_value=0.8, max_try_times=2, scaleRation=0.8):
-    """Match screen against a template image using normalized cross-correlation
-	
-    Args:
-    	template_path: absolute path to template image on device
-    	acceptable_value: similarity threshold (0-1)
-    	scaleRation: scale factor per retry attempt
-    	max_try_times: max number of scale variants to try
-        
-    Returns:
-        Result tuple. On success, result[1] is a dict: {"x", "y", "width", "height"}
-        If no match found, returns (False, error_message)
+    """使用归一化互相关在屏幕上匹配模板图片
+
+	参数：
+    	template_path: 设备上模板图片的绝对路径
+    	acceptable_value: 相似度阈值（0-1）
+    	scaleRation: 每次重试的缩放系数
+    	max_try_times: 最多尝试的缩放版本数量
+
+    返回：
+        结果元组。成功时 result[1] 为字典：{"x", "y", "width", "height"}
+        未找到匹配时返回 (False, 错误信息)
     """
 ```
 
-Implemented with `Accelerate.framework`, so OpenCV is not required.
+基于 `Accelerate.framework` 实现，无需安装 OpenCV。
 
 ---
 
-## Toast
+## 悬浮提示（Toast）
 
 ```python
 def show_toast(toast_type, content, duration, position=0, fontSize=0):
-	"""Show a toast notification
-	
-	Args:
+	"""显示一条悬浮提示
+
+	参数：
         toast_type: TOAST_SUCCESS / TOAST_ERROR / TOAST_WARNING / TOAST_MESSAGE
-        content: text to display
-        duration: seconds to show
-        position: TOAST_TOP (default) or TOAST_BOTTOM
-	
-	Returns:
-        Result tuple (success, error_or_empty)
+        content: 要显示的文字
+        duration: 显示时长（秒）
+        position: TOAST_TOP（默认，顶部）或 TOAST_BOTTOM（底部）
+
+	返回：
+        结果元组 (是否成功, 错误信息或空)
 	"""
 ```
 
 ---
 
-## Color picker
+## 取色器
 
 ```python
 def pick_color(x, y):
-    """Get the RGB value of a pixel on screen
-	
-    Args:
-   		x: x coordinate
-   		y: y coordinate
+    """获取屏幕上某个像素的 RGB 值
 
-    Returns:
-        Result tuple. On success, result[1] is {"red", "green", "blue"} (values as strings)
+	参数：
+   		x: x 坐标
+    	y: y 坐标
+
+    返回：
+        结果元组。成功时 result[1] 为 {"red", "green", "blue"}（值为字符串）
     """
 ```
 
 ---
 
-## Color searcher
+## 颜色搜索
 
 ```python
 def search_color(region, red_min, red_max, green_min, green_max, blue_min, blue_max, pixel_to_skip=0):
-    """Search for a color in a screen region
+    """在屏幕区域内搜索指定颜色
 
-    Args:
-        region: (x, y, width, height) tuple
-        red_min/red_max: red channel range (0-255)
-        green_min/green_max: green channel range (0-255)
-        blue_min/blue_max: blue channel range (0-255)
-        pixel_to_skip: pixels to skip between checks (0 = check every pixel)
+    参数：
+        region: (x, y, 宽度, 高度) 元组
+        red_min/red_max: 红色通道范围（0-255）
+        green_min/green_max: 绿色通道范围（0-255）
+        blue_min/blue_max: 蓝色通道范围（0-255）
+        pixel_to_skip: 每次检查之间跳过的像素数（0 = 逐像素检查）
 
-    Returns:
-        Result tuple. On success, result[1] is {"x", "y", "red", "green", "blue"}
+    返回：
+        结果元组。成功时 result[1] 为 {"x", "y", "red", "green", "blue"}
     """
 ```
 
 ---
 
-## Accurate sleep
+## 精确等待
 
 ```python
 def accurate_usleep(microseconds):
-    """Sleep for an accurate duration
-	
-    Args:
-    	microseconds: time to sleep in microseconds
-        
-    Returns:
-        Result tuple (success, error_or_empty)
+    """等待指定的精确时长
+
+	参数：
+    	microseconds: 等待时间，单位微秒
+
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## Play a script
+## 运行脚本
 
 ```python
 def play_script(script_absolute_path):
-    """Play a ZXTouch script (.bdl folder)
-	
-    Args:
-    	script_absolute_path: absolute path to the .bdl script folder
-    	        
-    Returns:
-        Result tuple (success, error_or_empty)
+    """运行一个 ZXTouch 脚本（.bdl 文件夹）
+
+	参数：
+    	script_absolute_path: .bdl 脚本文件夹的绝对路径
+
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## Force stop script playing
+## 强制停止脚本运行
 
 ```python
 def force_stop_script_play():
-    """Force stop the currently running script
-	
-    Returns:
-        Result tuple (success, error_or_empty)
+    """强制停止当前正在运行的脚本
+
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## Hide keyboard
+## 收起键盘
 
-If the keyboard is showing, hide it.
+键盘正在显示时将其收起。
 
 ```python
 def hide_keyboard():
-    """Hide the keyboard
+    """收起键盘
 
-    Returns:
-        Result tuple (success, error_or_empty)
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## Show keyboard
+## 显示键盘
 
-If the keyboard is hidden, show it.
+键盘已收起时将其显示。
 
 ```python
 def show_keyboard():
-    """Show the keyboard
+    """显示键盘
 
-    Returns:
-        Result tuple (success, error_or_empty)
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## Text input
+## 文本输入
 
-Insert text into the current text field. Use `"\b"` to delete a character.
+向当前输入框中插入文本。使用 `"\b"` 可以删除一个字符。
 
 ```python
 def insert_text(text):
-    """Insert text into the focused text field
+    """向获得焦点的输入框插入文本
 
-    Args:
-        text: text to insert (\b = backspace/delete)
+    参数：
+        text: 要插入的文本（\b = 退格/删除）
 
-    Returns:
-        Result tuple (success, error_or_empty)
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## Move cursor
+## 移动光标
 
 ```python
 def move_cursor(offset):
-    """Move the text cursor
+    """移动文本光标
 
-    Args:
-        offset: relative positions to move.
-                Negative = move left, positive = move right.
+    参数：
+        offset: 移动的相对位置。
+                负数 = 向左移动，正数 = 向右移动。
 
-    Returns:
-        Result tuple (success, error_or_empty)
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## Get screen size
+## 获取屏幕尺寸
 
 ```python
 def get_screen_size():
-    """Get screen size in pixels
-	
-    Returns:
-        Result tuple. On success, result[1] is {"width", "height"}
+    """获取屏幕像素尺寸
+
+    返回：
+        结果元组。成功时 result[1] 为 {"width", "height"}
     """
 ```
 
 ---
 
-## Screenshot
+## 截图
 
-`screenshot()` returns the current display as raw JPEG bytes directly over the
-existing ZXTouch TCP connection. No file is created on the iOS device and SSH
-is not required. Pillow is optional and is only needed if your own code wants
-to decode the returned JPEG.
+`screenshot()` 直接通过现有的 ZXTouch TCP 连接返回当前屏幕的原始 JPEG 字节数据。不会在 iOS 设备上创建文件，也不需要 SSH。Pillow 是可选项，只有当你自己的代码需要解码返回的 JPEG 时才需要安装。
 
 ```python
 from io import BytesIO
@@ -554,140 +553,138 @@ image.show()
 device.disconnect()
 ```
 
-The wire response is `0;;image/jpeg;;<CONTENT_LENGTH>\r\n` followed immediately
-by exactly `CONTENT_LENGTH` raw JPEG bytes. Server errors remain text responses
-in the form `-1;;<message>\r\n`.
+网络响应格式为 `0;;image/jpeg;;<内容长度>\r\n`，随后紧跟恰好「内容长度」字节的原始 JPEG 数据。服务端错误仍为 `-1;;<错误信息>\r\n` 形式的文本响应。
 
 ---
 
-## Get screen orientation
+## 获取屏幕方向
 
 ```python
 def get_screen_orientation():
-    """Get current screen orientation
-	
-    Returns:
-        Result tuple. On success, result[1] is an orientation int as string.
-        1 = Portrait, 2 = PortraitUpsideDown, 3 = LandscapeLeft, 4 = LandscapeRight
+    """获取当前屏幕方向
+
+    返回：
+        结果元组。成功时 result[1] 为表示方向的数字字符串。
+        1 = 竖屏（Home 键在下），2 = 竖屏（Home 键在上），3 = 横屏向左，4 = 横屏向右
     """
 ```
 
 ---
 
-## Get screen scale
+## 获取屏幕缩放比例
 
 ```python
 def get_screen_scale():
-    """Get screen scale factor (e.g. 2.0 for Retina)
-	
-    Returns:
-        Result tuple. On success, result[1] is a float as string.
+    """获取屏幕缩放系数（Retina 屏通常为 2.0）
+
+    返回：
+        结果元组。成功时 result[1] 为浮点数字符串。
     """
 ```
 
 ---
 
-## Get device information
+## 获取设备信息
 
 ```python
 def get_device_info():
-    """Get device information
-	
-    Returns:
-        Result tuple. On success, result[1] is:
+    """获取设备信息
+
+    返回：
+        结果元组。成功时 result[1] 为：
         {"name", "system_name", "system_version", "model", "identifier_for_vendor"}
     """
 ```
 
 ---
 
-## Get battery information
+## 获取电池信息
 
 ```python
 def get_battery_info():
-    """Get battery information
-	
-    Returns:
-        Result tuple. On success, result[1] is:
+    """获取电池信息
+
+    返回：
+        结果元组。成功时 result[1] 为：
         {"battery_state", "battery_level", "battery_state_string"}
     """
 ```
 
 ---
 
-## Start touch recording
+## 开始触摸录制
 
 ```python
 def start_touch_recording():
-    """Start recording touch events
-    A green dot appears at the top of the screen while recording.
-	
-    Returns:
-        Result tuple (success, error_or_empty)
+    """开始录制触摸事件
+    录制期间屏幕顶部会出现一个绿点。
+
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## Stop touch recording
+## 停止触摸录制
 
 ```python
 def stop_touch_recording():
-    """Stop recording touch events
-    You can also double-click volume down to stop.
-	
-    Returns:
-        Result tuple (success, error_or_empty)
+    """停止录制触摸事件
+    也可以双击音量下键停止。
+
+    返回：
+        结果元组 (是否成功, 错误信息或空)
     """
 ```
 
 ---
 
-## OCR
+## 文字识别（OCR）
 
 ```python
 def ocr(self, region, custom_words=[], minimum_height="", recognition_level=0, languages=[], auto_correct=0, debug_image_path=""):
-    """Recognize text in a screen region
+    """识别屏幕指定区域内的文字
 
-    Args:
-        region: (x, y, width, height) tuple
-        custom_words: extra words to supplement recognition
-        minimum_height: min text height relative to image height (default 1/32)
-        recognition_level: 0 = accurate, 1 = fast
-        languages: list of language codes in priority order (default: English)
-        auto_correct: 0 = off, 1 = on
-        debug_image_path: path to save debug image (leave blank to skip)
+    参数：
+        region: (x, y, 宽度, 高度) 元组
+        custom_words: 补充识别的自定义词汇
+        minimum_height: 文字相对图片高度的最小高度（默认 1/32）
+        recognition_level: 0 = 精确，1 = 快速
+        languages: 按优先级排列的语言代码列表（默认：英文）
+        auto_correct: 0 = 关闭，1 = 开启
+        debug_image_path: 调试图片的保存路径（留空则不保存）
 
-    Returns:
-        Result tuple. On success, result[1] is a list of recognized text strings.
+    返回：
+        结果元组。成功时 result[1] 为识别出的文字字符串列表。
     """
 ```
 
 ```python
 def get_supported_ocr_languages(self, recognition_level):
-    """Get list of languages supported by OCR
+    """获取 OCR 支持的语言列表
 
-    Args:
-        recognition_level: 0 = accurate, 1 = fast
+    参数：
+        recognition_level: 0 = 精确，1 = 快速
 
-    Returns:
-        Result tuple. On success, result[1] is a list of language codes.
+    返回：
+        结果元组。成功时 result[1] 为语言代码列表。
     """
 ```
 
 ---
 
-## Building from source
+## 从源码构建
 
-Every push to `main` triggers a GitHub Actions build. Xcode compiles the app on a macOS runner, Theos builds the tweak, and both `.deb` files are uploaded as artifacts, so you do not need a Mac.
+每次向 `main` 分支推送都会触发 GitHub Actions 构建：macOS 运行器用 Xcode 编译 App，Theos 编译插件，两个 `.deb` 文件都会作为构建产物上传，因此你不需要拥有 Mac。
 
-See [`.github/workflows/build.yml`](.github/workflows/build.yml).
+详见 [`.github/workflows/build.yml`](.github/workflows/build.yml)。
 
 ---
 
-## Credits
+## 致谢
 
-| | |
+| 贡献 | 作者 |
 |--|--|
-| iOS 15 to 17 rootless and roothide port | [Epic0001](https://github.com/Epic0001) |
-| Original ZXTouch | [xuan32546](https://github.com/xuan32546) |
+| iOS 15 至 17 的 rootless 与 roothide 移植 | [Epic0001](https://github.com/Epic0001) |
+| ZXTouch 原作者 | [xuan32546](https://github.com/xuan32546) |

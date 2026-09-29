@@ -24,7 +24,7 @@
     }
     else
     {
-        [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"anErrorHappened", nil) buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"发生了一个错误，请稍后重试。" buttonString:@"确定"];
     }
 }
 

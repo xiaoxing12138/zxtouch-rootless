@@ -203,7 +203,7 @@ static NSString *ZXPythonModulePath(void)
     if (!scriptBundlePath)
     {
         NSLog(@"com.zjx.springboard: Unable to run the script. ScriptBundlePath not set.");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to run the script. ScriptBundlePath not set.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法运行脚本：未设置脚本包路径。\r\n"}];
         return -1;
     }
 
@@ -211,7 +211,7 @@ static NSString *ZXPythonModulePath(void)
     if (![[NSFileManager defaultManager] fileExistsAtPath:scriptBundlePath isDirectory:&isDir] || !isDir)
     {
         NSLog(@"com.zjx.springboard: Unable to run the script. Path not found or it is not a directory.");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to run the script. Path not found or it is not a directory.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法运行脚本：找不到路径，或该路径不是文件夹。\r\n"}];
         return -1;
     }
 
@@ -220,7 +220,7 @@ static NSString *ZXPythonModulePath(void)
     if (![[NSFileManager defaultManager] fileExistsAtPath:infoFilePath isDirectory:&isDir])
     {
         NSLog(@"com.zjx.springboard: Unable to run the script. Info.plist not found.");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to run the script. Info.plist not found.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法运行脚本：未找到 Info.plist。\r\n"}];
         return -1;
     }
     NSDictionary *scriptInfo = [NSDictionary dictionaryWithContentsOfFile:infoFilePath];
@@ -289,7 +289,7 @@ static NSString *ZXPythonModulePath(void)
     if (isPlaying)
     {
         NSLog(@"com.zjx.springboard: Unable to run the script. Another script is currently running.");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to run the script. Another script is currently running.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法运行脚本：当前已有另一个脚本正在运行。\r\n"}];
         return -1;
     }
     _completedRuns = 0;
@@ -309,7 +309,7 @@ static NSString *ZXPythonModulePath(void)
 
     if (!file)
     {
-        showAlertBox(@"Error", [NSString stringWithFormat:@"Cannot play this script because zxtouch cannot open the file. File path: %@", filePath], 999);
+        showAlertBox(@"错误", [NSString stringWithFormat:@"无法播放此脚本，ZXTouch 无法打开该文件。文件路径：%@", filePath], 999);
         isPlaying = false;
         return;
     }
@@ -366,8 +366,8 @@ static NSString *ZXPythonModulePath(void)
     NSString *pythonPath = ZXPythonPath();
     if (!pythonPath)
     {
-        showAlertBox(@"Python not installed",
-                     @"ZXTouch could not find a working python3 on this device.\n\nOpen Sileo and install the 'python3' package from Procursus, then reinstall ZXTouch so it can register the new interpreter.",
+        showAlertBox(@"未安装 Python",
+                     @"ZXTouch 在此设备上找不到可用的 python3。\n\n请打开 Sileo，安装 Procursus 源中的“python3”软件包，然后重新安装 ZXTouch，以便注册新的解释器。",
                      999);
         isPlaying = false;
         return;
@@ -375,7 +375,7 @@ static NSString *ZXPythonModulePath(void)
 
     if (![[NSFileManager defaultManager] fileExistsAtPath:filePath])
     {
-        showAlertBox(@"Error", [NSString stringWithFormat:@"Cannot play this script. Script file not found in bdl folder. Script path: %@", filePath], 999);
+        showAlertBox(@"错误", [NSString stringWithFormat:@"无法播放此脚本：在 .bdl 文件夹中找不到脚本文件。脚本路径：%@", filePath], 999);
         isPlaying = false;
         return;
     }
@@ -387,7 +387,7 @@ static NSString *ZXPythonModulePath(void)
     NSString *dateWrapper = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/add_datetime.sh";
     NSString *shellPath = ZXShellPath();
     if (![[NSFileManager defaultManager] fileExistsAtPath:dateWrapper]) {
-        NSString *wrapper = [NSString stringWithFormat:@"#!%@\nOUTPUT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output\nDATE=/var/jb/usr/bin/date\nif [ ! -x \"$DATE\" ]; then DATE=/usr/bin/date; fi\nif [ ! -x \"$DATE\" ]; then DATE=/bin/date; fi\necho \"$($DATE '+%%m-%%d-%%Y %%T'): Start running script. Script path: $1\" >> \"$OUTPUT\"\nwhile IFS= read -r line; do\n    echo \"$($DATE '+%%m-%%d-%%Y %%T'): $line\" >> \"$OUTPUT\"\ndone\n", shellPath];
+        NSString *wrapper = [NSString stringWithFormat:@"#!%@\nOUTPUT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output\nDATE=/var/jb/usr/bin/date\nif [ ! -x \"$DATE\" ]; then DATE=/usr/bin/date; fi\nif [ ! -x \"$DATE\" ]; then DATE=/bin/date; fi\necho \"$($DATE '+%%m-%%d-%%Y %%T'): 开始运行脚本，路径: $1\" >> \"$OUTPUT\"\nwhile IFS= read -r line; do\n    echo \"$($DATE '+%%m-%%d-%%Y %%T'): $line\" >> \"$OUTPUT\"\ndone\n", shellPath];
         [wrapper writeToFile:dateWrapper atomically:YES encoding:NSUTF8StringEncoding error:nil];
         chmod(dateWrapper.UTF8String, 0755);
     }
@@ -416,7 +416,7 @@ static NSString *ZXPythonModulePath(void)
     NSString *statusText = [NSString stringWithContentsOfFile:statusFile encoding:NSUTF8StringEncoding error:nil];
     int pythonExitCode = statusText ? [statusText intValue] : shellExitCode;
     if (!stoppedByUser && pythonExitCode != 0) {
-        NSString *title = @"Script Error";
+        NSString *title = @"脚本错误";
         NSString *message;
         NSString *logTail = [NSString stringWithContentsOfFile:outputLog encoding:NSUTF8StringEncoding error:nil] ?: @"";
         BOOL dyldLibpythonMissing = [logTail rangeOfString:@"Library not loaded" options:0].location != NSNotFound &&
@@ -425,16 +425,16 @@ static NSString *ZXPythonModulePath(void)
             // system2 failed before python could run — spawn was denied or the
             // shell was unusable. Common on semi-jailbreaks with stripped
             // entitlements. Check Console.app for `system2` NSLog output.
-            title = @"Script could not launch";
-            message = @"ZXTouch could not start a shell to run the script (posix_spawn failed).\n\nOpen Console.app (or `oslog`) and search for `com.zjx.springboard: system2` to see the exact error.";
+            title = @"脚本无法启动";
+            message = @"ZXTouch 无法启动 shell 来运行脚本（posix_spawn 失败）。\n\n请打开 Console.app（或 `oslog`），搜索 `com.zjx.springboard: system2` 查看具体错误。";
         } else if (pythonExitCode == 134 && dyldLibpythonMissing) {
             // 134 = SIGABRT. Dyld couldn't find libpython — the interpreter
             // was linked against a path that doesn't exist on this JB (classic
             // Procursus python3.7 on rootless).
-            title = @"Python interpreter is broken";
-            message = @"The installed python3 aborted at launch because dyld cannot find its libpython dylib.\n\nInstall the 'python3' package (3.9 or newer) from Sileo (Procursus), then reinstall ZXTouch so it re-picks the working interpreter.";
+            title = @"Python 解释器已损坏";
+            message = @"已安装的 python3 启动时中止，因为 dyld 找不到它的 libpython 动态库。\n\n请在 Sileo（Procursus）中安装“python3”软件包（3.9 或更新版本），然后重新安装 ZXTouch，使其重新选择可用的解释器。";
         } else {
-            message = [NSString stringWithFormat:@"Python script exited with code %d. Open Logs for the traceback.", pythonExitCode];
+            message = [NSString stringWithFormat:@"Python 脚本异常退出，退出码 %d。请打开日志查看详细报错。", pythonExitCode];
         }
         NSLog(@"com.zjx.springboard: %@ — %@", title, message);
         showAlertBox(title, message, 999);
@@ -512,7 +512,7 @@ static NSString *ZXPythonModulePath(void)
     if (currentScriptType == -1)
     {
         NSLog(@"com.zjx.springboard: Cannot stop playing script. No script is playing.");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Cannot stop script. No script is playing.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法终止脚本：当前没有正在运行的脚本。\r\n"}];
         return;
     }
 
@@ -539,7 +539,7 @@ static NSString *ZXPythonModulePath(void)
     else
     {
         NSLog(@"com.zjx.springboard: unknown currently playing script type.");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Cannot stop script. Unkonwn currently playing script type.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法终止脚本：当前运行的脚本类型未知。\r\n"}];
         return;
     }
 

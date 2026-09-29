@@ -72,7 +72,7 @@
 
 - (void)saveConfigAndReloadIndicator:(BOOL)reload {
     if (![config writeToFile:SPRINGBOARD_CONFIG_PATH atomically:YES]) {
-        [Util showAlertBoxWithOneOption:self title:@"Error" message:@"Unable to write touch indicator settings." buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法保存触摸指示器设置。" buttonString:@"确定"];
         return;
     }
     if (reload && isShowing) {
@@ -83,9 +83,9 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     // Do any additional setup after loading the view from its nib.
-    self.title = NSLocalizedString(@"touchIndicator", nil);
+    self.title = @"触摸指示器";
     
-    colorStrs = @[@"Red", @"Blue", @"Green", @"White", @"Black", @"Orange", @"Yellow"];
+    colorStrs = @[@"红色", @"蓝色", @"绿色", @"白色", @"黑色", @"橙色", @"黄色"];
     colors = @[[UIColor redColor], [UIColor blueColor], [UIColor greenColor], [UIColor whiteColor], [UIColor blackColor], [UIColor orangeColor], [UIColor yellowColor]];
     
     UINib *SwitchCellNib = [UINib nibWithNibName:@"TableViewCellWithSwitch" bundle:nil];
@@ -119,7 +119,7 @@
     
     if (!config)
     {
-        [Util showAlertBoxWithOneOption:self title:@"Error" message:@"Error. Configuration file does not exist. Please go to \"settings - fix configuration\" to fix this problem." buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"错误：配置文件不存在。请进入\"设置 - 修复配置\"修复此问题。" buttonString:@"确定"];
         return;
     }
     
@@ -133,7 +133,7 @@
 
     if (!config)
     {
-        [Util showAlertBoxWithOneOption:self title:@"Error" message:@"Error. Configuration file does not exist. Please go to \"settings - fix configuration\" to fix this problem." buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"错误：配置文件不存在。请进入\"设置 - 修复配置\"修复此问题。" buttonString:@"确定"];
     }
     
     // restart touch indicator if touch indicator is on
@@ -160,7 +160,7 @@
 
     if (![config writeToFile:SPRINGBOARD_CONFIG_PATH atomically:YES])
     {
-        [Util showAlertBoxWithOneOption:self title:@"Error" message:@"Although success, the configuration file cannot be written." buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"操作虽已成功，但无法写入配置文件。" buttonString:@"确定"];
     }
      
 }
@@ -187,7 +187,7 @@
     
     if (!config)
     {
-        [Util showAlertBoxWithOneOption:self title:@"Error" message:@"Error. Configuration file does not exist. Please go to \"settings - fix configuration\" to fix this problem." buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"错误：配置文件不存在。请进入\"设置 - 修复配置\"修复此问题。" buttonString:@"确定"];
     }
     
     if (indexPath.row == 0)
@@ -203,7 +203,7 @@
             cell = [[TableViewCellWithSwitch alloc]initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellID];
         }
         
-        [cell setTitleText:NSLocalizedString(@"touchIndicator", nil)];
+        [cell setTitleText:@"触摸指示器"];
 
         [cell.switchBtn removeTarget:nil action:NULL forControlEvents:UIControlEventValueChanged];
         [cell.switchBtn addTarget:self action:@selector(switchTouchIndicatorStatus:) forControlEvents:UIControlEventValueChanged];
@@ -225,7 +225,7 @@
         if (cell == nil) {
             cell = [[TableViewCellWithSwitch alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"SwitchCell"];
         }
-        [cell setTitleText:@"Show Coordinates"];
+        [cell setTitleText:@"显示坐标"];
         [cell.switchBtn removeTarget:nil action:NULL forControlEvents:UIControlEventValueChanged];
         [cell.switchBtn addTarget:self action:@selector(switchCoordinatesStatus:) forControlEvents:UIControlEventValueChanged];
         BOOL showCoords = [[self touchIndicatorConfig][@"show_coordinates"] boolValue];
@@ -243,7 +243,7 @@
             cell = [[TableViewCellWithSlider alloc]initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"SliderCell"];
         }
         
-        cell.title.text = NSLocalizedString(@"alpha", nil);
+        cell.title.text = @"不透明度";
         cell.slideBar.maximumValue = 1.0f;
         cell.slideBar.minimumValue = 0.0f;
         cell.slideBar.continuous = YES;
@@ -299,7 +299,7 @@ numberOfRowsInComponent:(NSInteger)component {
         
     if (![config writeToFile:SPRINGBOARD_CONFIG_PATH atomically:YES])
     {
-        [Util showAlertBoxWithOneOption:self title:@"Error" message:@"Cannot set color. Unable to write configuration file" buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法设置颜色：不能写入配置文件。" buttonString:@"确定"];
         return;
     }
 

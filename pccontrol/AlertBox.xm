@@ -35,7 +35,7 @@ void showAlertBoxFromRawData(UInt8 *eventData, NSError **error)
     NSArray *alertDataArray = [alertData componentsSeparatedByString:@";;"];
     if ([alertDataArray count] < 3)
     {
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to show alert box. The socket format should be title;;content;;duration.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法显示提示框，数据格式应为 title;;content;;duration（标题;;内容;;持续秒数）。\r\n"}];
         return;
     }
     showAlertBox(alertDataArray[0], alertDataArray[1], [alertDataArray[2] intValue]);
@@ -94,12 +94,12 @@ NSString *promptInputFromRawData(UInt8 *eventData, NSError **error)
             textField.text = defaultValue;
             textField.clearButtonMode = UITextFieldViewModeWhileEditing;
         }];
-        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
             cancelled = YES;
             appendPromptDebugLog(@"cancelled");
             cleanup();
         }]];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
             result = alert.textFields.firstObject.text ?: @"";
             appendPromptDebugLog([NSString stringWithFormat:@"ok length=%lu", (unsigned long)result.length]);
             cleanup();
@@ -117,11 +117,11 @@ NSString *promptInputFromRawData(UInt8 *eventData, NSError **error)
     if (waitResult != 0) {
         appendPromptDebugLog(@"timed out");
         cleanup();
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Input prompt timed out.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;输入框等待超时。\r\n"}];
         return @"";
     }
     if (cancelled) {
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;User cancelled input prompt.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;用户已取消输入。\r\n"}];
         return @"";
     }
     return result ?: @"";
@@ -159,7 +159,7 @@ void showAlertBox(NSString* title, NSString* content, int dismissTime)
             });
         };
 
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK"
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定"
             style:UIAlertActionStyleDefault
             handler:^(UIAlertAction *a) { cleanup(); }]];
 

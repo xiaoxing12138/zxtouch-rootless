@@ -334,7 +334,7 @@ void handleTouchIndicatorTaskWithRawData(UInt8* eventData, NSError **error)
     {
         if (!isShowing)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Cannot reload config file because the touch indicator is not showing.\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法重新加载配置文件，因为触点指示条当前未显示。\r\n"}];
             return;
         }
         // check whether config file exist
@@ -342,8 +342,8 @@ void handleTouchIndicatorTaskWithRawData(UInt8* eventData, NSError **error)
 
         if (![[NSFileManager defaultManager] fileExistsAtPath:configFilePath])
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to show touch indicator because the configuration file is missing. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.\r\n"}];
-            showAlertBox(@"Error", @"Unable to show touch indicator because the configuration file is missing. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.", 999);
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法显示触点指示条：配置文件缺失。请进入 \"zxtouch - settings - fix configuration\"（zxtouch - 设置 - 修复配置）修复此问题。\r\n"}];
+            showAlertBox(@"错误", @"无法显示触点指示条，因为配置文件缺失。请进入 \"zxtouch - 设置 - 修复配置（zxtouch - settings - fix configuration）\" 修复此问题。", 999);
             return;
         }
         // read indicator color from the config file
@@ -362,8 +362,8 @@ void handleTouchIndicatorTaskWithRawData(UInt8* eventData, NSError **error)
             NSLog(@"com.zjx.springboard: reload touch indicator. Read color: red: %f, g: %f, b: %f", red, green, blue);
         }
         @catch (NSException *exception) {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Unable to show touch indicator because key error in configuration file: %@. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.\r\n", exception]}];
-            showAlertBox(@"Error", [NSString stringWithFormat:@"Unable to show touch indicator because key error in configuration file: %@. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.", exception], 999);
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;无法显示触点指示条：配置文件键值错误：%@。请进入 \"zxtouch - settings - fix configuration\"（zxtouch - 设置 - 修复配置）修复此问题。\r\n", exception]}];
+            showAlertBox(@"错误", [NSString stringWithFormat:@"无法显示触点指示条，因为配置文件键值错误：%@。请进入 \"zxtouch - 设置 - 修复配置（zxtouch - settings - fix configuration）\" 修复此问题。", exception], 999);
             return;
         }
 
@@ -374,7 +374,7 @@ void handleTouchIndicatorTaskWithRawData(UInt8* eventData, NSError **error)
     else
     {
         NSLog(@"com.zjx.springboard: Unknown touch indicator data");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unknown touch indicator data\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;未知的触点指示条数据\r\n"}];
         return;
     }
 
@@ -407,8 +407,8 @@ void startTouchIndicator(NSError **error)
 {
     if (isShowing)
     {
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Touch indicator is already showing\r\n"}];
-        showAlertBox(@"Error", @"Touch indicator is already showing", 999);
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;触点指示条已经在显示中\r\n"}];
+        showAlertBox(@"错误", @"触点指示条已经在显示中", 999);
         return;
     }
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -425,7 +425,7 @@ void startTouchIndicator(NSError **error)
         if ([[NSFileManager defaultManager] fileExistsAtPath:configFilePath])
         {
             /*
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to show touch indicator because the configuration file is missing. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法显示触点指示条：配置文件缺失。请进入 \"zxtouch - settings - fix configuration\"（zxtouch - 设置 - 修复配置）修复此问题。\r\n"}];
             showAlertBox(@"Error", @"Unable to show touch indicator because the configuration file is missing. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.", 999);
             return;
             */
@@ -443,8 +443,8 @@ void startTouchIndicator(NSError **error)
             }
             @catch (NSException *exception) {
                 NSLog(@"com.zjx.springboard: 123123");
-                *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Unable to show touch indicator because key error in configuration file: %@. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.\r\n", exception]}];
-                showAlertBox(@"Error", [NSString stringWithFormat:@"Unable to show touch indicator because key error in configuration file: %@. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.", exception], 999);
+                *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;无法显示触点指示条：配置文件键值错误：%@。请进入 \"zxtouch - settings - fix configuration\"（zxtouch - 设置 - 修复配置）修复此问题。\r\n", exception]}];
+                showAlertBox(@"错误", [NSString stringWithFormat:@"无法显示触点指示条，因为配置文件键值错误：%@。请进入 \"zxtouch - 设置 - 修复配置（zxtouch - settings - fix configuration）\" 修复此问题。", exception], 999);
                 return;
             }
         }
@@ -461,8 +461,8 @@ void startTouchIndicator(NSError **error)
 
         if (screenBoundsWidth == 0 || screenBoundsHeight == 0)
         {
-            showAlertBox(@"Error", @"Cannot get screen bound.", 999);
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Cannot get screen bound\r\n"}];
+            showAlertBox(@"错误", @"无法获取屏幕边界尺寸。", 999);
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法获取屏幕边界尺寸\r\n"}];
             return;
         }
 

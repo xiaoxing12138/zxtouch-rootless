@@ -49,15 +49,15 @@
 - (void)changeName:(id)sender {
     if (!self->currentFolder)
     {
-        [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createFolderPathNotSet", nil) buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法创建文件夹：路径未设置。" buttonString:@"确定"];
         return;
     }
     
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Folder Name"
-                                                                    message:@"Please enter the folder name"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"文件夹名称"
+                                                                    message:@"请输入文件夹名称"
                                                              preferredStyle:UIAlertControllerStyleAlert];
 
-    UIAlertAction *submit = [UIAlertAction actionWithTitle:@"Submit" style:UIAlertActionStyleDefault
+    UIAlertAction *submit = [UIAlertAction actionWithTitle:@"提交" style:UIAlertActionStyleDefault
                                                    handler:^(UIAlertAction * action) {
                                                        if (alert.textFields.count > 0) {
                                                            UITextField *textField = [alert.textFields firstObject];
@@ -81,14 +81,14 @@
                                                                }
                                                                if([fileManager fileExistsAtPath:newFolderPath isDirectory:&isDir])
                                                                {
-                                                                   [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createFolderAlreadyExists", nil) buttonString:@"OK"];
+                                                                   [Util showAlertBoxWithOneOption:self title:@"错误" message:@"文件夹已存在，请使用其他文件夹名称。" buttonString:@"确定"];
                                                                }
                                                                else
                                                                {
                                                                    [fileManager moveItemAtPath:self->currentFolder toPath:newFolderPath error:&err];
                                                                    if (err)
                                                                    {
-                                                                       [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:[NSString stringWithFormat:@"%@%@", NSLocalizedString(@"createFolderFailed", nil), err] buttonString:@"OK"];
+                                                                       [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建文件夹，原因：", err] buttonString:@"确定"];
                                                                        return;
                                                                    }
                                                                    self->currentFolder = newFolderPath;
@@ -101,11 +101,11 @@
                                                            }
                                                            else
                                                            {
-                                                               [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createFolderEmptyName", nil) buttonString:@"OK"];
+                                                               [Util showAlertBoxWithOneOption:self title:@"错误" message:@"请输入文件夹名称。" buttonString:@"确定"];
                                                            }
                                                        }
                                                    }];
-    UIAlertAction *cancel = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleDefault
+    UIAlertAction *cancel = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleDefault
                                                    handler:^(UIAlertAction * action) {}];
 
     [alert addAction:cancel];
@@ -144,7 +144,7 @@
     NSError *error = nil;
     [[NSFileManager defaultManager] moveItemAtPath:source toPath:dest error:&error];
     if (error) {
-        [Util showAlertBoxWithOneOption:self title:@"Error" message:[NSString stringWithFormat:@"Error while moving files. Error: %@",error] buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"移动文件时出错。错误：%@",error] buttonString:@"确定"];
     }
 }
 
@@ -185,7 +185,7 @@
 
     if (indexPath.row == 0)
     {
-        [cell setButtonText:NSLocalizedString(@"rename", nil)];
+        [cell setButtonText:@"重命名"];
         
         [cell.button addTarget:self
               action:@selector(changeName:)
@@ -193,7 +193,7 @@
     }
     else if (indexPath.row == 1)
     {
-        [cell setButtonText:NSLocalizedString(@"playSettings", nil)];
+        [cell setButtonText:@"播放设置"];
         
         [cell.button addTarget:self
               action:@selector(changePlaySetting:)

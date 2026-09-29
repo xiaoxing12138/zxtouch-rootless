@@ -18,6 +18,7 @@
 #include <TextRecognization/TextRecognizer.h>
 #include "UpdateCache.h"
 #include "Screen.h"
+#include "NetSpeedIndicator.h"
 
 extern CFRunLoopRef recordRunLoop;
 
@@ -86,7 +87,7 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             }
             //NSLog(@"com.zjx.springboard: sleep %d microseconds", usleepTime);
             usleep(usleepTime);
-            notifyClient((UInt8*)"0;;Sleep ends\r\n", writeStreamRef); 
+            notifyClient((UInt8*)"0;;等待结束\r\n", writeStreamRef);
         }
         else
         {
@@ -317,7 +318,7 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             @try {
                 screenshot = [Screen createScreenShotCGImageRef];
                 if (!screenshot) {
-                    notifyClient((UInt8 *)"-1;;Unable to capture screenshot\r\n", writeStreamRef);
+                    notifyClient((UInt8 *)"-1;;截图失败\r\n", writeStreamRef);
                     return;
                 }
 
@@ -352,7 +353,7 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
 
                 NSData *jpegData = image ? UIImageJPEGRepresentation(image, 0.85) : nil;
                 if (!jpegData || [jpegData length] == 0) {
-                    notifyClient((UInt8 *)"-1;;Unable to encode screenshot as JPEG\r\n", writeStreamRef);
+                    notifyClient((UInt8 *)"-1;;将截图编码为 JPEG 失败\r\n", writeStreamRef);
                     return;
                 }
 
@@ -375,13 +376,32 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             @catch (NSException *exception) {
                 NSLog(@"com.zjx.springboard: Screenshot task failed: %@", exception.reason);
                 if (!responseHeaderSent) {
-                    notifyClient((UInt8 *)"-1;;Unable to capture screenshot\r\n", writeStreamRef);
+                    notifyClient((UInt8 *)"-1;;截图失败\r\n", writeStreamRef);
                 }
             }
             @finally {
                 if (screenshot) {
                     CGImageRelease(screenshot);
                 }
+            }
+        }
+    }
+    else if (taskType == TASK_NET_SPEED_INDICATOR)
+    {
+        @autoreleasepool {
+            NSError *err = nil;
+            NSString *result = handleNetSpeedIndicatorTaskWithRawData(eventData, &err);
+            if (err)
+            {
+                notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);
+            }
+            else if (result)
+            {
+                notifyClient((UInt8*)[result UTF8String], writeStreamRef);
+            }
+            else
+            {
+                notifyClient((UInt8*)"0\r\n", writeStreamRef);
             }
         }
     }

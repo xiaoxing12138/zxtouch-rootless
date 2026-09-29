@@ -57,7 +57,7 @@
     self.rawFilePath = entry.length ? [self.scriptBundlePath stringByAppendingPathComponent:entry] : nil;
     NSString *content = self.rawFilePath ? [NSString stringWithContentsOfFile:self.rawFilePath encoding:NSUTF8StringEncoding error:nil] : nil;
     if (!content) {
-        [self showError:@"This recording does not have a readable raw entry file."];
+        [self showError:@"此录制没有可读取的 raw 入口文件。"];
         return;
     }
 
@@ -113,23 +113,23 @@
 - (NSString *)titleForAction:(NSDictionary *)action
 {
     NSString *kind = action[@"kind"];
-    if ([kind isEqualToString:@"wait"]) return [NSString stringWithFormat:@"Wait %.2f seconds", [action[@"microseconds"] doubleValue] / 1000000.0];
+    if ([kind isEqualToString:@"wait"]) return [NSString stringWithFormat:@"等待 %.2f 秒", [action[@"microseconds"] doubleValue] / 1000000.0];
     if ([kind isEqualToString:@"touch"]) {
-        NSArray *names = @[@"Touch Up", @"Touch Down", @"Touch Move"];
+        NSArray *names = @[@"触摸抬起", @"触摸按下", @"触摸移动"];
         NSInteger type = [action[@"type"] integerValue];
-        NSString *name = type >= 0 && type < names.count ? names[type] : @"Touch";
+        NSString *name = type >= 0 && type < names.count ? names[type] : @"触摸";
         return [NSString stringWithFormat:@"%@  (%.0f, %.0f)", name, [action[@"x"] doubleValue], [action[@"y"] doubleValue]];
     }
-    if ([kind isEqualToString:@"launch"]) return [NSString stringWithFormat:@"Launch %@", action[@"bundle"] ?: @""];
-    if ([kind isEqualToString:@"toast"]) return [NSString stringWithFormat:@"Toast: %@", action[@"text"] ?: @""];
-    return @"Custom Command";
+    if ([kind isEqualToString:@"launch"]) return [NSString stringWithFormat:@"启动 %@", action[@"bundle"] ?: @""];
+    if ([kind isEqualToString:@"toast"]) return [NSString stringWithFormat:@"悬浮提示：%@", action[@"text"] ?: @""];
+    return @"自定义命令";
 }
 
 - (NSString *)detailForAction:(NSDictionary *)action
 {
     NSString *kind = action[@"kind"];
-    if ([kind isEqualToString:@"touch"]) return [NSString stringWithFormat:@"Finger %@", action[@"finger"] ?: @"1"];
-    if ([kind isEqualToString:@"toast"]) return [NSString stringWithFormat:@"%@ seconds", action[@"duration"] ?: @"2"];
+    if ([kind isEqualToString:@"touch"]) return [NSString stringWithFormat:@"手指 %@", action[@"finger"] ?: @"1"];
+    if ([kind isEqualToString:@"toast"]) return [NSString stringWithFormat:@"%@ 秒", action[@"duration"] ?: @"2"];
     if ([kind isEqualToString:@"command"]) return action[@"command"] ?: @"";
     return @"";
 }
@@ -137,7 +137,7 @@
 - (void)markChanged
 {
     self.hasChanges = YES;
-    self.navigationItem.prompt = @"Unsaved changes";
+    self.navigationItem.prompt = @"有未保存的更改";
 }
 
 - (void)saveRecording
@@ -148,7 +148,7 @@
     NSError *error = nil;
     [[commands componentsJoinedByString:@"\n"] writeToFile:self.rawFilePath atomically:YES encoding:NSUTF8StringEncoding error:&error];
     if (error) {
-        [self showError:error.localizedDescription ?: @"Unable to save this recording."];
+        [self showError:error.localizedDescription ?: @"无法保存此录制。"];
         return;
     }
     self.hasChanges = NO;
@@ -160,31 +160,31 @@
     [self saveRecording];
     Socket *socket = [[Socket alloc] init];
     if ([socket connect:@"127.0.0.1" byPort:6000] != 0) {
-        [self showError:@"ZXTouch service is unavailable."];
+        [self showError:@"ZXTouch 服务不可用。"];
         return;
     }
     [socket send:[@"19" stringByAppendingString:self.scriptBundlePath]];
     NSString *result = [socket recv:1024];
     [socket close];
-    if (![result hasPrefix:@"0"]) [self showError:result.length ? result : @"Unable to play this recording."];
+    if (![result hasPrefix:@"0"]) [self showError:result.length ? result : @"无法运行此录制。"];
 }
 
 - (void)showInsertActions:(UIBarButtonItem *)sender
 {
-    UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Insert Action" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Tap" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self promptForTap]; }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Swipe" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self promptForSwipe]; }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Wait" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self promptForWait:nil]; }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Toast" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self promptForToast:nil]; }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Launch App" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self promptForLaunch:nil]; }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"插入操作" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [menu addAction:[UIAlertAction actionWithTitle:@"轻点" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self promptForTap]; }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"滑动" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self promptForSwipe]; }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"等待" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self promptForWait:nil]; }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"悬浮提示" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self promptForToast:nil]; }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"启动应用" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self promptForLaunch:nil]; }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     menu.popoverPresentationController.barButtonItem = sender;
     [self presentViewController:menu animated:YES completion:nil];
 }
 
 - (void)promptForTap
 {
-    [self promptWithTitle:@"Insert Tap" fields:@[@"X coordinate", @"Y coordinate"] defaults:@[@"400", @"400"] completion:^(NSArray<NSString *> *values) {
+    [self promptWithTitle:@"插入轻点" fields:@[@"X 坐标", @"Y 坐标"] defaults:@[@"400", @"400"] completion:^(NSArray<NSString *> *values) {
         CGFloat x = [values[0] doubleValue], y = [values[1] doubleValue];
         [self.actions addObject:[@{ @"kind": @"touch", @"type": @1, @"finger": @1, @"x": @(x), @"y": @(y) } mutableCopy]];
         [self.actions addObject:[@{ @"kind": @"wait", @"microseconds": @50000 } mutableCopy]];
@@ -195,7 +195,7 @@
 
 - (void)promptForSwipe
 {
-    [self promptWithTitle:@"Insert Swipe" fields:@[@"Start X", @"Start Y", @"End X", @"End Y", @"Duration seconds"] defaults:@[@"300", @"400", @"600", @"400", @"0.4"] completion:^(NSArray<NSString *> *values) {
+    [self promptWithTitle:@"插入滑动" fields:@[@"起始 X", @"起始 Y", @"结束 X", @"结束 Y", @"持续时间（秒）"] defaults:@[@"300", @"400", @"600", @"400", @"0.4"] completion:^(NSArray<NSString *> *values) {
         CGFloat startX = [values[0] doubleValue], startY = [values[1] doubleValue], endX = [values[2] doubleValue], endY = [values[3] doubleValue];
         long long duration = MAX(0, (long long)([values[4] doubleValue] * 1000000.0));
         [self.actions addObject:[@{ @"kind": @"touch", @"type": @1, @"finger": @1, @"x": @(startX), @"y": @(startY) } mutableCopy]];
@@ -209,7 +209,7 @@
 - (void)promptForWait:(NSMutableDictionary *)action
 {
     NSString *value = action ? [NSString stringWithFormat:@"%.3f", [action[@"microseconds"] doubleValue] / 1000000.0] : @"0.5";
-    [self promptWithTitle:action ? @"Edit Wait" : @"Insert Wait" fields:@[@"Seconds"] defaults:@[value] completion:^(NSArray<NSString *> *values) {
+    [self promptWithTitle:action ? @"编辑等待" : @"插入等待" fields:@[@"秒数"] defaults:@[value] completion:^(NSArray<NSString *> *values) {
         NSMutableDictionary *target = action ?: [@{ @"kind": @"wait" } mutableCopy];
         target[@"microseconds"] = @(MAX(0, (long long)([values[0] doubleValue] * 1000000.0)));
         if (!action) [self.actions addObject:target];
@@ -219,9 +219,9 @@
 
 - (void)promptForToast:(NSMutableDictionary *)action
 {
-    NSString *text = action[@"text"] ?: @"Done";
+    NSString *text = action[@"text"] ?: @"完成";
     NSString *duration = action[@"duration"] ?: @"2";
-    [self promptWithTitle:action ? @"Edit Toast" : @"Insert Toast" fields:@[@"Message", @"Duration seconds"] defaults:@[text, duration] completion:^(NSArray<NSString *> *values) {
+    [self promptWithTitle:action ? @"编辑悬浮提示" : @"插入悬浮提示" fields:@[@"消息内容", @"持续时间（秒）"] defaults:@[text, duration] completion:^(NSArray<NSString *> *values) {
         NSMutableDictionary *target = action ?: [@{ @"kind": @"toast", @"type": @"3", @"position": @"0" } mutableCopy];
         target[@"text"] = values[0]; target[@"duration"] = values[1];
         if (!action) [self.actions addObject:target];
@@ -231,7 +231,7 @@
 
 - (void)promptForLaunch:(NSMutableDictionary *)action
 {
-    [self promptWithTitle:action ? @"Edit Launch" : @"Launch App" fields:@[@"Bundle identifier"] defaults:@[action[@"bundle"] ?: @"com.apple.Preferences"] completion:^(NSArray<NSString *> *values) {
+    [self promptWithTitle:action ? @"编辑启动应用" : @"启动应用" fields:@[@"应用包标识符"] defaults:@[action[@"bundle"] ?: @"com.apple.Preferences"] completion:^(NSArray<NSString *> *values) {
         NSMutableDictionary *target = action ?: [@{ @"kind": @"launch" } mutableCopy];
         target[@"bundle"] = values[0];
         if (!action) [self.actions addObject:target];
@@ -245,14 +245,14 @@
     for (NSUInteger index = 0; index < fields.count; index++) {
         [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
             NSString *label = fields[index];
-            BOOL numeric = [label containsString:@"coordinate"] || [label containsString:@"seconds"] || [label containsString:@"Start"] || [label containsString:@"End"];
+            BOOL numeric = [label containsString:@"坐标"] || [label containsString:@"秒"] || [label containsString:@"起始"] || [label containsString:@"结束"];
             field.placeholder = label;
             field.text = defaults[index];
             field.keyboardType = numeric ? UIKeyboardTypeDecimalPad : UIKeyboardTypeDefault;
         }];
     }
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *choice) {
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *choice) {
         NSMutableArray *values = [NSMutableArray array];
         for (UITextField *field in alert.textFields) [values addObject:field.text ?: @""];
         completion(values);
@@ -262,14 +262,14 @@
 
 - (void)showError:(NSString *)message
 {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Recording Editor" message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"录制编辑器" message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 1; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.actions.count; }
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section { return self.actions.count ? @"Timeline" : @"No actions yet"; }
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section { return self.actions.count ? @"时间线" : @"暂无操作"; }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
@@ -291,12 +291,12 @@
     else if ([kind isEqualToString:@"toast"]) [self promptForToast:action];
     else if ([kind isEqualToString:@"launch"]) [self promptForLaunch:action];
     else if ([kind isEqualToString:@"touch"]) {
-        [self promptWithTitle:@"Edit Touch" fields:@[@"X coordinate", @"Y coordinate"] defaults:@[[NSString stringWithFormat:@"%.0f", [action[@"x"] doubleValue]], [NSString stringWithFormat:@"%.0f", [action[@"y"] doubleValue]]] completion:^(NSArray<NSString *> *values) {
+        [self promptWithTitle:@"编辑触摸" fields:@[@"X 坐标", @"Y 坐标"] defaults:@[[NSString stringWithFormat:@"%.0f", [action[@"x"] doubleValue]], [NSString stringWithFormat:@"%.0f", [action[@"y"] doubleValue]]] completion:^(NSArray<NSString *> *values) {
             action[@"x"] = @([values[0] doubleValue]); action[@"y"] = @([values[1] doubleValue]);
             [self markChanged]; [self.tableView reloadData];
         }];
     } else {
-        [self promptWithTitle:@"Edit Command" fields:@[@"Raw command"] defaults:@[action[@"command"] ?: @""] completion:^(NSArray<NSString *> *values) {
+        [self promptWithTitle:@"编辑命令" fields:@[@"原始命令"] defaults:@[action[@"command"] ?: @""] completion:^(NSArray<NSString *> *values) {
             action[@"command"] = values[0]; [self markChanged]; [self.tableView reloadData];
         }];
     }
@@ -308,7 +308,7 @@
 
 - (NSArray<UIContextualAction *> *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath API_AVAILABLE(ios(11.0))
 {
-    UIContextualAction *duplicate = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"Duplicate" handler:^(__unused UIContextualAction *context, __unused UIView *view, void (^completion)(BOOL)) {
+    UIContextualAction *duplicate = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"复制" handler:^(__unused UIContextualAction *context, __unused UIView *view, void (^completion)(BOOL)) {
         [self.actions insertObject:[self.actions[indexPath.row] mutableCopy] atIndex:indexPath.row + 1];
         [self.tableView reloadData]; [self markChanged]; completion(YES);
     }];

@@ -66,7 +66,7 @@ static NSString *ZXDashboardIPAddress(void)
     self = [super init];
     if (self) {
         _token = [token copy];
-        _lastAction = @"Ready";
+        _lastAction = @"就绪";
     }
     return self;
 }
@@ -85,7 +85,7 @@ static NSString *ZXDashboardIPAddress(void)
 
 - (GCDWebServerDataResponse *)unauthorizedResponse
 {
-    return [self jsonResponse:@{ @"ok": @NO, @"error": @"Invalid pairing token." } status:403];
+    return [self jsonResponse:@{ @"ok": @NO, @"error": @"配对令牌无效。" } status:403];
 }
 
 - (NSString *)bundlePathForRelativePath:(NSString *)relativePath
@@ -104,6 +104,53 @@ static NSString *ZXDashboardIPAddress(void)
     return candidate;
 }
 
+- (NSString *)safePathForRelativePath:(NSString *)relativePath mustExist:(BOOL)mustExist
+{
+    if (![relativePath isKindOfClass:[NSString class]] || relativePath.length == 0) return nil;
+    NSString *root = [SCRIPTS_PATH stringByStandardizingPath];
+    NSString *candidate = [[root stringByAppendingPathComponent:relativePath] stringByStandardizingPath];
+    if (![candidate hasPrefix:[root stringByAppendingString:@"/"]]) return nil;
+    if (mustExist && ![[NSFileManager defaultManager] fileExistsAtPath:candidate]) return nil;
+    return candidate;
+}
+
+- (NSString *)relativePathForScriptsPath:(NSString *)path
+{
+    NSString *rootPrefix = [[SCRIPTS_PATH stringByStandardizingPath] stringByAppendingString:@"/"];
+    return [path hasPrefix:rootPrefix] ? [path substringFromIndex:rootPrefix.length] : path;
+}
+
+- (BOOL)isSafeScriptName:(NSString *)name
+{
+    if (![name isKindOfClass:[NSString class]] || name.length == 0 ||
+        [name isEqualToString:@"."] || [name isEqualToString:@".."]) {
+        return NO;
+    }
+    NSCharacterSet *forbidden = [NSCharacterSet characterSetWithCharactersInString:@"/\\:*?\"<>|"];
+    return [name rangeOfCharacterFromSet:forbidden].location == NSNotFound;
+}
+
+- (NSString *)entryPathForBundle:(NSString *)bundlePath
+{
+    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[bundlePath stringByAppendingPathComponent:@"info.plist"]];
+    NSString *entry = [info[@"Entry"] isKindOfClass:[NSString class]] ? info[@"Entry"] : @"";
+    if (entry.length == 0) return nil;
+    return [bundlePath stringByAppendingPathComponent:entry];
+}
+
+- (NSString *)modifiedDateStringForPath:(NSString *)path
+{
+    NSDate *date = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil][NSFileModificationDate];
+    if (!date) return @"";
+    static NSDateFormatter *formatter = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        formatter = [[NSDateFormatter alloc] init];
+        formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss";
+    });
+    return [formatter stringFromDate:date];
+}
+
 - (NSArray<NSDictionary *> *)scripts
 {
     NSMutableArray<NSDictionary *> *scripts = [NSMutableArray array];
@@ -119,11 +166,14 @@ static NSString *ZXDashboardIPAddress(void)
 
         NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[bundlePath stringByAppendingPathComponent:@"info.plist"]];
         NSString *entry = [info[@"Entry"] isKindOfClass:[NSString class]] ? info[@"Entry"] : @"";
+        NSString *folder = relativePath.stringByDeletingLastPathComponent ?: @"";
         [scripts addObject:@{
             @"path": relativePath,
             @"name": relativePath.lastPathComponent.stringByDeletingPathExtension,
             @"entry": entry,
-            @"type": entry.pathExtension.lowercaseString ?: @""
+            @"type": entry.pathExtension.lowercaseString ?: @"",
+            @"modified": [self modifiedDateStringForPath:bundlePath],
+            @"folder": folder
         }];
         [enumerator skipDescendants];
     }
@@ -136,8 +186,8 @@ static NSString *ZXDashboardIPAddress(void)
 {
     int socketHandle = socket(AF_INET, SOCK_STREAM, 0);
     if (socketHandle < 0) {
-        self.lastError = @"Unable to create a local ZXTouch connection.";
-        return @"-1;;ZXTouch service is unavailable.";
+        self.lastError = @"无法连接 ZXTouch 服务。";
+        return @"-1;;ZXTouch 服务不可用。";
     }
     struct sockaddr_in address;
     memset(&address, 0, sizeof(address));
@@ -148,9 +198,9 @@ static NSString *ZXDashboardIPAddress(void)
     setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
     if (connect(socketHandle, (struct sockaddr *)&address, sizeof(address)) != 0) {
-        self.lastError = @"Unable to connect to the local ZXTouch service.";
+        self.lastError = @"无法连接到本机 ZXTouch 服务。";
         close(socketHandle);
-        return @"-1;;ZXTouch service is unavailable.";
+        return @"-1;;ZXTouch 服务不可用。";
     }
     // The tweak's socket server splits incoming data on CRLF and only dispatches
     // a task once it sees the terminator, so a bare command sits in the buffer
@@ -159,16 +209,16 @@ static NSString *ZXDashboardIPAddress(void)
                                                        : [command stringByAppendingString:@"\r\n"];
     const char *message = terminated.UTF8String;
     if (send(socketHandle, message, strlen(message), 0) < 0) {
-        self.lastError = @"Unable to send a command to the local ZXTouch service.";
+        self.lastError = @"无法向本机 ZXTouch 服务发送指令。";
         close(socketHandle);
-        return @"-1;;ZXTouch service is unavailable.";
+        return @"-1;;ZXTouch 服务不可用。";
     }
     char buffer[4096] = {0};
     ssize_t length = expectsReply ? recv(socketHandle, buffer, sizeof(buffer) - 1, 0) : 1;
     close(socketHandle);
     NSString *result = expectsReply && length > 0 ? [NSString stringWithUTF8String:buffer] : (expectsReply ? @"" : @"0");
     if (result.length == 0 || [result hasPrefix:@"-1"]) {
-        self.lastError = result.length ? result : @"The local ZXTouch service did not return a response.";
+        self.lastError = result.length ? result : @"本机 ZXTouch 服务没有返回响应。";
     } else {
         self.lastError = @"";
     }
@@ -204,7 +254,7 @@ static NSString *ZXDashboardIPAddress(void)
         @"foregroundApp": runtimeParts.count > 0 ? runtimeParts[0] : @"",
         @"scriptPlaying": runtimeParts.count > 1 ? @([runtimeParts[1] boolValue]) : @NO,
         @"recording": runtimeParts.count > 2 ? @([runtimeParts[2] boolValue]) : @NO,
-        @"lastAction": self.lastAction ?: @"Ready",
+        @"lastAction": self.lastAction ?: @"就绪",
         @"lastError": self.lastError ?: @"",
         @"scriptCount": @([self scripts].count)
     };
@@ -267,8 +317,8 @@ static NSString *ZXDashboardIPAddress(void)
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
         NSError *error = nil;
         [@"" writeToFile:RUNTIME_OUTPUT_PATH atomically:YES encoding:NSUTF8StringEncoding error:&error];
-        if (error) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to clear logs." } status:500];
-        strongSelf.lastAction = @"Clear logs";
+        if (error) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"无法清空日志。" } status:500];
+        strongSelf.lastAction = @"清空日志";
         return [strongSelf jsonResponse:@{ @"ok": @YES } status:200];
     }];
 
@@ -277,9 +327,9 @@ static NSString *ZXDashboardIPAddress(void)
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
         NSDictionary *body = [request.jsonObject isKindOfClass:[NSDictionary class]] ? request.jsonObject : @{};
         NSString *bundlePath = [strongSelf bundlePathForRelativePath:body[@"path"]];
-        if (!bundlePath) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Script was not found." } status:404];
+        if (!bundlePath) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"未找到脚本。" } status:404];
         NSString *result = [strongSelf sendSocketCommand:[@"19" stringByAppendingString:bundlePath] expectsReply:YES];
-        strongSelf.lastAction = [NSString stringWithFormat:@"Run %@", bundlePath.lastPathComponent];
+        strongSelf.lastAction = [NSString stringWithFormat:@"运行 %@", bundlePath.lastPathComponent];
         return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
     }];
 
@@ -287,7 +337,7 @@ static NSString *ZXDashboardIPAddress(void)
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
         NSString *result = [strongSelf sendSocketCommand:@"20" expectsReply:YES];
-        strongSelf.lastAction = @"Stop script";
+        strongSelf.lastAction = @"停止脚本";
         return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
     }];
 
@@ -295,7 +345,7 @@ static NSString *ZXDashboardIPAddress(void)
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
         NSString *result = [strongSelf sendSocketCommand:@"14" expectsReply:YES];
-        strongSelf.lastAction = @"Start recording";
+        strongSelf.lastAction = @"开始录制";
         return [strongSelf jsonResponse:@{ @"ok": @(![result hasPrefix:@"-1"]), @"result": result ?: @"" } status:200];
     }];
 
@@ -303,7 +353,7 @@ static NSString *ZXDashboardIPAddress(void)
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
         NSString *result = [strongSelf sendSocketCommand:@"15" expectsReply:YES];
-        strongSelf.lastAction = @"Stop recording";
+        strongSelf.lastAction = @"停止录制";
         return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
     }];
 
@@ -317,18 +367,142 @@ static NSString *ZXDashboardIPAddress(void)
         NSDictionary *attributes = upload.temporaryPath.length ? [[NSFileManager defaultManager] attributesOfItemAtPath:upload.temporaryPath error:nil] : nil;
         unsigned long long size = [attributes fileSize];
         if (!bundlePath || upload == nil || ![strongSelf isSafeAssetFileName:fileName]) {
-            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Choose a script and an asset file." } status:400];
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"请选择脚本和素材文件。" } status:400];
         }
         if (size > ZXDashboardMaximumAssetSize) {
-            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Assets must be 25 MB or smaller." } status:413];
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"素材文件不能超过 25 MB。" } status:413];
         }
         NSString *destination = [bundlePath stringByAppendingPathComponent:fileName];
         [[NSFileManager defaultManager] removeItemAtPath:destination error:nil];
         NSError *error = nil;
         BOOL copied = [[NSFileManager defaultManager] copyItemAtPath:upload.temporaryPath toPath:destination error:&error];
-        if (!copied) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to save asset." } status:500];
-        strongSelf.lastAction = [NSString stringWithFormat:@"Upload %@", fileName];
+        if (!copied) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"无法保存素材文件。" } status:500];
+        strongSelf.lastAction = [NSString stringWithFormat:@"上传 %@", fileName];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"file": fileName } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"POST" path:@"/api/script/create" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSDictionary *body = [request.jsonObject isKindOfClass:[NSDictionary class]] ? request.jsonObject : @{};
+        NSString *name = [body[@"name"] isKindOfClass:[NSString class]] ? body[@"name"] : @"";
+        NSString *folder = [body[@"folder"] isKindOfClass:[NSString class]] ? body[@"folder"] : @"";
+        if (![strongSelf isSafeScriptName:name]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"脚本名无效，不能包含 / \\ : * ? \" < > | 等字符。" } status:400];
+        }
+        NSString *bundleName = [name stringByAppendingPathExtension:@"bdl"];
+        NSString *relativePath = folder.length ? [folder stringByAppendingPathComponent:bundleName] : bundleName;
+        NSString *bundlePath = [strongSelf safePathForRelativePath:relativePath mustExist:NO];
+        if (!bundlePath) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"路径无效。" } status:400];
+        }
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        if ([fileManager fileExistsAtPath:bundlePath]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"同名脚本已存在。" } status:409];
+        }
+        NSError *error = nil;
+        if (![fileManager createDirectoryAtPath:bundlePath withIntermediateDirectories:YES attributes:nil error:&error]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"无法创建脚本目录。" } status:500];
+        }
+        NSDictionary *info = @{ @"Entry": @"main.py" };
+        if (![info writeToFile:[bundlePath stringByAppendingPathComponent:@"info.plist"] atomically:YES]) {
+            [fileManager removeItemAtPath:bundlePath error:nil];
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"无法写入 info.plist。" } status:500];
+        }
+        NSString *template = @"# -*- coding: utf-8 -*-\n# ZXTouch 脚本\n\n";
+        if (![template writeToFile:[bundlePath stringByAppendingPathComponent:@"main.py"] atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+            [fileManager removeItemAtPath:bundlePath error:nil];
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"无法写入 main.py。" } status:500];
+        }
+        strongSelf.lastAction = [NSString stringWithFormat:@"新建脚本 %@", name];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"path": [strongSelf relativePathForScriptsPath:bundlePath] } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"POST" path:@"/api/script/delete" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSDictionary *body = [request.jsonObject isKindOfClass:[NSDictionary class]] ? request.jsonObject : @{};
+        NSString *path = [strongSelf safePathForRelativePath:body[@"path"] mustExist:YES];
+        if (!path) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"路径无效或不存在。" } status:404];
+        }
+        NSError *error = nil;
+        if (![[NSFileManager defaultManager] removeItemAtPath:path error:&error]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"删除失败。" } status:500];
+        }
+        strongSelf.lastAction = [NSString stringWithFormat:@"删除 %@", path.lastPathComponent];
+        return [strongSelf jsonResponse:@{ @"ok": @YES } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"POST" path:@"/api/script/rename" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSDictionary *body = [request.jsonObject isKindOfClass:[NSDictionary class]] ? request.jsonObject : @{};
+        NSString *path = [strongSelf safePathForRelativePath:body[@"path"] mustExist:YES];
+        NSString *newName = [body[@"newName"] isKindOfClass:[NSString class]] ? body[@"newName"] : @"";
+        if (!path) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"路径无效或不存在。" } status:404];
+        }
+        if (![strongSelf isSafeScriptName:newName]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"新名字无效，不能包含 / \\ : * ? \" < > | 等字符。" } status:400];
+        }
+        NSString *extension = path.pathExtension;
+        NSString *newLastComponent = extension.length ? [newName stringByAppendingPathExtension:extension] : newName;
+        NSString *newPath = [[path stringByDeletingLastPathComponent] stringByAppendingPathComponent:newLastComponent];
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        if ([fileManager fileExistsAtPath:newPath]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"同名文件已存在。" } status:409];
+        }
+        NSError *error = nil;
+        if (![fileManager moveItemAtPath:path toPath:newPath error:&error]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"重命名失败。" } status:500];
+        }
+        strongSelf.lastAction = [NSString stringWithFormat:@"重命名为 %@", newLastComponent];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"path": [strongSelf relativePathForScriptsPath:newPath] } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"GET" path:@"/api/script/read" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSString *bundlePath = [strongSelf bundlePathForRelativePath:request.query[@"path"]];
+        if (!bundlePath) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"未找到脚本。" } status:404];
+        }
+        NSString *entryPath = [strongSelf entryPathForBundle:bundlePath];
+        NSString *content = entryPath ? [NSString stringWithContentsOfFile:entryPath encoding:NSUTF8StringEncoding error:nil] : nil;
+        if (!content) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"无法读取脚本入口文件。" } status:404];
+        }
+        return [strongSelf jsonResponse:@{
+            @"ok": @YES,
+            @"content": content,
+            @"name": bundlePath.lastPathComponent.stringByDeletingPathExtension,
+            @"modified": [strongSelf modifiedDateStringForPath:entryPath]
+        } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"POST" path:@"/api/script/save" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSDictionary *body = [request.jsonObject isKindOfClass:[NSDictionary class]] ? request.jsonObject : @{};
+        NSString *bundlePath = [strongSelf bundlePathForRelativePath:body[@"path"]];
+        NSString *content = [body[@"content"] isKindOfClass:[NSString class]] ? body[@"content"] : nil;
+        if (!bundlePath) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"未找到脚本。" } status:404];
+        }
+        if (content == nil) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"缺少脚本内容。" } status:400];
+        }
+        NSString *entryPath = [strongSelf entryPathForBundle:bundlePath];
+        if (!entryPath) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"脚本缺少入口文件配置。" } status:404];
+        }
+        NSError *error = nil;
+        if (![content writeToFile:entryPath atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"保存失败。" } status:500];
+        }
+        strongSelf.lastAction = [NSString stringWithFormat:@"保存 %@", bundlePath.lastPathComponent];
+        return [strongSelf jsonResponse:@{ @"ok": @YES } status:200];
     }];
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/download" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
@@ -338,7 +512,7 @@ static NSString *ZXDashboardIPAddress(void)
         NSString *entry = [NSDictionary dictionaryWithContentsOfFile:[bundlePath stringByAppendingPathComponent:@"info.plist"]][@"Entry"];
         NSString *entryPath = entry.length ? [bundlePath stringByAppendingPathComponent:entry] : nil;
         if (!entryPath || ![[NSFileManager defaultManager] fileExistsAtPath:entryPath]) {
-            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Script entry was not found." } status:404];
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"未找到脚本入口文件。" } status:404];
         }
         return [GCDWebServerFileResponse responseWithFile:entryPath isAttachment:YES];
     }];
@@ -355,7 +529,7 @@ static NSString *ZXDashboardIPAddress(void)
         GCDWebServerOption_ServerName: @"ZXTouch Dashboard",
         GCDWebServerOption_AutomaticallySuspendInBackground: @NO
     } error:&error];
-    self.lastError = started ? @"" : (error.localizedDescription ?: @"Unable to start dashboard.");
+    self.lastError = started ? @"" : (error.localizedDescription ?: @"无法启动控制面板。");
     if (!started) self.server = nil;
     return started;
 }
@@ -434,7 +608,7 @@ BOOL ZXRemoteDashboardSetEnabled(BOOL enabled)
     NSError *directoryError = nil;
     [[NSFileManager defaultManager] createDirectoryAtPath:[ZXDashboardConfigPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:&directoryError];
     BOOL saved = directoryError == nil && [configuration writeToFile:ZXDashboardConfigPath atomically:YES];
-    ZXDashboardSettingsLastError = saved ? @"" : (directoryError.localizedDescription ?: @"Unable to save Remote Dashboard settings.");
+    ZXDashboardSettingsLastError = saved ? @"" : (directoryError.localizedDescription ?: @"无法保存远程控制面板设置。");
     if (saved) notify_post(ZXDashboardConfigurationNotification);
     return saved;
 }
@@ -448,7 +622,7 @@ NSString *ZXRemoteDashboardURL(void)
 {
     NSMutableDictionary *configuration = ZXDashboardConfiguration();
     NSString *token = ZXDashboardToken(configuration);
-    NSString *host = ZXDashboardIPAddress() ?: @"iPad-IP-address";
+    NSString *host = ZXDashboardIPAddress() ?: @"iPad的IP地址";
     return [NSString stringWithFormat:@"http://%@:%d/?token=%@", host, 8080, token];
 }
 

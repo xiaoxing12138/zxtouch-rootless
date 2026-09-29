@@ -8,8 +8,8 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
 {
     if (SYSTEM_VERSION_LESS_THAN(@"13.0"))
     {
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;OCR only supports iOS13 or newer version of iOS. iOS12 or older may be supported in the future.\r\n"}];
-        showAlertBox(@"Not Supported", @"OCR only supports iOS13 or newer version of iOS. iOS12 and older may be supported in the future.", 99);
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;文字识别（OCR）仅支持 iOS 13 及以上版本，iOS 12 及更低版本未来可能支持。\r\n"}];
+        showAlertBox(@"不支持", @"文字识别（OCR）仅支持 iOS 13 及以上版本，iOS 12 及更低版本未来可能支持。", 99);
         return nil;
     }
 
@@ -17,7 +17,7 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
     if ([data count] == 0)
     {
         NSLog(@"com.zjx.springboard: Data not in good format.");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Data not in good format.\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;数据格式不正确。\r\n"}];
         return nil;
     }
 
@@ -28,7 +28,7 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
         if ([data count] < 8)
         {
             NSLog(@"com.zjx.springboard: Data not in good format. The format should be 1;;x1,,y1,,width,,height;;custom_words;;minimum_height;;level;;languages;;correct;;debug_path.");
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Data not in good format. The format should be 1;;x1,,y1,,width,,height;;custom_words;;minimum_height;;level;;languages;;correct;;debug_path\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;数据格式不正确，格式应为 1;;x1,,y1,,width,,height;;custom_words;;minimum_height;;level;;languages;;correct;;debug_path（1;;x1,,y1,,宽度,,高度;;自定义词汇;;最小高度;;识别级别;;语言;;是否自动纠正;;调试图片路径）\r\n"}];
             return nil;
         }
 
@@ -47,7 +47,7 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
         if ([rect count] < 4)
         {
             NSLog(@"com.zjx.springboard: Rect data not in good format. The format should be x1,,y1,,width,,height");
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Rect data not in good format. The format should be x1,,y1,,width,,height\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;区域数据格式不正确，格式应为 x1,,y1,,width,,height（x1,,y1,,宽度,,高度）\r\n"}];
             return nil;
         }
     
@@ -108,7 +108,7 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
         if ([data count] < 2)
         {
             NSLog(@"com.zjx.springboard: Data not in good format. The format should be 2;;level data:%@", data);
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Data not in good format. The format should be 2;;level\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;数据格式不正确，格式应为 2;;level（2;;识别级别）\r\n"}];
             return nil;
         }
         VNRequestTextRecognitionLevel level = VNRequestTextRecognitionLevelAccurate;
@@ -134,7 +134,7 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
     else 
     {
         NSLog(@"com.zjx.springboard: Text recognition unknown task type");
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Text recognition unknown task type\r\n"}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;未知的文字识别任务类型\r\n"}];
         return nil;
     }
 }

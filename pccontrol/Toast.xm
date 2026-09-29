@@ -14,7 +14,7 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
         NSArray *data = [[NSString stringWithFormat:@"%s", eventData] componentsSeparatedByString:@";;"];
         if ([data count] < 3)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;The data format should be \"type;;content;;duration(in seconds)[];;position(0: top, 1: bottom, 2: left, 3: right)]\". For example, 0;;success;;1.5;;0.\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;数据格式应为 \"type;;content;;duration(in seconds)[];;position(0: 顶部, 1: 底部, 2: 左侧, 3: 右侧)]\"（类型;;内容;;持续时间(秒)[];;位置）。例如：0;;success;;1.5;;0\r\n"}];
             return;
         }
         int type = [data[0] intValue];
@@ -32,12 +32,12 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
 
         if (type > 4 || type < 0)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unknown type. The type ranges from 0-3. Please refer to the documentation on Github.\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;未知类型，类型取值范围为 0-3，请参阅 Github 上的文档。\r\n"}];
             return;
         }
         if (duration <= 0 && type != 0)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Duration should be a positive float number.\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;持续时间应为正数（浮点数）。\r\n"}];
             return;
         }
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{

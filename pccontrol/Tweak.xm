@@ -36,6 +36,7 @@
 #include "Toast.h"
 #include "Play.h"
 #include "TouchIndicator/TouchIndicatorWindow.h"
+#include "NetSpeedIndicator.h"
 #include <roothide.h>
 
 #define IPHONE7P_HEIGHT 1920
@@ -174,7 +175,7 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
     {
         NSError *err = nil;
         stopScriptPlaying(&err);
-        showAlertBox(@"ZXTouch", @"Script stopped.", 1);
+        showAlertBox(@"ZXTouch", @"脚本已停止。", 1);
         return;
     }
 
@@ -183,14 +184,14 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
         if (isRecordingStart())
         {
             stopRecording();
-            showAlertBox(@"ZXTouch", @"Recording stopped and saved.", 1);
+            showAlertBox(@"ZXTouch", @"录制已停止并保存。", 1);
         }
         else
         {
             NSError *err = nil;
             startRecording(0, &err);
-            if (err) showAlertBox(@"Error", [NSString stringWithFormat:@"Unable to start recording: %@", [err localizedDescription]], 999);
-            else showAlertBox(@"ZXTouch", @"Recording started.", 1);
+            if (err) showAlertBox(@"错误", [NSString stringWithFormat:@"无法开始录制：%@", [err localizedDescription]], 999);
+            else showAlertBox(@"ZXTouch", @"录制已开始。", 1);
         }
         return;
     }
@@ -201,11 +202,11 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
         {
             NSError *err = nil;
             playScript((UInt8*)[scriptPath UTF8String], &err);
-            if (err) showAlertBox(@"Error", [err localizedDescription], 999);
+            if (err) showAlertBox(@"错误", [err localizedDescription], 999);
         }
         else
         {
-            showAlertBox(@"ZXTouch", @"No default trigger script is set.", 2);
+            showAlertBox(@"ZXTouch", @"未设置默认触发脚本。", 2);
         }
         return;
     }
@@ -220,13 +221,13 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
     {
         NSError *err = nil;
         stopScriptPlaying(&err);
-        showAlertBox(@"ZXTouch", @"Script stopped.", 1);
+        showAlertBox(@"ZXTouch", @"脚本已停止。", 1);
         return;
     }
     if (isRecordingStart())
     {
         stopRecording();
-        showAlertBox(@"ZXTouch", @"Recording stopped and saved.", 1);
+        showAlertBox(@"ZXTouch", @"录制已停止并保存。", 1);
         [popupWindow show];
         return;
     }
@@ -344,7 +345,7 @@ Boolean initConfig()
         startTouchIndicator(&err);
         if (err)
         {
-            showAlertBox(@"Error", [NSString stringWithFormat:@"Cannot start touch indicator, error info: %@", err], 999);
+            showAlertBox(@"错误", [NSString stringWithFormat:@"无法启动触点指示器，错误信息：%@", err], 999);
         }
     }
 
@@ -366,6 +367,7 @@ Boolean init()
 {
     initScriptPlayer();
     initConfig();
+    [NetSpeedIndicator reloadConfig];
 
     return true;
 }

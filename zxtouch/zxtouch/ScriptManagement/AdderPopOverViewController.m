@@ -41,15 +41,15 @@
 - (IBAction)createScriptButtonClick:(id)sender {
     if (!self->currentFolder)
     {
-        [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createScriptPathNotSet", nil) buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法创建脚本：路径未设置。" buttonString:@"确定"];
         return;
     }
     
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Script Name"
-                                                                    message:@"Please enter the script name"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"脚本名称"
+                                                                    message:@"请输入脚本名称"
                                                              preferredStyle:UIAlertControllerStyleAlert];
 
-    UIAlertAction *submit = [UIAlertAction actionWithTitle:@"Submit" style:UIAlertActionStyleDefault
+    UIAlertAction *submit = [UIAlertAction actionWithTitle:@"提交" style:UIAlertActionStyleDefault
                                                    handler:^(UIAlertAction * action) {
                                                        if (alert.textFields.count > 0) {
                                                            UITextField *textField = [alert.textFields firstObject];
@@ -62,14 +62,14 @@
                                                                NSString* folderToAddPath = [self->currentFolder stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.bdl", textField.text]];
                                                                if([fileManager fileExistsAtPath:folderToAddPath isDirectory:&isDir] && isDir)
                                                                {
-                                                                   [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createScriptAlreadyExists", nil) buttonString:@"OK"];
+                                                                   [Util showAlertBoxWithOneOption:self title:@"错误" message:@"脚本已存在，请使用其他脚本名称。" buttonString:@"确定"];
                                                                }
                                                                else
                                                                {
                                                                    [fileManager createDirectoryAtPath:folderToAddPath withIntermediateDirectories:YES attributes:nil error:&err];
                                                                    if (err)
                                                                    {
-                                                                       [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:[NSString stringWithFormat:@"%@%@", NSLocalizedString(@"createScriptFailed", nil), err] buttonString:@"OK"];
+                                                                       [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建脚本，原因：", err] buttonString:@"确定"];
                                                                    }
                                                                    
                                                                    // add plist file
@@ -79,14 +79,14 @@
                                                                    
                                                                    // add python file
                                                                    NSDateFormatter *dateFormatter=[[NSDateFormatter alloc] init];
-                                                                   [dateFormatter setDateFormat:@"MM/dd/yyyy hh:mm:ss"];
+                                                                   [dateFormatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
                                                                    NSString *currentDateTime = [dateFormatter stringFromDate:[NSDate date]];
-                                                                   NSString *initContent = [NSString stringWithFormat:@"#This script is created at %@\n#ZXTouch module documentation on Github: https://github.com/xuan32546/IOS13-SimulateTouch/\n\nfrom zxtouch.client import zxtouch\n\n\n#insert your code here.", currentDateTime];
+                                                                   NSString *initContent = [NSString stringWithFormat:@"# 本脚本创建于 %@\n# ZXTouch 模块文档（GitHub）：https://github.com/xuan32546/IOS13-SimulateTouch/\n\nfrom zxtouch.client import zxtouch\n\n\n# 请在此处编写你的代码。", currentDateTime];
                                                                    
                                                                    [initContent writeToFile:[folderToAddPath stringByAppendingPathComponent:@"main.py"] atomically:YES encoding:NSUTF8StringEncoding error:&err];
                                                                    if (err)
                                                                    {
-                                                                       [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:[NSString stringWithFormat:@"%@%@", NSLocalizedString(@"createScriptFailed", nil), err] buttonString:@"OK"];
+                                                                       [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建脚本，原因：", err] buttonString:@"确定"];
                                                                    }
                                                                    dispatch_async(dispatch_get_main_queue(), ^{
                                                                        [self->upperLevel refreshTable];
@@ -96,11 +96,11 @@
                                                            }
                                                            else
                                                            {
-                                                               [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createScriptEmptyName", nil) buttonString:@"OK"];
+                                                               [Util showAlertBoxWithOneOption:self title:@"错误" message:@"请输入脚本名称。" buttonString:@"确定"];
                                                            }
                                                        }
                                                    }];
-    UIAlertAction *cancel = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleDefault
+    UIAlertAction *cancel = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleDefault
                                                    handler:^(UIAlertAction * action) {}];
 
     [alert addAction:cancel];
@@ -118,15 +118,15 @@
 - (IBAction)createFolderButtonClick:(id)sender {
     if (!self->currentFolder)
     {
-        [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createFolderPathNotSet", nil) buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法创建文件夹：路径未设置。" buttonString:@"确定"];
         return;
     }
     
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Folder Name"
-                                                                    message:@"Please enter the folder name"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"文件夹名称"
+                                                                    message:@"请输入文件夹名称"
                                                              preferredStyle:UIAlertControllerStyleAlert];
 
-    UIAlertAction *submit = [UIAlertAction actionWithTitle:@"Submit" style:UIAlertActionStyleDefault
+    UIAlertAction *submit = [UIAlertAction actionWithTitle:@"提交" style:UIAlertActionStyleDefault
                                                    handler:^(UIAlertAction * action) {
                                                        if (alert.textFields.count > 0) {
                                                            UITextField *textField = [alert.textFields firstObject];
@@ -140,14 +140,14 @@
                                                                NSString* folderToAddPath = [self->currentFolder stringByAppendingPathComponent:textField.text];
                                                                if([fileManager fileExistsAtPath:folderToAddPath isDirectory:&isDir] && isDir)
                                                                {
-                                                                   [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createFolderAlreadyExists", nil) buttonString:@"OK"];
+                                                                   [Util showAlertBoxWithOneOption:self title:@"错误" message:@"文件夹已存在，请使用其他文件夹名称。" buttonString:@"确定"];
                                                                }
                                                                else
                                                                {
                                                                    [fileManager createDirectoryAtPath:folderToAddPath withIntermediateDirectories:YES attributes:nil error:&err];
                                                                    if (err)
                                                                    {
-                                                                       [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:[NSString stringWithFormat:@"%@%@", NSLocalizedString(@"createFolderFailed", nil), err] buttonString:@"OK"];
+                                                                       [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建文件夹，原因：", err] buttonString:@"确定"];
                                                                    }
                                                                    dispatch_async(dispatch_get_main_queue(), ^{
                                                                        [self->upperLevel refreshTable];
@@ -157,11 +157,11 @@
                                                            }
                                                            else
                                                            {
-                                                               [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createFolderEmptyName", nil) buttonString:@"OK"];
+                                                               [Util showAlertBoxWithOneOption:self title:@"错误" message:@"请输入文件夹名称。" buttonString:@"确定"];
                                                            }
                                                        }
                                                    }];
-    UIAlertAction *cancel = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleDefault
+    UIAlertAction *cancel = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleDefault
                                                    handler:^(UIAlertAction * action) {}];
 
     [alert addAction:cancel];
@@ -177,7 +177,7 @@
 - (NSString *)availableDestinationPathForFileName:(NSString *)fileName {
     NSString *cleanName = [fileName lastPathComponent];
     if (cleanName.length == 0) {
-        cleanName = @"Imported File";
+        cleanName = @"导入的文件";
     }
 
     NSString *base = [cleanName stringByDeletingPathExtension];
@@ -188,8 +188,8 @@
 
     while ([fileManager fileExistsAtPath:candidate]) {
         NSString *nextName = extension.length
-            ? [NSString stringWithFormat:@"%@ %ld.%@", base, (long)index, extension]
-            : [NSString stringWithFormat:@"%@ %ld", base, (long)index];
+            ? [NSString stringWithFormat:@"%@（%ld）.%@", base, (long)index, extension]
+            : [NSString stringWithFormat:@"%@（%ld）", base, (long)index];
         candidate = [currentFolder stringByAppendingPathComponent:nextName];
         index += 1;
     }
@@ -200,18 +200,18 @@
 - (void)finishImportWithError:(NSError *)err destination:(NSString *)destinationPath {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (err) {
-            [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:[NSString stringWithFormat:@"Import failed: %@", err.localizedDescription] buttonString:@"OK"];
+            [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"导入失败：%@", err.localizedDescription] buttonString:@"确定"];
             return;
         }
 
         [self->upperLevel refreshTable];
-        [Util showAlertBoxWithOneOption:self title:@"Imported" message:[NSString stringWithFormat:@"%@ was added.", [destinationPath lastPathComponent]] buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"导入完成" message:[NSString stringWithFormat:@"%@ 已添加。", [destinationPath lastPathComponent]] buttonString:@"确定"];
     });
 }
 
 - (IBAction)importFileButtonClick:(id)sender {
     if (!self->currentFolder) {
-        [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createFolderPathNotSet", nil) buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法创建文件夹：路径未设置。" buttonString:@"确定"];
         return;
     }
 
@@ -223,12 +223,12 @@
 
 - (IBAction)importImageButtonClick:(id)sender {
     if (!self->currentFolder) {
-        [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:NSLocalizedString(@"createFolderPathNotSet", nil) buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法创建文件夹：路径未设置。" buttonString:@"确定"];
         return;
     }
 
     if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) {
-        [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"error", nil) message:@"Photo Library is not available." buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"照片图库不可用。" buttonString:@"确定"];
         return;
     }
 
@@ -264,7 +264,7 @@
 - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
     UIImage *image = info[UIImagePickerControllerOriginalImage];
     NSURL *imageURL = info[UIImagePickerControllerImageURL];
-    NSString *fileName = imageURL.lastPathComponent.length ? imageURL.lastPathComponent : @"Imported Image.png";
+    NSString *fileName = imageURL.lastPathComponent.length ? imageURL.lastPathComponent : @"导入的图片.png";
     NSString *destinationPath = [self availableDestinationPathForFileName:fileName];
 
     NSError *err = nil;
@@ -280,7 +280,7 @@
     }
 
     if (!imageData) {
-        err = [NSError errorWithDomain:@"ZXTouchImport" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Could not read the selected image."}];
+        err = [NSError errorWithDomain:@"ZXTouchImport" code:1 userInfo:@{NSLocalizedDescriptionKey: @"无法读取所选图片。"}];
     } else {
         [imageData writeToFile:destinationPath options:NSDataWritingAtomic error:&err];
     }

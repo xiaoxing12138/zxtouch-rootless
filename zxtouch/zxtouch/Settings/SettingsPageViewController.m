@@ -69,17 +69,17 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 }
 
 - (NSString *)triggerActionTitle:(NSString *)action {
-    if ([action isEqualToString:ZX_ACTION_TOGGLE_PANEL]) return @"Toggle Panel";
-    if ([action isEqualToString:ZX_ACTION_STOP_SCRIPT]) return @"Stop Script";
-    if ([action isEqualToString:ZX_ACTION_TOGGLE_RECORDING]) return @"Toggle Recording";
-    if ([action isEqualToString:ZX_ACTION_RUN_SCRIPT]) return @"Run Default Script";
-    return @"Smart Toggle";
+    if ([action isEqualToString:ZX_ACTION_TOGGLE_PANEL]) return @"显示/隐藏控制面板";
+    if ([action isEqualToString:ZX_ACTION_STOP_SCRIPT]) return @"终止脚本";
+    if ([action isEqualToString:ZX_ACTION_TOGGLE_RECORDING]) return @"开始/停止录制";
+    if ([action isEqualToString:ZX_ACTION_RUN_SCRIPT]) return @"运行默认脚本";
+    return @"智能切换";
 }
 
 - (NSString *)triggerTitle:(NSString *)triggerKey {
-    if ([triggerKey isEqualToString:ZX_TRIGGER_VOLUME_UP]) return @"Volume Up";
-    if ([triggerKey isEqualToString:ZX_TRIGGER_HOME]) return @"Home Button";
-    return @"Volume Down";
+    if ([triggerKey isEqualToString:ZX_TRIGGER_VOLUME_UP]) return @"音量加";
+    if ([triggerKey isEqualToString:ZX_TRIGGER_HOME]) return @"主屏幕按钮";
+    return @"音量减";
 }
 
 - (NSMutableDictionary *)triggerConfigForKey:(NSString *)triggerKey {
@@ -119,14 +119,13 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 
 - (NSString *)triggerSummaryForKey:(NSString *)triggerKey {
     NSDictionary *trigger = [self triggerConfigForKey:triggerKey];
-    if (![trigger[@"enabled"] boolValue]) return @"Off";
-    NSString *clickWord = [trigger[@"count"] intValue] == 1 ? @"click" : @"clicks";
+    if (![trigger[@"enabled"] boolValue]) return @"关闭";
     NSString *actionTitle = [self triggerActionTitle:trigger[@"action"]];
     NSString *script = trigger[@"script"];
     if ([trigger[@"action"] isEqualToString:ZX_ACTION_RUN_SCRIPT] && [script length] > 0) {
-        actionTitle = [NSString stringWithFormat:@"Run %@", [[script lastPathComponent] stringByDeletingPathExtension]];
+        actionTitle = [NSString stringWithFormat:@"运行 %@", [[script lastPathComponent] stringByDeletingPathExtension]];
     }
-    return [NSString stringWithFormat:@"%@ %@ -> %@", trigger[@"count"], clickWord, actionTitle];
+    return [NSString stringWithFormat:@"%@次点击 → %@", trigger[@"count"], actionTitle];
 }
 
 - (NSArray<NSString *> *)availableScriptPaths {
@@ -143,15 +142,15 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 }
 
 - (NSString *)iconNameForCellTitle:(NSString *)title {
-    if ([title containsString:@"Web"]) return @"globe";
-    if ([title containsString:@"Touch"]) return @"hand.tap";
-    if ([title containsString:@"Double-click"]) return @"bolt.badge.clock";
-    if ([title containsString:@"Volume"]) return @"speaker.wave.2";
-    if ([title containsString:@"Default Trigger"]) return @"play.square.stack";
-    if ([title containsString:@"Switch App"]) return @"arrow.triangle.2.circlepath";
-    if ([title containsString:@"Example"]) return @"folder";
-    if ([title containsString:@"Registry"]) return @"list.bullet.rectangle";
-    if ([title containsString:@"Dark"]) return @"moon";
+    if ([title containsString:@"服务器"]) return @"globe";
+    if ([title containsString:@"触摸"]) return @"hand.tap";
+    if ([title containsString:@"双击"]) return @"bolt.badge.clock";
+    if ([title containsString:@"音量"]) return @"speaker.wave.2";
+    if ([title containsString:@"默认触发"]) return @"play.square.stack";
+    if ([title containsString:@"切换App"]) return @"arrow.triangle.2.circlepath";
+    if ([title containsString:@"示例"]) return @"folder";
+    if ([title containsString:@"注册表"]) return @"list.bullet.rectangle";
+    if ([title containsString:@"深色"]) return @"moon";
     if ([title containsString:@"ZXTouch"]) return @"info.circle";
     return @"gearshape";
 }
@@ -160,15 +159,15 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     BOOL enabled = ZXRemoteDashboardIsEnabled();
     NSMutableArray *cells = [NSMutableArray arrayWithObject:@{
         @"type": @(SETTING_CELL_SWITCH),
-        @"title": NSLocalizedString(@"webServer", nil),
+        @"title": @"服务器",
         @"switch_click_handler": NSStringFromSelector(@selector(handleWebServerWithSwitchCellInstance:)),
         @"switch_init_status": @(enabled)
     }];
     if (enabled) {
         [cells addObject:@{
             @"type": @(SETTING_CELL_ENTRY),
-            @"title": @"Dashboard URL",
-            @"secondary_title": @"Tap to view and copy",
+            @"title": @"网页面板地址",
+            @"secondary_title": @"点击查看并复制",
             @"row_click_handler": NSStringFromSelector(@selector(handleDashboardURLTap:))
         }];
     }
@@ -178,9 +177,9 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     // Do any additional setup after loading the view.
-    self.title = @"Settings";
+    self.title = @"设置";
     
-    sections = @[NSLocalizedString(@"remoteManagement", nil), NSLocalizedString(@"control", nil), @"Automation", NSLocalizedString(@"script", nil), @"Appearance", @"About"];
+    sections = @[@"远程管理", @"控制", @"自动操作", @"脚本", @"外观", @"关于"];
     configManager = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
     BOOL doubleClickPopup = YES;
     if ([configManager getValueFromKey:@"double_click_volume_show_popup"])
@@ -202,30 +201,37 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 
     BOOL darkMode = [self darkModeEnabled];
 
+    BOOL netSpeedIndicator = NO;
+    if ([configManager getValueFromKey:@"net_speed_indicator_enabled"])
+    {
+        netSpeedIndicator = [[configManager getValueFromKey:@"net_speed_indicator_enabled"] boolValue];
+    }
+
     // [@{"type": ?, @"title": ?, @"content": ?, ... more depends on the cell type}]
     //
     cellsForEachSection = @[
         [self remoteManagementCells],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": NSLocalizedString(@"touchIndicator", nil), @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"doubleClickShowPopup", nil), @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"双击下音量键打开控制面板", @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)},
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Volume Up", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Volume Down", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Home Button", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_HOME], @"trigger_key": ZX_TRIGGER_HOME, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量减", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"主屏幕按钮", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_HOME], @"trigger_key": ZX_TRIGGER_HOME, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"switchAppBeforePlaying", nil), @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Example Scripts", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Script Registry", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"运行脚本前切换App", @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"脚本完成弹窗", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"示例脚本", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"脚本注册表", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Dark Mode", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"深色模式", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"ZXTouch Rootless 1.0.0", @"secondary_title": @"iOS 15-17 port by Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": [NSString stringWithFormat:@"ZXTouch %@", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"]], @"secondary_title": @"iOS 15-17 移植版，作者 Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
         ]
     ];
      
@@ -264,29 +270,34 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 
     BOOL darkMode = [self darkModeEnabled];
 
-    sections = @[NSLocalizedString(@"remoteManagement", nil), NSLocalizedString(@"control", nil), @"Automation", NSLocalizedString(@"script", nil), @"Appearance", @"About"];
+    BOOL netSpeedIndicator = NO;
+    if ([configManager getValueFromKey:@"net_speed_indicator_enabled"])
+        netSpeedIndicator = [[configManager getValueFromKey:@"net_speed_indicator_enabled"] boolValue];
+
+    sections = @[@"远程管理", @"控制", @"自动操作", @"脚本", @"外观", @"关于"];
     cellsForEachSection = @[
         [self remoteManagementCells],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": NSLocalizedString(@"touchIndicator", nil), @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"doubleClickShowPopup", nil), @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"双击下音量键打开控制面板", @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)},
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Volume Up", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Volume Down", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Home Button", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_HOME], @"trigger_key": ZX_TRIGGER_HOME, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量减", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"主屏幕按钮", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_HOME], @"trigger_key": ZX_TRIGGER_HOME, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"switchAppBeforePlaying", nil), @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Example Scripts", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Script Registry", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"运行脚本前切换App", @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"脚本完成弹窗", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"示例脚本", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"脚本注册表", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Dark Mode", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"深色模式", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"ZXTouch Rootless 1.0.0", @"secondary_title": @"iOS 15-17 port by Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": [NSString stringWithFormat:@"ZXTouch %@", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"]], @"secondary_title": @"iOS 15-17 移植版，作者 Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
         ]
     ];
     [_tableView reloadData];
@@ -344,8 +355,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 }
 
 - (NSString *)triggerKeyFromCell:(TableViewCellWithEntry *)cell {
-    if ([cell.title.text isEqualToString:@"Volume Up"]) return ZX_TRIGGER_VOLUME_UP;
-    if ([cell.title.text isEqualToString:@"Home Button"]) return ZX_TRIGGER_HOME;
+    if ([cell.title.text isEqualToString:@"音量加"]) return ZX_TRIGGER_VOLUME_UP;
+    if ([cell.title.text isEqualToString:@"主屏幕按钮"]) return ZX_TRIGGER_HOME;
     return ZX_TRIGGER_VOLUME_DOWN;
 }
 
@@ -365,8 +376,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 
 - (void)chooseScriptForTrigger:(NSString *)triggerKey fromCell:(UITableViewCell *)cell {
     NSArray<NSString *> *scripts = [self availableScriptPaths];
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Run Script"
-        message:scripts.count ? @"Choose the script for this trigger." : @"No .bdl scripts were found."
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"运行脚本"
+        message:scripts.count ? @"请选择此触发要运行的脚本。" : @"未找到任何 .bdl 脚本。"
         preferredStyle:UIAlertControllerStyleActionSheet];
 
     for (NSString *script in scripts) {
@@ -381,10 +392,10 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         if (sheet.actions.count >= 18) break;
     }
 
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Enter Path..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"手动输入路径..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self handleTriggerScriptTap:(TableViewCellWithEntry *)cell];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     UIPopoverPresentationController *pop = sheet.popoverPresentationController;
     if (pop) {
         pop.sourceView = cell;
@@ -398,17 +409,17 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     NSMutableDictionary *trigger = [self triggerConfigForKey:triggerKey];
     NSString *title = [self triggerTitle:triggerKey];
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:title
-        message:[NSString stringWithFormat:@"Current: %@", [self triggerSummaryForKey:triggerKey]]
+        message:[NSString stringWithFormat:@"当前设置：%@", [self triggerSummaryForKey:triggerKey]]
         preferredStyle:UIAlertControllerStyleActionSheet];
 
     if ([trigger[@"enabled"] boolValue]) {
-        [sheet addAction:[UIAlertAction actionWithTitle:@"Disable Trigger" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"停用此触发" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
             NSMutableDictionary *updated = [self triggerConfigForKey:triggerKey];
             updated[@"enabled"] = @(NO);
             [self saveTriggerConfig:updated forKey:triggerKey];
         }]];
     } else {
-        [sheet addAction:[UIAlertAction actionWithTitle:@"Enable Trigger" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"启用此触发" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
             NSMutableDictionary *updated = [self triggerConfigForKey:triggerKey];
             updated[@"enabled"] = @(YES);
             [self saveTriggerConfig:updated forKey:triggerKey];
@@ -416,28 +427,27 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     }
 
     for (NSInteger count = 1; count <= 5; count++) {
-        NSString *clickWord = count == 1 ? @"click" : @"clicks";
-        [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%ld %@", (long)count, clickWord] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%ld 次点击", (long)count] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
             [self setCount:count forTrigger:triggerKey];
         }]];
     }
 
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Run Script..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"运行脚本..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self chooseScriptForTrigger:triggerKey fromCell:cell];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Toggle Panel" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"显示/隐藏控制面板" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setAction:ZX_ACTION_TOGGLE_PANEL forTrigger:triggerKey];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Stop Script" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"终止脚本" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setAction:ZX_ACTION_STOP_SCRIPT forTrigger:triggerKey];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Toggle Recording" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"开始/停止录制" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setAction:ZX_ACTION_TOGGLE_RECORDING forTrigger:triggerKey];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Smart Toggle" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"智能切换" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setAction:ZX_ACTION_SMART_TOGGLE forTrigger:triggerKey];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
 
     UIPopoverPresentationController *pop = sheet.popoverPresentationController;
     if (pop) {
@@ -448,26 +458,26 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 }
 
 - (void)handleVolumeActionTap:(TableViewCellWithEntry*)cell {
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Trigger Action"
-        message:@"Choose the action fired by the Double-click Volume Down event."
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"触发动作"
+        message:@"请选择双击音量减事件要执行的动作。"
         preferredStyle:UIAlertControllerStyleActionSheet];
 
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Smart Toggle" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"智能切换" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setVolumeAction:ZX_ACTION_SMART_TOGGLE];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Toggle Panel" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"显示/隐藏控制面板" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setVolumeAction:ZX_ACTION_TOGGLE_PANEL];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Stop Script" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"终止脚本" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setVolumeAction:ZX_ACTION_STOP_SCRIPT];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Toggle Recording" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"开始/停止录制" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setVolumeAction:ZX_ACTION_TOGGLE_RECORDING];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Run Default Script" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"运行默认脚本" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setVolumeAction:ZX_ACTION_RUN_SCRIPT];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
 
     UIPopoverPresentationController *pop = sheet.popoverPresentationController;
     if (pop) {
@@ -481,20 +491,20 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     NSString *triggerKey = [self triggerKeyFromCell:cell];
     NSMutableDictionary *trigger = [self triggerConfigForKey:triggerKey];
     NSString *current = trigger[@"script"] ?: @"";
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Default Trigger Script"
-        message:@"Paste a .bdl path to run from this trigger."
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"默认触发脚本"
+        message:@"粘贴要由此触发运行的 .bdl 脚本路径。"
         preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.placeholder = @"/var/mobile/Library/ZXTouch/scripts/example.bdl";
         textField.text = current;
         textField.clearButtonMode = UITextFieldViewModeWhileEditing;
     }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Clear" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+    [alert addAction:[UIAlertAction actionWithTitle:@"清除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         NSMutableDictionary *updated = [self triggerConfigForKey:triggerKey];
         updated[@"script"] = @"";
         [self saveTriggerConfig:updated forKey:triggerKey];
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         NSString *path = alert.textFields.firstObject.text ?: @"";
         NSMutableDictionary *updated = [self triggerConfigForKey:triggerKey];
         updated[@"enabled"] = @(YES);
@@ -502,7 +512,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         updated[@"script"] = path;
         [self saveTriggerConfig:updated forKey:triggerKey];
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -516,24 +526,38 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if (!ZXRemoteDashboardSetEnabled(YES)) {
         [s setOn:NO animated:YES];
         NSString *dashboardError = ZXRemoteDashboardLastError();
-        [Util showAlertBoxWithOneOption:self title:@"Dashboard unavailable"
-            message:dashboardError.length ? dashboardError : @"Unable to start the local dashboard."
-            buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"无法打开网页面板"
+            message:dashboardError.length ? dashboardError : @"无法启动本地网页面板。"
+            buttonString:@"确定"];
         return;
     }
 
-    [Util showAlertBoxWithOneOption:self title:@"Remote Dashboard"
-        message:[NSString stringWithFormat:@"Open this address from a device on the same Wi-Fi:\n\n%@", ZXRemoteDashboardURL()]
-        buttonString:@"OK"];
+    [Util showAlertBoxWithOneOption:self title:@"远程网页面板"
+        message:[NSString stringWithFormat:@"请在连接同一 Wi-Fi 的设备上打开以下地址：\n\n%@", ZXRemoteDashboardURL()]
+        buttonString:@"确定"];
     [self reloadSettingsModel];
 }
 
 - (void)handleDashboardURLTap:(TableViewCellWithEntry *)cell {
     NSString *url = ZXRemoteDashboardURL();
     UIPasteboard.generalPasteboard.string = url;
-    [Util showAlertBoxWithOneOption:self title:@"Dashboard URL"
-        message:[NSString stringWithFormat:@"%@\n\nCopied to the clipboard.", url]
-        buttonString:@"OK"];
+    [Util showAlertBoxWithOneOption:self title:@"网页面板地址"
+        message:[NSString stringWithFormat:@"%@\n\n已复制到剪贴板。", url]
+        buttonString:@"确定"];
+}
+
+- (void)handleNetSpeedIndicatorToggle:(UISwitch*)s {
+    BOOL enabled = [s isOn];
+    [configManager updateKey:@"net_speed_indicator_enabled" forValue:@(enabled)];
+    [configManager save];
+
+    // Notify SpringBoard tweak via socket (command 31)
+    Socket *socket = [[Socket alloc] init];
+    if ([socket connect:@"127.0.0.1" byPort:6000] == 0) {
+        NSString *cmd = [NSString stringWithFormat:@"31;;%d\r\n", enabled ? 1 : 0];
+        [socket send:cmd];
+        [socket close];
+    }
 }
 
 - (void)handleDarkModeToggle:(UISwitch*)s {
@@ -567,23 +591,23 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 - (void)handleCreditsTap:(TableViewCellWithEntry*)cell {
     // Show a brief about alert
     [Util showAlertBoxWithOneOption:self title:@"ZXTouch Rootless"
-        message:@"iOS 16 Rootless (Dopamine) port by Epic0001\nhttps://github.com/Epic0001/zxtouchrootless"
-        buttonString:@"OK"];
+        message:@"iOS 16 Rootless（Dopamine 越狱）移植版，作者 Epic0001\nhttps://github.com/Epic0001/zxtouchrootless"
+        buttonString:@"确定"];
 }
 
 - (void)handleExamplesTap:(TableViewCellWithEntry*)cell {
     NSArray *examples = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:EXAMPLE_SCRIPTS_PATH error:nil];
-    NSString *message = [NSString stringWithFormat:@"%lu bundled examples installed in:\n%@", (unsigned long)examples.count, EXAMPLE_SCRIPTS_PATH];
-    [Util showAlertBoxWithOneOption:self title:@"Example Scripts" message:message buttonString:@"OK"];
+    NSString *message = [NSString stringWithFormat:@"已安装 %lu 个内置示例脚本，位于：\n%@", (unsigned long)examples.count, EXAMPLE_SCRIPTS_PATH];
+    [Util showAlertBoxWithOneOption:self title:@"示例脚本" message:message buttonString:@"确定"];
 }
 
 - (void)handleRegistryTap:(TableViewCellWithEntry*)cell {
     NSDictionary *registry = [NSDictionary dictionaryWithContentsOfFile:SCRIPT_REGISTRY_PATH];
-    NSString *version = registry[@"version"] ?: @"missing";
+    NSString *version = registry[@"version"] ?: @"缺失";
     NSString *examplesPath = registry[@"examplesPath"] ?: EXAMPLE_SCRIPTS_PATH;
     NSArray *scripts = registry[@"scripts"] ?: @[];
-    NSString *message = [NSString stringWithFormat:@"Registry version: %@\nScripts: %lu\nExamples: %@", version, (unsigned long)scripts.count, examplesPath];
-    [Util showAlertBoxWithOneOption:self title:@"Script Registry" message:message buttonString:@"OK"];
+    NSString *message = [NSString stringWithFormat:@"注册表版本：%@\n脚本数量：%lu\n示例路径：%@", version, (unsigned long)scripts.count, examplesPath];
+    [Util showAlertBoxWithOneOption:self title:@"脚本注册表" message:message buttonString:@"确定"];
 }
 
 - (void)handleTouchIndicatorWithEntryCellInstance:(TableViewCellWithEntry*)cell {

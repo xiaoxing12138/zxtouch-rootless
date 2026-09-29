@@ -85,18 +85,18 @@
 
             int eventType = [eventConfig[@"type"] intValue];
             
-            NSString *eventToPerform = NSLocalizedString(@"unassigned", nil);
+            NSString *eventToPerform = @"未分配";
             if (eventType == AUTORUN)
             {
-                eventToPerform = NSLocalizedString(@"runScript", nil);
+                eventToPerform = @"运行脚本";
             }
             else if (eventType == SHOW_POPUP)
             {
-                eventToPerform = NSLocalizedString(@"showPopup", nil);
+                eventToPerform = @"显示/隐藏控制面板";
             }
             else if (eventType == STOP_PLAYING_ALL)
             {
-                eventToPerform = NSLocalizedString(@"stopScriptPlay", nil);
+                eventToPerform = @"终止运行脚本";
             }
             if (groupEvents == nil)
             {
@@ -112,7 +112,7 @@
     
     if ([[table allKeys] count] == 0)
     {
-        [Util showAlertBoxWithOneOption:self title:NSLocalizedString(@"prompt", nil) message:NSLocalizedString(@"pleaseAssignEvents", nil) buttonString:@"OK"];
+        [Util showAlertBoxWithOneOption:self title:@"提示" message:@"要配置 Activator 任务，请先在\"设置 - Activator\"中分配 Activator 事件。" buttonString:@"确定"];
     }
 }
 

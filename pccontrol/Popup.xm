@@ -102,7 +102,7 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
 
         // Header
         UILabel *ttl = [[UILabel alloc] initWithFrame:CGRectMake(12,8,pw-104,30)];
-        ttl.text = @"ZXTouch Panel"; ttl.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+        ttl.text = @"ZXTouch 控制面板"; ttl.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
         ttl.textColor = [UIColor labelColor]; [cv addSubview:ttl];
 
         // ⚙️ toggle — tap to enable/disable "ask settings before play"
@@ -133,9 +133,9 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
 
         // REC / STOP buttons
         CGFloat btnW = (pw - 24) / 2;
-        UIButton *recBtn = makeBtn(@"⏺  REC", [UIColor systemRedColor]);
+        UIButton *recBtn = makeBtn(@"录制", [UIColor systemRedColor]);
         recBtn.frame = CGRectMake(8, 54, btnW, BTN_H);
-        [recBtn setTitle:@"Record" forState:UIControlStateNormal];
+        [recBtn setTitle:@"录制" forState:UIControlStateNormal];
         [recBtn setImage:panelSymbol(@"record.circle.fill") forState:UIControlStateNormal];
         recBtn.tintColor = [UIColor systemRedColor];
         recBtn.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.12];
@@ -144,7 +144,7 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
         }] forControlEvents:UIControlEventTouchUpInside];
         [cv addSubview:recBtn];
 
-        UIButton *stopBtn = makeBtn(@"Stop", [UIColor secondaryLabelColor]);
+        UIButton *stopBtn = makeBtn(@"停止", [UIColor secondaryLabelColor]);
         stopBtn.frame = CGRectMake(pw/2+4, 54, btnW, BTN_H);
         [stopBtn setImage:panelSymbol(@"stop.fill") forState:UIControlStateNormal];
         stopBtn.tintColor = [UIColor secondaryLabelColor];
@@ -157,7 +157,7 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
 
         // Scripts label — shows hint when settings mode on
         UILabel *sl = [[UILabel alloc] initWithFrame:CGRectMake(12, 54+BTN_H+14, pw-20, 18)];
-        sl.text = @"Scripts"; sl.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        sl.text = @"脚本"; sl.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
         sl.textColor = [UIColor secondaryLabelColor]; [cv addSubview:sl];
 
         // Script scroll view
@@ -256,25 +256,25 @@ void applyPanelDarkMode(BOOL dark) {
             [btn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
                 if (_settingsVisible) {
                     UIAlertController *alert = [UIAlertController
-                        alertControllerWithTitle:@"Play Settings"
+                        alertControllerWithTitle:@"播放设置"
                         message:item[@"label"]
                         preferredStyle:UIAlertControllerStyleAlert];
                     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-                        tf.placeholder = @"Repeat count (e.g. 3)";
+                        tf.placeholder = @"重复次数（如 3）";
                         tf.keyboardType = UIKeyboardTypeNumberPad;
                         tf.text = _repeatCount > 0 ? [NSString stringWithFormat:@"%d", _repeatCount] : @"";
                     }];
                     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-                        tf.placeholder = @"Speed (e.g. 1.0)";
+                        tf.placeholder = @"播放速度（如 1.0）";
                         tf.keyboardType = UIKeyboardTypeDecimalPad;
                         tf.text = [NSString stringWithFormat:@"%.1f", _speed];
                     }];
                     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-                        tf.placeholder = @"Interval between runs in sec (e.g. 0)";
+                        tf.placeholder = @"运行间隔（秒，如 0）";
                         tf.keyboardType = UIKeyboardTypeDecimalPad;
                         tf.text = _interval > 0 ? [NSString stringWithFormat:@"%.1f", _interval] : @"";
                     }];
-                    [alert addAction:[UIAlertAction actionWithTitle:@"Run" style:UIAlertActionStyleDefault handler:^(UIAlertAction *aa) {
+                    [alert addAction:[UIAlertAction actionWithTitle:@"运行" style:UIAlertActionStyleDefault handler:^(UIAlertAction *aa) {
                         NSString *repeatStr  = alert.textFields[0].text;
                         NSString *speedStr   = alert.textFields[1].text;
                         NSString *intervalStr = alert.textFields[2].text;
@@ -288,10 +288,10 @@ void applyPanelDarkMode(BOOL dark) {
                         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                             NSError *err = nil;
                             playScriptWithSettings((UInt8*)[fullPath UTF8String], repeat, sp, intv, &err);
-                            if (err) showAlertBox(@"Error", [err localizedDescription], 999);
+                            if (err) showAlertBox(@"错误", [err localizedDescription], 999);
                         });
                     }]];
-                    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+                    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
                     ZXSafeMainAsync(^{
                         [_window.rootViewController presentViewController:alert animated:YES completion:nil];
                     });
@@ -302,7 +302,7 @@ void applyPanelDarkMode(BOOL dark) {
                     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                         NSError *err = nil;
                         playScriptWithSettings((UInt8*)[fullPath UTF8String], 0, 1.0f, 0.0f, &err);
-                        if (err) showAlertBox(@"Error", [err localizedDescription], 999);
+                        if (err) showAlertBox(@"错误", [err localizedDescription], 999);
                     });
                 }
             }] forControlEvents:UIControlEventTouchUpInside];
@@ -336,7 +336,7 @@ void applyPanelDarkMode(BOOL dark) {
     NSArray *contents = [[fm contentsOfDirectoryAtPath:folderPath error:nil]
                          sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
     NSMutableArray *items = [NSMutableArray array];
-    [items addObject:@{@"label": @"← Back", @"action": @"back"}];
+    [items addObject:@{@"label": @"← 返回", @"action": @"back"}];
     for (NSString *n in contents) {
         if (![n hasSuffix:@".bdl"]) continue;
         NSString *path = [folderPath stringByAppendingPathComponent:n];
@@ -368,7 +368,7 @@ void applyPanelDarkMode(BOOL dark) {
         [self hide];
         NSError *err = nil;
         startRecording(0, &err);
-        if (err) showAlertBox(@"Error", [NSString stringWithFormat:@"Unable to start recording: %@", [err localizedDescription]], 999);
+        if (err) showAlertBox(@"错误", [NSString stringWithFormat:@"无法开始录制：%@", [err localizedDescription]], 999);
     });
 }
 
@@ -394,7 +394,7 @@ void applyPanelDarkMode(BOOL dark) {
     {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
             stopRecording();
-            showAlertBox(@"ZXTouch", @"Recording stopped and saved.", 1);
+            showAlertBox(@"ZXTouch", @"录制已停止并保存。", 1);
         });
         return;
     }

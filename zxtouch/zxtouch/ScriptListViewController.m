@@ -42,7 +42,7 @@
 
     LogViewController *logEditorViewController = [[LogViewController alloc] initWithNibName: @"LogViewController" bundle: nil];
     
-    logEditorViewController.title = @"Log";
+    logEditorViewController.title = @"日志";
     //[logEditorViewController setFile:RUNTIME_OUTPUT_PATH];
 
     [self presentViewController:logEditorViewController animated:YES completion:nil];
@@ -110,7 +110,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = self.title.length ? self.title : @"Scripts";
+    self.title = self.title.length ? self.title : @"脚本列表";
     if (@available(iOS 11.0, *)) {
         self.navigationController.navigationBar.prefersLargeTitles = YES;
         self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAutomatic;
@@ -123,11 +123,11 @@
     if (![[NSUserDefaults standardUserDefaults] boolForKey:@"notifyDoubleClickVolumnBtn"])
     {
         
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:NSLocalizedString(@"prompt", nil)
-                                                                       message:NSLocalizedString(@"showPopUpWindow", nil)
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"提示"
+                                                                       message:@"在任意应用中双击音量减按钮即可显示弹出窗。"
                                        preferredStyle:UIAlertControllerStyleAlert];
          
-        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault
            handler:^(UIAlertAction * action) {}];
          
         [alert addAction:defaultAction];
@@ -140,11 +140,11 @@
     if (![[NSUserDefaults standardUserDefaults] boolForKey:@"ZXTouchAlreadyLaunchedv0.0.6"])
     {
         
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:NSLocalizedString(@"newFeatures", nil)
-                                                                       message:NSLocalizedString(@"006features", nil)
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"新特性"
+                                                                       message:@"1. 新增 zxtouch Python 库支持（详见示例脚本）\n2. 支持底部、左侧、右侧悬浮提示\n3. 新增日志与添加按钮\n4. 界面更新\n5. 所有示例脚本均已更新\n6. 修复若干问题"
                                        preferredStyle:UIAlertControllerStyleAlert];
          
-        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault
            handler:^(UIAlertAction * action) {}];
          
         [alert addAction:defaultAction];
@@ -186,7 +186,7 @@
 
     UILabel *title = [[UILabel alloc] init];
     title.translatesAutoresizingMaskIntoConstraints = NO;
-    title.text = @"README";
+    title.text = @"说明";
     title.font = [UIFont boldSystemFontOfSize:15];
     title.textColor = UIColor.secondaryLabelColor;
 
@@ -340,22 +340,22 @@
         NSLog(@"delete button clicked for index path: %@", indexPath);
         // delete files in NSFileManager
         
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Alert"
-                                       message:@"Are you sure you want to remove this file (folder)?"
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"提示"
+                                       message:@"确定要删除此文件（文件夹）吗？"
                                        preferredStyle:UIAlertControllerStyleAlert];
          
-        UIAlertAction* ok = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+        UIAlertAction* ok = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault
            handler:^(UIAlertAction * action) {NSError *err = nil;
             [[NSFileManager defaultManager] removeItemAtPath:self->scriptList[indexPath.row] error:&err];
 
             if (err)
             {
                 NSLog(@"Error while removing file. Error: %@", err);
-                UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Error"
-                                               message:[NSString stringWithFormat:@"Error while deleting this file. Error message: %@", err]
+                UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"错误"
+                                               message:[NSString stringWithFormat:@"删除此文件时出错。错误信息：%@", err]
                                                preferredStyle:UIAlertControllerStyleAlert];
                  
-                UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+                UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault
                    handler:^(UIAlertAction * action) {}];
                  
                 [alert addAction:defaultAction];
@@ -365,7 +365,7 @@
             [self->scriptList removeObjectAtIndex:indexPath.row];
             // reload table view
             [self._scriptListTableView reloadData];}];
-        UIAlertAction* cancel = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleDefault
+        UIAlertAction* cancel = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleDefault
            handler:nil];
         
         [alert addAction:cancel];

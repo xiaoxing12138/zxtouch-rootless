@@ -72,7 +72,7 @@ NSString *getDeviceInfoFromRawData(UInt8* eventData, NSError **error)
     }
     else
     {
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Unknown device info task type. The task you provide: %d\r\n", task]}];
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;未知的设备信息任务类型，你传入的任务类型为：%d\r\n", task]}];
         return @"";
     }
 }
