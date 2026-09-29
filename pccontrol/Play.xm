@@ -70,7 +70,10 @@ int playScriptWithSettings(UInt8* path, int repeatTime, float playSpeed, float s
     if (playSpeed <= 0) playSpeed = 1.0f;
     currentRunSpeed = playSpeed;
 
-    [scriptPlayer setPath:[NSString stringWithFormat:@"%s", path]];
+    // %s decodes the raw bytes as MacRoman, which mangles every non-ASCII
+    // script name into something the filesystem cannot find. Decode as UTF-8
+    // so non-English script names resolve.
+    [scriptPlayer setPath:[NSString stringWithUTF8String:(const char *)path]];
     [scriptPlayer setRepeatTime:repeatTime];
     [scriptPlayer setSpeed:playSpeed];
     [scriptPlayer setInterval:sleepBetweenRun];

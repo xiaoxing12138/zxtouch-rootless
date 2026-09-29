@@ -2,6 +2,7 @@
 #include "SocketServer.h"
 #import <CoreFoundation/CoreFoundation.h>
 #import <UIKit/UIKit.h>
+#include "Common.h"
 
 // Dedicated window for hosting alert controllers (survives until dismissed)
 static NSMutableArray *_alertWindows = nil;
@@ -60,7 +61,7 @@ NSString *promptInputFromRawData(UInt8 *eventData, NSError **error)
     void (^cleanup)(void) = ^{
         if (finished) return;
         finished = YES;
-        dispatch_async(dispatch_get_main_queue(), ^{
+        ZXSafeMainAsync(^{
             if (promptAlert) {
                 [promptAlert dismissViewControllerAnimated:YES completion:nil];
             }
@@ -72,7 +73,7 @@ NSString *promptInputFromRawData(UInt8 *eventData, NSError **error)
         dispatch_semaphore_signal(sema);
     };
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         if (!_alertWindows) _alertWindows = [NSMutableArray array];
 
         UIWindowScene *scene = (UIWindowScene *)[[UIApplication sharedApplication].connectedScenes anyObject];
@@ -129,7 +130,7 @@ NSString *promptInputFromRawData(UInt8 *eventData, NSError **error)
 void showAlertBox(NSString* title, NSString* content, int dismissTime)
 {
     _lastAlertBoxRequestTime = CFAbsoluteTimeGetCurrent();
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         if (!_alertWindows) _alertWindows = [NSMutableArray array];
 
         UIWindowScene *scene = (UIWindowScene *)[[UIApplication sharedApplication].connectedScenes anyObject];
@@ -152,7 +153,7 @@ void showAlertBox(NSString* title, NSString* content, int dismissTime)
             preferredStyle:UIAlertControllerStyleAlert];
 
         void (^cleanup)(void) = ^{
-            dispatch_async(dispatch_get_main_queue(), ^{
+            ZXSafeMainAsync(^{
                 win.hidden = YES;
                 [_alertWindows removeObject:win];
             });

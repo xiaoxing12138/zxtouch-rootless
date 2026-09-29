@@ -267,3 +267,47 @@ pid_t system2Cancelable(const char *command, int *infp, int *outfp,
     if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
     return -1;
 }
+
+/*
+Record a main-queue UI exception instead of letting it kill SpringBoard.
+
+Two destinations on purpose: NSLog lands in the unified system log, while the
+file stays on the device and can be pulled back over the socket channel the
+tweak already exposes. Without that file the reason for the failure is lost,
+which is how this tweak kept dropping devices into safe mode unnoticed.
+*/
+void ZXLogUIException(NSException *exception)
+{
+    NSLog(@"### com.zjx.springboard: uncaught exception in main-queue block: %@ -- %@\n%@",
+          exception.name, exception.reason, [exception callStackSymbols]);
+
+    @try {
+        NSString *folder = @"/var/mobile/Library/ZXTouch";
+        [[NSFileManager defaultManager] createDirectoryAtPath:folder
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:NULL];
+
+        NSString *entry = [NSString stringWithFormat:@"[%@] %@ -- %@\n%@\n\n",
+                           [NSDate date], exception.name, exception.reason,
+                           [exception callStackSymbols]];
+        NSData *data = [entry dataUsingEncoding:NSUTF8StringEncoding];
+        NSString *path = [folder stringByAppendingPathComponent:@"pccontrol-ui-exceptions.log"];
+
+        NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (handle)
+        {
+            [handle seekToEndOfFile];
+            [handle writeData:data];
+            [handle closeFile];
+        }
+        else
+        {
+            [data writeToFile:path atomically:NO];
+        }
+    }
+    @catch (NSException *ignored)
+    {
+        // Logging must never itself become the reason SpringBoard dies.
+    }
+}

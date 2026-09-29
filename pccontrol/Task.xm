@@ -107,7 +107,10 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
     else if (taskType == TASK_RUN_SHELL)
     {
         @autoreleasepool{
-            system2([[NSString stringWithFormat:@"%@ -c \"%s\"", jbroot(@"/bin/sh"), eventData] UTF8String], NULL, NULL);
+            // %s decodes the raw bytes as MacRoman, which corrupts any non-ASCII
+            // shell command. Decode the payload as UTF-8 instead.
+            NSString *shellCommand = [NSString stringWithUTF8String:(const char *)eventData] ?: @"";
+            system2([[NSString stringWithFormat:@"%@ -c \"%@\"", jbroot(@"/bin/sh"), shellCommand] UTF8String], NULL, NULL);
             notifyClient((UInt8*)"0\r\n", writeStreamRef);
         }
     }

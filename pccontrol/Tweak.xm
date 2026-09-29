@@ -412,7 +412,7 @@ Boolean init()
     notify_register_dispatch("com.zjx.zxtouch.remote-dashboard-changed", &remoteDashboardNotificationToken, dispatch_get_main_queue(), ^(int token) {
         ZXDashboardReloadConfiguration();
     });
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         ZXDashboardReloadConfiguration();
     });
 }

@@ -70,7 +70,7 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
 }
 
 - (void) buildWindow {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         CGRect sb = [UIScreen mainScreen].bounds;
         CGFloat shortSide = MIN(sb.size.width, sb.size.height);
         CGFloat longSide  = MAX(sb.size.width, sb.size.height);
@@ -190,7 +190,7 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
 void applyPanelDarkMode(BOOL dark) {
     extern PopupWindow *popupWindow;
     if (popupWindow) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        ZXSafeMainAsync(^{
             [popupWindow setDarkMode:dark];
         });
     }
@@ -199,7 +199,7 @@ void applyPanelDarkMode(BOOL dark) {
 
 
 - (void) repositionWindow {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         CGRect sb = [UIScreen mainScreen].bounds;
         CGFloat shortSide = MIN(sb.size.width, sb.size.height);
         CGFloat longSide  = MAX(sb.size.width, sb.size.height);
@@ -292,7 +292,7 @@ void applyPanelDarkMode(BOOL dark) {
                         });
                     }]];
                     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-                    dispatch_async(dispatch_get_main_queue(), ^{
+                    ZXSafeMainAsync(^{
                         [_window.rootViewController presentViewController:alert animated:YES completion:nil];
                     });
                 } else {
@@ -342,7 +342,7 @@ void applyPanelDarkMode(BOOL dark) {
         NSString *path = [folderPath stringByAppendingPathComponent:n];
         [items addObject:@{@"label": [n substringToIndex:n.length-4], @"path": path, @"action": @"play"}];
     }
-    dispatch_async(dispatch_get_main_queue(), ^{ [self populateScrollView:items]; });
+    ZXSafeMainAsync(^{ [self populateScrollView:items]; });
 }
 
 - (void) refreshScriptList {
@@ -360,7 +360,7 @@ void applyPanelDarkMode(BOOL dark) {
             [items addObject:@{@"label": name, @"path": path, @"folderName": name, @"action": @"folder"}];
         }
     }
-    dispatch_async(dispatch_get_main_queue(), ^{ [self populateScrollView:items]; });
+    ZXSafeMainAsync(^{ [self populateScrollView:items]; });
 }
 
 - (void) recordingStart {
@@ -403,7 +403,7 @@ void applyPanelDarkMode(BOOL dark) {
 }
 
 - (void) setDarkMode:(BOOL)dark {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         _window.overrideUserInterfaceStyle = dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
     });
 }
@@ -411,7 +411,7 @@ void applyPanelDarkMode(BOOL dark) {
 - (void) show {
     [self refreshScriptList];
     [self repositionWindow];
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         // Apply dark mode from config each time the panel opens
         NSDictionary *cfg = [[NSDictionary alloc] initWithContentsOfFile:SCRIPT_PLAY_CONFIG_PATH];
         NSDictionary *panelInfo = cfg[@"panelPlaybackInfo"];
@@ -437,7 +437,7 @@ void applyPanelDarkMode(BOOL dark) {
 }
 
 - (void) hide {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         _window.hidden = YES;
     });
     isShown = NO;

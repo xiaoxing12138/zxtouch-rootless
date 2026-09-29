@@ -101,7 +101,7 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
         isRecording = true;
 
         // show indicator
-        dispatch_async(dispatch_get_main_queue(), ^{
+        ZXSafeMainAsync(^{
             // Attach to a UIWindowScene. A scene-less UIWindow is tolerated on
             // iOS 15-16 but is fatal from iOS 17 on, which sent SpringBoard into
             // safe mode every time recording started. Every other window in the
@@ -269,7 +269,7 @@ void stopRecording()
     isRecording = false;
 
     // remove indicator
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         _recordIndicator.hidden = YES;
         _recordIndicator = nil;
     });

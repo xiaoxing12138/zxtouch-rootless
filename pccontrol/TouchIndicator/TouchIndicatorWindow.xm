@@ -632,7 +632,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
 }
 
 - (void)refreshRotationPolicy {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         if (indicatorWindowNeedsRebuild && _window) {
             indicatorWindowNeedsRebuild = NO;
             [self rebuildOverlayWindow];
@@ -660,7 +660,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
 }
 
 - (void)stopOrientationTracking {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         [orientationRefreshTimer invalidate];
         orientationRefreshTimer = nil;
     });
@@ -670,7 +670,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
     self = [super init];
     if (self)
     {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        ZXSafeMainAsync(^{
             [self rebuildOverlayWindow];
             _window.autoresizingMask = indicatorLocksToPortrait ? UIViewAutoresizingNone :
                 (UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleBottomMargin);
@@ -705,7 +705,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
     {
         return;
     }
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         [touchIndicatorViewList[index-1] removeFromSuperview];
         touchIndicatorViewList[index-1] = nil;
 
@@ -723,7 +723,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
     {
         [self hideIndicator:index];
     }
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         [self updateWindowFrameForOrientation:cachedOrientation];
         if (logNextWindowGeometry) {
             CGAffineTransform t = _window.transform;
@@ -771,7 +771,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
 }
 
 - (void) show {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         [self updateWindowFrameForOrientation:cachedOrientation];
         _window.autoresizingMask = indicatorLocksToPortrait ? UIViewAutoresizingNone :
             (UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleBottomMargin);
@@ -780,7 +780,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
 }
 
 - (void) hide {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         _window.hidden = YES;
     });
 }
@@ -796,7 +796,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
     {
         return;
     }
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         if (touchIndicatorViewList[index-1] == NULL)
             return;
         [self updateWindowFrameForOrientation:cachedOrientation];

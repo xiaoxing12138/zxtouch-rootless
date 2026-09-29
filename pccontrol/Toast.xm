@@ -1,6 +1,7 @@
 #import "Toast.h"
 #import "Screen.h"
 #import <mach/mach.h>
+#include "Common.h"
 
 static int windowWidth = 200;
 static int windowHeight = 200;
@@ -57,7 +58,7 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
 
 + (void) hideToast
 {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         if (_window != NULL)
         {
             _window.hidden = YES;
@@ -69,7 +70,7 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
 + (void) showToastWithContent:(NSString*)content type:(int)type duration:(float)duration position:(int)position fontSize:(int)afontSize // positon: 0 top 1 bottom 2 left(not supported) 3 right (ns)
 {
     __block UIWindow* currentWindow = NULL;
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         if (_window != NULL)
         {
             _window.hidden = YES;
@@ -163,7 +164,7 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
     });
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         [NSThread sleepForTimeInterval:duration];
-        dispatch_async(dispatch_get_main_queue(), ^{
+        ZXSafeMainAsync(^{
             if (currentWindow != _window)
             {
                 return;

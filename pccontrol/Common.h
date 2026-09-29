@@ -3,6 +3,7 @@
 
 #import <UIKit/UIKit.h>
 #include <signal.h>
+#include <dispatch/dispatch.h>
 
 #define SYSTEM_VERSION_EQUAL_TO(v)                  ([[[UIDevice currentDevice] systemVersion] compare:v options:NSNumericSearch] == NSOrderedSame)
 #define SYSTEM_VERSION_GREATER_THAN(v)              ([[[UIDevice currentDevice] systemVersion] compare:v options:NSNumericSearch] == NSOrderedDescending)
@@ -39,5 +40,27 @@ int call_system(const char *cmd);
 int roundUp(int numToRound, int multiple);
 Boolean isIpad();
 NSString* getDeviceName();
+
+/*
+ Main-queue UI guard.
+
+ An Objective-C exception raised inside a dispatch_async(main) block unwinds
+ straight out of the block and terminates the host process. In a tweak injected
+ into SpringBoard that host is SpringBoard itself, so a single failing UIKit
+ call is enough to drop the device into safe mode. Routing every main-queue
+ block through ZXSafeMainAsync turns that crash into a log entry instead.
+*/
+void ZXLogUIException(NSException *exception);
+
+static inline void ZXSafeMainAsync(dispatch_block_t block)
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            block();
+        } @catch (NSException *exception) {
+            ZXLogUIException(exception);
+        }
+    });
+}
 
 #endif

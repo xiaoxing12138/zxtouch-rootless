@@ -232,7 +232,7 @@ static NSString *ZXPythonModulePath(void)
     // call different functions depending on file extension
 
     // show indicator
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         // Attach to a UIWindowScene — a scene-less UIWindow is fatal from iOS 17
         // on. See the matching comment in Record.xm's startRecording.
         CGRect indicatorFrame = CGRectMake(0, 0, 10*2, 10*2);
@@ -462,7 +462,7 @@ static NSString *ZXPythonModulePath(void)
     // check whether need to replay
     if (repeatTime != 0)
     {    
-        dispatch_async(dispatch_get_main_queue(), ^{
+        ZXSafeMainAsync(^{
             circleView.backgroundColor = [UIColor orangeColor];
         });
 
@@ -497,7 +497,7 @@ static NSString *ZXPythonModulePath(void)
     //scriptPlayForceStop = false;
 
     // remove indicator
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ZXSafeMainAsync(^{
         _playIndicator.hidden = YES;
         _playIndicator = nil;
     });
