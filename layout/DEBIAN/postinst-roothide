@@ -1,0 +1,165 @@
+#!/bin/sh
+# roothide postinst — uses jbroot command to resolve dynamic jailbreak root path
+
+# Register app with SpringBoard
+UICACHE=$(jbroot /usr/bin/uicache 2>/dev/null)
+if [ -x "$UICACHE" ]; then
+    "$UICACHE" -a
+fi
+
+# sudoers entry for zxtouchb
+ZXTOUCHB=$(jbroot /usr/bin/zxtouchb)
+SUDOERS_D=$(jbroot /etc/sudoers.d)
+if [ -d "$SUDOERS_D" ]; then
+    echo "mobile ALL=(root) NOPASSWD:$ZXTOUCHB" > "$SUDOERS_D/zxtouch"
+    chmod 440 "$SUDOERS_D/zxtouch"
+fi
+
+# Create required app directories
+mkdir -p /var/mobile/Library/ZXTouch/scripts/recording/
+mkdir -p /var/mobile/Library/ZXTouch/scripts/examples/
+mkdir -p /var/mobile/Library/ZXTouch/config/tweak/
+mkdir -p /var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/
+
+# Copy bundled example scripts. These are maintained by the package, so refresh
+# them on upgrade while leaving unrelated user scripts alone.
+EXAMPLES=$(jbroot /usr/share/zxtouch/examples)
+if [ -d "$EXAMPLES" ]; then
+    cp -Rf "$EXAMPLES/"* /var/mobile/Library/ZXTouch/scripts/examples/ 2>/dev/null || true
+fi
+
+REGISTRY=/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist
+REGISTRY_SOURCE=$(jbroot /usr/share/zxtouch/script-registry.plist)
+if [ -f "$REGISTRY_SOURCE" ]; then
+    cp -f "$REGISTRY_SOURCE" "$REGISTRY"
+fi
+
+# Patch add_datetime.sh shebang — roothide has no fixed /var/jb path
+SH=$(jbroot /bin/sh)
+SCRIPT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/add_datetime.sh
+cat > "$SCRIPT" << 'EOF'
+#!/bin/sh
+OUTPUT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output
+DATE=$(jbroot /usr/bin/date 2>/dev/null)
+if [ ! -x "$DATE" ]; then DATE=/usr/bin/date; fi
+if [ ! -x "$DATE" ]; then DATE=/bin/date; fi
+echo "$($DATE '+%m-%d-%Y %T'): Start running script. Script path: $1" >> "$OUTPUT"
+while IFS= read -r line; do
+    echo "$($DATE '+%m-%d-%Y %T'): $line" >> "$OUTPUT"
+done
+EOF
+if [ -f "$SCRIPT" ]; then
+    printf '#!%s\n' "$SH" > /tmp/adt_new.sh
+    tail -n +2 "$SCRIPT" >> /tmp/adt_new.sh
+    mv /tmp/adt_new.sh "$SCRIPT"
+    chmod +x "$SCRIPT"
+fi
+touch /var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output
+chown -R mobile:mobile /var/mobile/Library/ZXTouch
+
+# roothide has two views of /var/mobile: the real filesystem, and the one seen
+# through the jbroot. Everything above is created on the real filesystem, but
+# components that resolve paths through the jbroot look under
+# $(jbroot)/var/mobile/Library/ZXTouch, find nothing, and fail: scripts do not
+# play (python exits 2, "cannot open file"), the runtime log reads empty, and the
+# script registry is missing. Point the jbroot view at the real directory so both
+# resolve to the same data.
+REAL_ZX=/var/mobile/Library/ZXTouch
+JB_ZX=$(jbroot /var/mobile/Library/ZXTouch 2>/dev/null)
+
+# Probe first. If a marker written on the real side is already visible through
+# the jbroot, the two paths are the same directory and linking them would create
+# a symlink loop, so leave everything alone.
+SAME_DIR=0
+if [ -n "$JB_ZX" ] && [ "$JB_ZX" != "$REAL_ZX" ]; then
+    : > "$REAL_ZX/.zx-path-probe" 2>/dev/null || true
+    if [ -e "$JB_ZX/.zx-path-probe" ]; then
+        SAME_DIR=1
+    fi
+    rm -f "$REAL_ZX/.zx-path-probe" 2>/dev/null || true
+fi
+
+if [ -n "$JB_ZX" ] && [ "$JB_ZX" != "$REAL_ZX" ] && [ "$SAME_DIR" = "0" ]; then
+    if [ -d "$JB_ZX" ] && [ ! -L "$JB_ZX" ]; then
+        # An earlier install left a real directory here. Preserve anything the
+        # user put in it before replacing it with the link.
+        cp -Rf "$JB_ZX/." "$REAL_ZX/" 2>/dev/null || true
+        rm -rf "$JB_ZX"
+    fi
+    if [ ! -L "$JB_ZX" ]; then
+        mkdir -p "$(jbroot /var/mobile/Library)" 2>/dev/null || true
+        ln -s "$REAL_ZX" "$JB_ZX" 2>/dev/null || true
+    fi
+    # A link that does not resolve to a usable directory is worse than no link.
+    if [ -L "$JB_ZX" ] && [ ! -d "$JB_ZX/" ]; then
+        rm -f "$JB_ZX"
+        echo "ZXTouch: warning - could not bridge the jbroot data path; scripts may not play." >&2
+    else
+        chown -h mobile:mobile "$JB_ZX" 2>/dev/null || true
+    fi
+fi
+
+# Point $(jbroot)/usr/bin/python3 at the newest working Procursus Python we can
+# find. We no longer ship a bundled Python 3.7 runtime — its libpython dylib
+# lives under /usr/lib on stock iOS which doesn't exist on roothide, so it aborts
+# at dyld load. Users must install python3 from Sileo (Procursus).
+PYTHON3=$(jbroot /usr/bin/python3)
+FOUND_PY=""
+for PYVER in \
+    "$(jbroot /usr/bin/python3.12)" \
+    "$(jbroot /usr/bin/python3.11)" \
+    "$(jbroot /usr/bin/python3.10)" \
+    "$(jbroot /usr/bin/python3.9)" \
+    "$(jbroot /usr/bin/python3.8)" \
+    /usr/bin/python3 \
+    /bin/python3; do
+    if [ -x "$PYVER" ]; then
+        ln -sf "$PYVER" "$PYTHON3"
+        FOUND_PY="$PYVER"
+        break
+    fi
+done
+if [ -z "$FOUND_PY" ]; then
+    echo "ZXTouch: warning — no working python3 found. Install one from Sileo (Procursus 'python3' package) before running .py scripts." >&2
+fi
+
+# Install zxtouch Python module into every installed Python's site/dist-packages
+SRC=$(jbroot /usr/share/zxtouch/python/zxtouch)
+LIBBASE=$(jbroot /usr/lib)
+if [ -d "$SRC" ]; then
+    for SP in "$LIBBASE"/python3*/site-packages "$LIBBASE"/python3*/dist-packages "$LIBBASE"/python3/dist-packages; do
+        if [ -d "$SP" ]; then
+            rm -rf "$SP/zxtouch"
+            cp -R "$SRC" "$SP/" 2>/dev/null || true
+        fi
+    done
+fi
+
+# Re-sign app with roothide entitlements
+APP=$(jbroot /Applications/zxtouch.app)
+rm -f "$APP/embedded.mobileprovision"
+cat > /tmp/zxtouch-ent.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>platform-application</key><true/>
+    <key>com.apple.private.skip-library-validation</key><true/>
+    <key>com.apple.private.security.no-container</key><true/>
+    <key>com.apple.private.security.no-sandbox</key><true/>
+    <key>com.apple.private.security.storage.AppBundles</key><true/>
+    <key>com.apple.private.security.storage.AppDataContainers</key><true/>
+    <key>get-task-allow</key><true/>
+    <key>application-identifier</key><string>com.zjx.zxtouch</string>
+</dict>
+</plist>
+EOF
+LDID=$(jbroot /usr/bin/ldid)
+if [ -x "$LDID" ]; then
+    "$LDID" -S/tmp/zxtouch-ent.plist "$APP/zxtouch"
+fi
+
+# Never restart SpringBoard from a maintainer script. Package managers run this
+# inside the dpkg transaction, so a restart can kill their helper before dpkg
+# records the package as configured. Sileo can offer a respring after dpkg exits.
+exit 0

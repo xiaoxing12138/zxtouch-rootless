@@ -1,0 +1,114 @@
+#!/bin/sh
+
+# Register app with SpringBoard (rootless uicache)
+if [ -x /var/jb/usr/bin/uicache ]; then
+    /var/jb/usr/bin/uicache -a
+else
+    su mobile -c uicache 2>/dev/null || true
+fi
+
+# sudoers.d is writable on rootless; /etc/sudoers is not
+SUDOERS_D="/var/jb/etc/sudoers.d"
+if [ -d "$SUDOERS_D" ]; then
+    echo "mobile ALL=(root) NOPASSWD:/var/jb/usr/bin/zxtouchb" > "$SUDOERS_D/zxtouch"
+    chmod 440 "$SUDOERS_D/zxtouch"
+fi
+
+# Create required app directories
+mkdir -p /var/mobile/Library/ZXTouch/scripts/recording/
+mkdir -p /var/mobile/Library/ZXTouch/scripts/examples/
+mkdir -p /var/mobile/Library/ZXTouch/config/tweak/
+mkdir -p /var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/
+mkdir -p /var/jb/usr/bin /var/jb/bin
+
+# Copy bundled example scripts. These are maintained by the package, so refresh
+# them on upgrade while leaving unrelated user scripts alone.
+EXAMPLES=/var/jb/usr/share/zxtouch/examples
+if [ -d "$EXAMPLES" ]; then
+    cp -Rf "$EXAMPLES/"* /var/mobile/Library/ZXTouch/scripts/examples/ 2>/dev/null || true
+fi
+
+REGISTRY=/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist
+if [ -f /var/jb/usr/share/zxtouch/script-registry.plist ]; then
+    cp -f /var/jb/usr/share/zxtouch/script-registry.plist "$REGISTRY"
+fi
+
+ADD_DATETIME=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/add_datetime.sh
+cat > "$ADD_DATETIME" << 'EOF'
+#!/var/jb/bin/sh
+OUTPUT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output
+DATE=/var/jb/usr/bin/date
+if [ ! -x "$DATE" ]; then DATE=/usr/bin/date; fi
+if [ ! -x "$DATE" ]; then DATE=/bin/date; fi
+echo "$($DATE '+%m-%d-%Y %T'): Start running script. Script path: $1" >> "$OUTPUT"
+while IFS= read -r line; do
+    echo "$($DATE '+%m-%d-%Y %T'): $line" >> "$OUTPUT"
+done
+EOF
+chmod 755 "$ADD_DATETIME"
+touch /var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output
+
+chown -R mobile:mobile /var/mobile/Library/ZXTouch
+
+# Point /var/jb/usr/bin/python3 at the newest working Procursus Python we can
+# find. We no longer ship a bundled Python 3.7 runtime — its libpython dylib
+# lives under /usr/lib on stock iOS which doesn't exist on rootless, so it aborts
+# at dyld load. Users must install python3 from Sileo (Procursus).
+FOUND_PY=""
+for PYBIN in \
+    /var/jb/usr/bin/python3.12 \
+    /var/jb/usr/bin/python3.11 \
+    /var/jb/usr/bin/python3.10 \
+    /var/jb/usr/bin/python3.9 \
+    /var/jb/usr/bin/python3.8 \
+    /usr/bin/python3 \
+    /bin/python3; do
+    if [ -x "$PYBIN" ]; then
+        ln -sf "$PYBIN" /var/jb/usr/bin/python3
+        ln -sf "$PYBIN" /var/jb/bin/python3
+        FOUND_PY="$PYBIN"
+        break
+    fi
+done
+if [ -z "$FOUND_PY" ]; then
+    echo "ZXTouch: warning — no working python3 found. Install one from Sileo (Procursus 'python3' package) before running .py scripts." >&2
+fi
+
+# Install zxtouch Python module into every installed Python's site/dist-packages
+SRC=/var/jb/usr/share/zxtouch/python/zxtouch
+if [ -d "$SRC" ]; then
+    for SP in /var/jb/usr/lib/python3*/site-packages /var/jb/usr/lib/python3*/dist-packages /var/jb/usr/lib/python3/dist-packages; do
+        if [ -d "$SP" ]; then
+            rm -rf "$SP/zxtouch"
+            cp -R "$SRC" "$SP/" 2>/dev/null || true
+        fi
+    done
+fi
+
+# Strip expired dev provisioning profile and re-sign with ldid
+APP=/var/jb/Applications/zxtouch.app
+rm -f "$APP/embedded.mobileprovision"
+cat > /tmp/zxtouch-ent.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>platform-application</key><true/>
+    <key>com.apple.private.skip-library-validation</key><true/>
+    <key>com.apple.private.security.no-container</key><true/>
+    <key>com.apple.private.security.no-sandbox</key><true/>
+    <key>com.apple.private.security.storage.AppBundles</key><true/>
+    <key>com.apple.private.security.storage.AppDataContainers</key><true/>
+    <key>get-task-allow</key><true/>
+    <key>application-identifier</key><string>com.zjx.zxtouch</string>
+</dict>
+</plist>
+EOF
+if [ -x /var/jb/usr/bin/ldid ]; then
+    /var/jb/usr/bin/ldid -S/tmp/zxtouch-ent.plist "$APP/zxtouch"
+fi
+
+# Never restart SpringBoard from a maintainer script. Package managers run this
+# inside the dpkg transaction, so a restart can kill their helper before dpkg
+# records the package as configured. Sileo can offer a respring after dpkg exits.
+exit 0

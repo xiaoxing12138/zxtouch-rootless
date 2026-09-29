@@ -1,0 +1,822 @@
+#include "TouchIndicatorWindow.h"
+#include "TouchIndicatorViewList.h"
+#include "../Screen.h"
+#include "../AlertBox.h"
+#include "../Common.h"
+
+#import "TouchIndicatorView.h"
+#import "TouchIndicatorCoordinateView.h"
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wavailability"
+#pragma clang diagnostic ignored "-Wattributes"
+#include "../headers/IOHIDEvent.h"
+#include "../headers/IOHIDEventData.h"
+#include "../headers/IOHIDEventTypes.h"
+#include "../headers/IOHIDEventSystemClient.h"
+#include "../headers/IOHIDEventSystem.h"
+#pragma clang diagnostic pop
+#import <mach/mach.h>
+
+#define HIDE 0
+#define SHOW 1
+#define RELOAD 2
+
+//#define COORDINATE_VIEW_WIDTH 100
+#define COORDINATE_VIEW_HEIGHT 20
+
+
+static Boolean isShowing = false;
+static Boolean showCoordinates = true;
+static UIInterfaceOrientation cachedOrientation = UIInterfaceOrientationPortrait;
+static UIInterfaceOrientation cachedInputOrientation = UIInterfaceOrientationPortrait;
+static BOOL cachedMirrorInputX = NO;
+static BOOL indicatorLocksToPortrait = NO;
+static UIInterfaceOrientationMask indicatorOrientationMask = UIInterfaceOrientationMaskAll;
+static BOOL indicatorWindowNeedsRebuild = NO;
+static NSString *cachedPolicyBundleIdentifier = nil;
+static UIInterfaceOrientationMask cachedPolicyOrientationMask = UIInterfaceOrientationMaskAll;
+
+static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHIDServiceRef service, IOHIDEventRef parentEvent);
+
+static IOHIDEventSystemClientRef ioHIDEventSystemClient = NULL;
+static CFRunLoopRef runLoopRef = NULL;
+
+
+
+static CGFloat screenBoundsWidth = 0;
+static CGFloat screenBoundsHeight = 0;
+static CGFloat scale = 0;
+
+static TouchIndicatorWindow *touchIndicatorWindow;
+static BOOL logNextIndicatorOrientation = NO;
+static BOOL logNextWindowGeometry = NO;
+
+static BOOL orientationMaskSupports(UIInterfaceOrientationMask mask, UIInterfaceOrientation orientation)
+{
+    switch (orientation) {
+        case UIInterfaceOrientationPortrait:
+        case UIInterfaceOrientationPortraitUpsideDown:
+        case UIInterfaceOrientationLandscapeLeft:
+        case UIInterfaceOrientationLandscapeRight:
+            return (mask & (1UL << orientation)) != 0;
+        default:
+            return NO;
+    }
+}
+
+static UIInterfaceOrientation firstOrientationInMask(UIInterfaceOrientationMask mask)
+{
+    if (mask & UIInterfaceOrientationMaskPortrait) return UIInterfaceOrientationPortrait;
+    if (mask & UIInterfaceOrientationMaskLandscapeLeft) return UIInterfaceOrientationLandscapeLeft;
+    if (mask & UIInterfaceOrientationMaskLandscapeRight) return UIInterfaceOrientationLandscapeRight;
+    if (mask & UIInterfaceOrientationMaskPortraitUpsideDown) return UIInterfaceOrientationPortraitUpsideDown;
+    return UIInterfaceOrientationPortrait;
+}
+
+@interface ZXTouchIndicatorRootViewController : UIViewController
+@end
+
+@implementation ZXTouchIndicatorRootViewController
+
+- (BOOL)shouldAutorotate {
+    NSUInteger mask = indicatorOrientationMask;
+    return mask != 0 && (mask & (mask - 1)) != 0;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return indicatorOrientationMask ?: UIInterfaceOrientationMaskAll;
+}
+
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {
+    if (orientationMaskSupports(indicatorOrientationMask, cachedOrientation)) {
+        return cachedOrientation;
+    }
+    return firstOrientationInMask(indicatorOrientationMask);
+}
+
+@end
+
+static void appendTouchIndicatorDebugLog(NSString *message)
+{
+    NSString *logPath = @"/var/mobile/Library/ZXTouch/logs/orientation-debug.log";
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm createDirectoryAtPath:[logPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
+    if (![fm fileExistsAtPath:logPath]) {
+        [message writeToFile:logPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    } else {
+        NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:logPath];
+        [handle seekToEndOfFile];
+        [handle writeData:[message dataUsingEncoding:NSUTF8StringEncoding]];
+        [handle closeFile];
+    }
+}
+
+static CGSize stableCanvasSizeForOrientation(UIInterfaceOrientation orientation)
+{
+    if (UIInterfaceOrientationIsLandscape(orientation)) {
+        return CGSizeMake(screenBoundsHeight, screenBoundsWidth);
+    }
+    return CGSizeMake(screenBoundsWidth, screenBoundsHeight);
+}
+
+static NSString *frontMostAppBundleIdentifier(void)
+{
+    __block NSString *bundleIdentifier = nil;
+    void (^readBundleIdentifier)(void) = ^{
+        @try {
+            SpringBoard *springboard = (SpringBoard*)[%c(SpringBoard) sharedApplication];
+            SBApplication *frontApp = nil;
+            if ([springboard respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
+                frontApp = [springboard _accessibilityFrontMostApplication];
+            }
+            if ([frontApp respondsToSelector:@selector(bundleIdentifier)]) {
+                bundleIdentifier = frontApp.bundleIdentifier;
+            } else if ([frontApp respondsToSelector:@selector(displayIdentifier)]) {
+                bundleIdentifier = frontApp.displayIdentifier;
+            }
+        }
+        @catch (NSException *exception) {
+            bundleIdentifier = nil;
+        }
+    };
+    if ([NSThread isMainThread]) readBundleIdentifier();
+    else dispatch_sync(dispatch_get_main_queue(), readBundleIdentifier);
+    return bundleIdentifier;
+}
+
+static NSDictionary *frontMostAppInfoDictionary(NSString *bundleIdentifier)
+{
+    __block NSDictionary *info = nil;
+    void (^readInfo)(void) = ^{
+        @try {
+            if (!bundleIdentifier || [bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
+
+            SpringBoard *springboard = (SpringBoard*)[%c(SpringBoard) sharedApplication];
+            SBApplication *frontApp = nil;
+            if ([springboard respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
+                frontApp = [springboard _accessibilityFrontMostApplication];
+            }
+
+            if ([frontApp respondsToSelector:@selector(infoDictionary)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                NSDictionary *frontInfo = [frontApp performSelector:@selector(infoDictionary)];
+#pragma clang diagnostic pop
+                if ([frontInfo isKindOfClass:[NSDictionary class]]) {
+                    info = frontInfo;
+                }
+            }
+
+            Class proxyClass = NSClassFromString(@"LSApplicationProxy");
+            SEL proxySelector = NSSelectorFromString(@"applicationProxyForIdentifier:");
+            if (!info && proxyClass && [proxyClass respondsToSelector:proxySelector]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                id proxy = [proxyClass performSelector:proxySelector withObject:bundleIdentifier];
+                NSURL *bundleURL = nil;
+                if ([proxy respondsToSelector:@selector(bundleURL)]) {
+                    bundleURL = [proxy performSelector:@selector(bundleURL)];
+                }
+#pragma clang diagnostic pop
+                if (bundleURL) {
+                    info = [NSDictionary dictionaryWithContentsOfURL:[bundleURL URLByAppendingPathComponent:@"Info.plist"]];
+                }
+            }
+        }
+        @catch (NSException *exception) {
+            info = nil;
+        }
+    };
+    if ([NSThread isMainThread]) readInfo();
+    else dispatch_sync(dispatch_get_main_queue(), readInfo);
+    return info;
+}
+
+static UIInterfaceOrientationMask frontMostAppOrientationMask(NSString *bundleIdentifier)
+{
+    if (!bundleIdentifier || [bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
+        return UIInterfaceOrientationMaskAll;
+    }
+    if ([cachedPolicyBundleIdentifier isEqualToString:bundleIdentifier]) {
+        return cachedPolicyOrientationMask;
+    }
+
+    NSDictionary *info = frontMostAppInfoDictionary(bundleIdentifier);
+    NSArray *orientations = info[@"UISupportedInterfaceOrientations"];
+    NSArray *ipadOrientations = info[@"UISupportedInterfaceOrientations~ipad"];
+    if (ipadOrientations.count > 0) orientations = ipadOrientations;
+    UIInterfaceOrientationMask mask = 0;
+
+    for (NSString *orientation in orientations) {
+        if (![orientation isKindOfClass:[NSString class]]) continue;
+        if ([orientation isEqualToString:@"UIInterfaceOrientationPortrait"]) {
+            mask |= UIInterfaceOrientationMaskPortrait;
+        } else if ([orientation isEqualToString:@"UIInterfaceOrientationPortraitUpsideDown"]) {
+            mask |= UIInterfaceOrientationMaskPortraitUpsideDown;
+        } else if ([orientation isEqualToString:@"UIInterfaceOrientationLandscapeLeft"]) {
+            mask |= UIInterfaceOrientationMaskLandscapeLeft;
+        } else if ([orientation isEqualToString:@"UIInterfaceOrientationLandscapeRight"]) {
+            mask |= UIInterfaceOrientationMaskLandscapeRight;
+        }
+    }
+    if (mask == 0) mask = UIInterfaceOrientationMaskAll;
+
+    cachedPolicyBundleIdentifier = [bundleIdentifier copy];
+    cachedPolicyOrientationMask = mask;
+    return mask;
+}
+
+static BOOL isValidInterfaceOrientation(int orientation)
+{
+    return orientation == UIInterfaceOrientationPortrait ||
+           orientation == UIInterfaceOrientationPortraitUpsideDown ||
+           orientation == UIInterfaceOrientationLandscapeLeft ||
+           orientation == UIInterfaceOrientationLandscapeRight;
+}
+
+static UIInterfaceOrientation currentIndicatorOrientation(void)
+{
+    NSString *bundleIdentifier = frontMostAppBundleIdentifier();
+    UIInterfaceOrientationMask supportedMask = frontMostAppOrientationMask(bundleIdentifier);
+    int frontOrientation = [Screen getScreenOrientation];
+    UIInterfaceOrientation selectedOrientation = UIInterfaceOrientationPortrait;
+    UIDeviceOrientation deviceOrientation = [[UIDevice currentDevice] orientation];
+    BOOL isSpringBoard = !bundleIdentifier || [bundleIdentifier isEqualToString:@"com.apple.springboard"];
+
+    if (isSpringBoard && isValidInterfaceOrientation(deviceOrientation)) {
+        // SpringBoard can report the outgoing app's orientation briefly after a
+        // swipe Home. The physical orientation is the authoritative source here.
+        selectedOrientation = (UIInterfaceOrientation)deviceOrientation;
+    } else if (isValidInterfaceOrientation(frontOrientation) &&
+               orientationMaskSupports(supportedMask, (UIInterfaceOrientation)frontOrientation)) {
+        selectedOrientation = (UIInterfaceOrientation)frontOrientation;
+    } else if (orientationMaskSupports(supportedMask, cachedOrientation)) {
+        // SpringBoard sometimes reports the physical device orientation for a
+        // locked app. Keep the last valid app orientation instead of following it.
+        selectedOrientation = cachedOrientation;
+    } else if (isValidInterfaceOrientation(deviceOrientation) &&
+               orientationMaskSupports(supportedMask, (UIInterfaceOrientation)deviceOrientation)) {
+        selectedOrientation = (UIInterfaceOrientation)deviceOrientation;
+    } else {
+        selectedOrientation = firstOrientationInMask(supportedMask);
+    }
+
+    indicatorOrientationMask = supportedMask;
+    BOOL shouldLockToPortrait = supportedMask == UIInterfaceOrientationMaskPortrait;
+    if (indicatorLocksToPortrait != shouldLockToPortrait) {
+        indicatorLocksToPortrait = shouldLockToPortrait;
+    }
+
+    cachedInputOrientation = selectedOrientation;
+    cachedMirrorInputX = NO;
+
+    if (logNextIndicatorOrientation) {
+        NSString *message = [NSString stringWithFormat:@"bundle=%@ supportedMask=%lu frontOrientation=%d selectedOrientation=%ld inputOrientation=%ld deviceOrientation=%ld mirrorX=%d\n",
+                             bundleIdentifier ?: @"unknown", (unsigned long)supportedMask, frontOrientation, (long)selectedOrientation, (long)cachedInputOrientation, (long)deviceOrientation, cachedMirrorInputX];
+        NSLog(@"com.zjx.springboard.touchindicator: %@", message);
+        appendTouchIndicatorDebugLog(message);
+        logNextIndicatorOrientation = NO;
+    }
+
+    return selectedOrientation;
+}
+
+static void refreshCachedIndicatorOrientation(void)
+{
+    UIInterfaceOrientation previousOrientation = cachedOrientation;
+    BOOL previousPortraitLock = indicatorLocksToPortrait;
+    UIInterfaceOrientationMask previousMask = indicatorOrientationMask;
+    UIInterfaceOrientation selectedOrientation = currentIndicatorOrientation();
+
+    cachedOrientation = selectedOrientation;
+    if (previousMask != indicatorOrientationMask) {
+        indicatorWindowNeedsRebuild = YES;
+        appendTouchIndicatorDebugLog([NSString stringWithFormat:@"rotationPolicy mask=%lu portraitLock=%d bundle=%@\n",
+                                      (unsigned long)indicatorOrientationMask,
+                                      indicatorLocksToPortrait,
+                                      cachedPolicyBundleIdentifier ?: @"springboard"]);
+    }
+    if (previousOrientation != selectedOrientation ||
+        previousPortraitLock != indicatorLocksToPortrait ||
+        previousMask != indicatorOrientationMask) {
+        [touchIndicatorWindow refreshRotationPolicy];
+    }
+}
+
+void report_memory(void) {
+  struct task_basic_info info;
+  mach_msg_type_number_t size = TASK_BASIC_INFO_COUNT;
+  kern_return_t kerr = task_info(mach_task_self(),
+                                 TASK_BASIC_INFO,
+                                 (task_info_t)&info,
+                                 &size);
+  if( kerr == KERN_SUCCESS ) {
+    NSLog(@"com.zjx.springboard: Memory in use (in bytes): %lu", info.resident_size);
+    NSLog(@"com.zjx.springboard: Memory in use (in MiB): %f", ((CGFloat)info.resident_size / 1048576));
+  } else {
+    NSLog(@"com.zjx.springboard: Error with task_info(): %s", mach_error_string(kerr));
+  }
+}
+
+
+void handleTouchIndicatorTaskWithRawData(UInt8* eventData, NSError **error)
+{
+    if ([[NSString stringWithFormat:@"%s", eventData] intValue] == HIDE)
+    {
+        stopTouchIndicator(error);
+    }
+    else if ([[NSString stringWithFormat:@"%s", eventData] intValue] == SHOW)
+    {
+        startTouchIndicator(error);
+    }
+    else if ([[NSString stringWithFormat:@"%s", eventData] intValue] == RELOAD)
+    {
+        if (!isShowing)
+        {
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Cannot reload config file because the touch indicator is not showing.\r\n"}];
+            return;
+        }
+        // check whether config file exist
+        NSString *configFilePath = getCommonConfigFilePath();
+
+        if (![[NSFileManager defaultManager] fileExistsAtPath:configFilePath])
+        {
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to show touch indicator because the configuration file is missing. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.\r\n"}];
+            showAlertBox(@"Error", @"Unable to show touch indicator because the configuration file is missing. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.", 999);
+            return;
+        }
+        // read indicator color from the config file
+        NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:configFilePath];
+
+        CGFloat red = 0;
+        CGFloat green = 0;
+        CGFloat blue = 0;
+        CGFloat alpha = 0.5f;
+
+        @try {
+            red = [config[@"touch_indicator"][@"color"][@"r"] floatValue];
+            green = [config[@"touch_indicator"][@"color"][@"g"] floatValue];
+            blue = [config[@"touch_indicator"][@"color"][@"b"] floatValue];
+            alpha = [config[@"touch_indicator"][@"color"][@"alpha"] floatValue];
+            NSLog(@"com.zjx.springboard: reload touch indicator. Read color: red: %f, g: %f, b: %f", red, green, blue);
+        }
+        @catch (NSException *exception) {
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Unable to show touch indicator because key error in configuration file: %@. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.\r\n", exception]}];
+            showAlertBox(@"Error", [NSString stringWithFormat:@"Unable to show touch indicator because key error in configuration file: %@. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.", exception], 999);
+            return;
+        }
+
+        if (config[@"touch_indicator"][@"show_coordinates"] != nil)
+            showCoordinates = [config[@"touch_indicator"][@"show_coordinates"] boolValue];
+        [touchIndicatorWindow setIndicatorColorWithRed:red green:green blue:blue alpha:alpha];
+    }
+    else
+    {
+        NSLog(@"com.zjx.springboard: Unknown touch indicator data");
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unknown touch indicator data\r\n"}];
+        return;
+    }
+
+}
+
+void stopTouchIndicator(NSError **error)
+{
+    NSLog(@"com.zjx.springboard: Touch indicator turn off request");
+    [touchIndicatorWindow stopOrientationTracking];
+    // set touch indicator window to nil
+    touchIndicatorWindow = nil;
+    // unregister callback
+    if (ioHIDEventSystemClient && runLoopRef)
+    {
+        IOHIDEventSystemClientUnregisterEventCallback(ioHIDEventSystemClient);
+        IOHIDEventSystemClientUnscheduleWithRunLoop(ioHIDEventSystemClient, runLoopRef, kCFRunLoopDefaultMode);
+
+        ioHIDEventSystemClient = NULL;
+
+        CFRunLoopStop(runLoopRef);
+        runLoopRef = NULL;
+    }
+
+    isShowing = false;
+}
+
+
+
+void startTouchIndicator(NSError **error)
+{
+    if (isShowing)
+    {
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Touch indicator is already showing\r\n"}];
+        showAlertBox(@"Error", @"Touch indicator is already showing", 999);
+        return;
+    }
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSLog(@"com.zjx.springboard: Touch indicator turn on request");
+
+        // check whether config file exist
+        NSString *configFilePath = getCommonConfigFilePath();
+
+        CGFloat red = 255;
+        CGFloat green = 0;
+        CGFloat blue = 0;
+        CGFloat alpha = 0.7f;
+
+        if ([[NSFileManager defaultManager] fileExistsAtPath:configFilePath])
+        {
+            /*
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to show touch indicator because the configuration file is missing. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.\r\n"}];
+            showAlertBox(@"Error", @"Unable to show touch indicator because the configuration file is missing. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.", 999);
+            return;
+            */
+                    // read indicator color from the config file
+            NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:configFilePath];
+
+            @try {
+                red = [config[@"touch_indicator"][@"color"][@"r"] floatValue];
+                green = [config[@"touch_indicator"][@"color"][@"g"] floatValue];
+                blue = [config[@"touch_indicator"][@"color"][@"b"] floatValue];
+                alpha = [config[@"touch_indicator"][@"color"][@"alpha"] floatValue];
+                if (config[@"touch_indicator"][@"show_coordinates"] != nil)
+                    showCoordinates = [config[@"touch_indicator"][@"show_coordinates"] boolValue];
+                NSLog(@"com.zjx.springboard: red: %f, g: %f, b: %f, showCoords: %d", red, green, blue, showCoordinates);
+            }
+            @catch (NSException *exception) {
+                NSLog(@"com.zjx.springboard: 123123");
+                *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Unable to show touch indicator because key error in configuration file: %@. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.\r\n", exception]}];
+                showAlertBox(@"Error", [NSString stringWithFormat:@"Unable to show touch indicator because key error in configuration file: %@. Please go to \"zxtouch - settings - fix configuration\" to fix this problem.", exception], 999);
+                return;
+            }
+        }
+
+
+        // get screen size
+        CGRect bounds = [Screen getBounds];
+        scale = [Screen getScale];
+        screenBoundsWidth = CGRectGetWidth(bounds);
+        screenBoundsHeight = CGRectGetHeight(bounds);
+
+        if (screenBoundsWidth > screenBoundsHeight)
+            swapCGFloat(&screenBoundsWidth, &screenBoundsHeight);
+
+        if (screenBoundsWidth == 0 || screenBoundsHeight == 0)
+        {
+            showAlertBox(@"Error", @"Cannot get screen bound.", 999);
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Cannot get screen bound\r\n"}];
+            return;
+        }
+
+        // init a touch indicator window
+        touchIndicatorWindow = [[TouchIndicatorWindow alloc] init];
+        [touchIndicatorWindow show];
+
+        // create callback
+        ioHIDEventSystemClient = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+        
+
+        IOHIDEventSystemClientScheduleWithRunLoop(ioHIDEventSystemClient, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+        IOHIDEventSystemClientRegisterEventCallback(ioHIDEventSystemClient, (IOHIDEventSystemClientEventCallback)IOHIDEventCallbackForTouchIndicator, NULL, NULL);
+        
+        isShowing = true;
+
+        runLoopRef = CFRunLoopGetCurrent();
+
+        CFRunLoopRun();
+        
+    });
+}
+
+static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHIDServiceRef service, IOHIDEventRef parentEvent) 
+{
+    
+    if (IOHIDEventGetType(parentEvent) == kIOHIDEventTypeDigitizer){
+        if (!touchIndicatorWindow)
+        {
+            return;
+        }
+
+        
+    if (IOHIDEventGetType(parentEvent) == kIOHIDEventTypeDigitizer)
+    {
+        NSArray *childrens = (__bridge NSArray *)IOHIDEventGetChildren(parentEvent);
+
+        for (int i = 0; i < [childrens count]; i++)
+        {
+            Boolean print = false;
+            IOHIDEventRef event = (__bridge IOHIDEventRef)childrens[i];
+            IOHIDFloat x = IOHIDEventGetFloatValue(event, (IOHIDEventField)kIOHIDEventFieldDigitizerX);
+            IOHIDFloat y = IOHIDEventGetFloatValue(event, (IOHIDEventField)kIOHIDEventFieldDigitizerY);
+            int eventMask = IOHIDEventGetIntegerValue(event, (IOHIDEventField)kIOHIDEventFieldDigitizerEventMask);
+            int range = IOHIDEventGetIntegerValue(event, (IOHIDEventField)kIOHIDEventFieldDigitizerRange);
+            int touch = IOHIDEventGetIntegerValue(event, (IOHIDEventField)kIOHIDEventFieldDigitizerTouch);
+            int index = IOHIDEventGetIntegerValue(event, (IOHIDEventField)kIOHIDEventFieldDigitizerIndex);
+            //NSLog(@"### com.zjx.springboard: x %f : y %f. eventMask: %d. index: %d, range: %d. Touch: %d", x, y, eventMask, index, range, touch);
+            //NSLog(@"### com.zjx.springboard:  x %f : y %f. eventMask: %d. index: %d, range: %d. Touch: %d.", x, y, eventMask, index, range, touch);
+
+            IOHIDFloat majorRadius = IOHIDEventGetFloatValue(event, 0xb0014);
+
+            // IOHIDEvent coords are in PORTRAIT physical space (not orientation-aware).
+            // Apply orientation-specific transform to get UIKit landscape points.
+            CGFloat xOnScreen, yOnScreen;
+
+            // Orientation source: SpringBoard's own scene (sc.interfaceOrientation)
+            // is unreliable/stale here — it reflects SpringBoard's UI, not the
+            // frontmost app, and only catches up after a physical rotation.
+            // [Screen getScreenOrientation] uses -_frontMostAppOrientation, the
+            // SAME source as get_screen_orientation (which the user confirmed is
+            // correct). Refresh it on each touch-DOWN (cheap, infrequent) and
+            // reuse the cached value for the moves within that gesture.
+            if (touch == 1 && (eventMask & 2))
+            {
+                logNextIndicatorOrientation = YES;
+                logNextWindowGeometry = YES;
+                refreshCachedIndicatorOrientation();
+            }
+
+            UIInterfaceOrientation ori = cachedInputOrientation;
+            CGSize canvasSize = stableCanvasSizeForOrientation(cachedOrientation);
+            CGFloat W = canvasSize.width, H = canvasSize.height;
+
+            switch (ori) {
+                case UIInterfaceOrientationLandscapeLeft:
+                    // CCW rotation: portrait-y inverted → landscape-x, portrait-x → landscape-y
+                    xOnScreen = (1.0f - y) * W;
+                    yOnScreen = x * H;
+                    break;
+                case UIInterfaceOrientationLandscapeRight:
+                    xOnScreen = y * W;
+                    yOnScreen = (1.0f - x) * H;
+                    break;
+                case UIInterfaceOrientationPortraitUpsideDown:
+                    xOnScreen = (1.0f - x) * W;
+                    yOnScreen = (1.0f - y) * H;
+                    break;
+                default: // Portrait
+                    xOnScreen = x * W;
+                    yOnScreen = y * H;
+                    break;
+            }
+            if (cachedMirrorInputX) {
+                xOnScreen = W - xOnScreen;
+            }
+
+            if ( touch == 1 && eventMask & 2 )
+            {
+                NSString *message = [NSString stringWithFormat:@"touch raw=[%.4f %.4f] screen=[%.1f %.1f] canvas=[%.1f %.1f] ori=%ld\n",
+                                     x, y, xOnScreen, yOnScreen, W, H, (long)ori];
+                appendTouchIndicatorDebugLog(message);
+                [touchIndicatorWindow showIndicator:index withX:xOnScreen andY:yOnScreen majorRadius:majorRadius];
+            }
+            else if ( touch == 1 && eventMask & 4 )
+                [touchIndicatorWindow moveIndicator:index x:xOnScreen y:yOnScreen majorRadius:majorRadius];
+
+            else if (!touch && (eventMask & 2) )
+                // touch up
+                [touchIndicatorWindow hideIndicator:index];
+            }
+        }
+    }
+    
+}
+
+
+@implementation TouchIndicatorWindow
+{
+    UIWindow *_window;
+    //TouchIndicatorViewList* indicatorViewList;
+    TouchIndicatorView* touchIndicatorViewList[20];
+    TouchIndicatorCoordinateView* coordinateView[20];
+    UIColor* indicatorColor;
+    NSTimer* orientationRefreshTimer;
+}
+
+- (void)rebuildOverlayWindow {
+    UIWindow *previousWindow = _window;
+    if (previousWindow) {
+        previousWindow.hidden = YES;
+        previousWindow.rootViewController = nil;
+    }
+
+    for (int i = 0; i < 20; i++) {
+        [touchIndicatorViewList[i] removeFromSuperview];
+        touchIndicatorViewList[i] = nil;
+        [coordinateView[i] removeFromSuperview];
+        coordinateView[i] = nil;
+    }
+
+    UIWindowScene *scene = (UIWindowScene *)[[UIApplication sharedApplication].connectedScenes anyObject];
+    if (scene) {
+        _window = [[UIWindow alloc] initWithWindowScene:scene];
+    } else {
+        _window = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, screenBoundsWidth, screenBoundsHeight)];
+    }
+    _window.windowLevel = UIWindowLevelAlert + 2;
+    _window.rootViewController = [[ZXTouchIndicatorRootViewController alloc] init];
+    _window.backgroundColor = [UIColor clearColor];
+    _window.userInteractionEnabled = NO;
+    _window.hidden = YES;
+}
+
+- (void)updateWindowFrameForOrientation:(UIInterfaceOrientation)orientation {
+    CGSize canvasSize = stableCanvasSizeForOrientation(orientation);
+    [UIView performWithoutAnimation:^{
+        if (indicatorLocksToPortrait) {
+            _window.transform = CGAffineTransformIdentity;
+            _window.bounds = CGRectMake(0, 0, canvasSize.width, canvasSize.height);
+            _window.center = CGPointMake(canvasSize.width / 2.0f, canvasSize.height / 2.0f);
+            _window.rootViewController.view.transform = CGAffineTransformIdentity;
+        }
+        _window.frame = CGRectMake(0, 0, canvasSize.width, canvasSize.height);
+        _window.rootViewController.view.frame = _window.bounds;
+    }];
+}
+
+- (void)refreshRotationPolicy {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (indicatorWindowNeedsRebuild && _window) {
+            indicatorWindowNeedsRebuild = NO;
+            [self rebuildOverlayWindow];
+            appendTouchIndicatorDebugLog([NSString stringWithFormat:@"recreatedOverlay mask=%lu portraitLock=%d orientation=%ld\n",
+                                          (unsigned long)indicatorOrientationMask,
+                                          indicatorLocksToPortrait,
+                                          (long)cachedOrientation]);
+        }
+        _window.autoresizingMask = indicatorLocksToPortrait ? UIViewAutoresizingNone :
+            (UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleBottomMargin);
+        if (@available(iOS 16.0, *)) {
+            [_window.rootViewController setNeedsUpdateOfSupportedInterfaceOrientations];
+        } else {
+            [UIViewController attemptRotationToDeviceOrientation];
+        }
+        [self updateWindowFrameForOrientation:cachedOrientation];
+        if (isShowing) {
+            _window.hidden = NO;
+        }
+    });
+}
+
+- (void)refreshOrientationState {
+    refreshCachedIndicatorOrientation();
+}
+
+- (void)stopOrientationTracking {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [orientationRefreshTimer invalidate];
+        orientationRefreshTimer = nil;
+    });
+}
+
+- (id)init {
+    self = [super init];
+    if (self)
+    {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self rebuildOverlayWindow];
+            _window.autoresizingMask = indicatorLocksToPortrait ? UIViewAutoresizingNone :
+                (UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleBottomMargin);
+            [self updateWindowFrameForOrientation:cachedOrientation];
+
+            __weak TouchIndicatorWindow *weakSelf = self;
+            orientationRefreshTimer = [NSTimer scheduledTimerWithTimeInterval:0.2
+                                                                        repeats:YES
+                                                                          block:^(NSTimer *timer) {
+                [weakSelf refreshOrientationState];
+            }];
+
+            indicatorColor = [UIColor colorWithRed:255 green:0 blue:0 alpha:0.5];
+            //init indicator view list
+            //indicatorViewList = [[TouchIndicatorViewList alloc] init];
+            
+            /*
+            for (int i = 0; i < 20; i++)
+            {
+
+            }
+            */
+
+        });
+    }
+    return self;
+}
+
+
+- (void)hideIndicator:(int)index {
+    if (index >= 20)
+    {
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [touchIndicatorViewList[index-1] removeFromSuperview];
+        touchIndicatorViewList[index-1] = nil;
+
+        [coordinateView[index-1] removeFromSuperview];
+        coordinateView[index-1] = nil;
+    });
+}
+
+- (void)showIndicator:(int)index withX:(int)x andY:(int)y majorRadius:(CGFloat)radius {    
+    if (index >= 20)
+    {
+        return;
+    }
+    if (touchIndicatorViewList[index-1] != nil)
+    {
+        [self hideIndicator:index];
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self updateWindowFrameForOrientation:cachedOrientation];
+        if (logNextWindowGeometry) {
+            CGAffineTransform t = _window.transform;
+            NSString *message = [NSString stringWithFormat:@"window frame=%@ bounds=%@ transform=[%.3f %.3f %.3f %.3f %.3f %.3f]\n",
+                                 NSStringFromCGRect(_window.frame), NSStringFromCGRect(_window.bounds),
+                                 t.a, t.b, t.c, t.d, t.tx, t.ty];
+            appendTouchIndicatorDebugLog(message);
+            logNextWindowGeometry = NO;
+        }
+        CGFloat indicatorSize = radius*SIZE_INDIACTOR_TOUCH_RADIUS_RATIO;
+        // init a indicator
+        CGFloat halfSize = indicatorSize/2;
+        TouchIndicatorView *indicator = [[TouchIndicatorView alloc] initWithFrame:CGRectMake(x - halfSize, y - halfSize, indicatorSize, indicatorSize)];
+        indicator.layer.cornerRadius = halfSize;
+        indicator.backgroundColor = indicatorColor;
+
+        // create touch coordinate view
+        NSString *coordinateText = [NSString stringWithFormat:@"(%d, %d)", (int)(x * scale), (int)(y * scale)];
+        UIFont *font = [UIFont fontWithName: @"Trebuchet MS" size: 11.0f];
+        CGSize stringSize = [coordinateText sizeWithFont:font]; 
+        CGFloat stringWidth = stringSize.width;
+
+        TouchIndicatorCoordinateView *coordinateLabelView = [[TouchIndicatorCoordinateView alloc] initWithFrame:CGRectMake(x + halfSize + 5, y, stringWidth+5, COORDINATE_VIEW_HEIGHT)];
+        coordinateLabelView.backgroundColor = indicatorColor;
+
+
+        UILabel *coordinateLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, stringWidth+5, COORDINATE_VIEW_HEIGHT)];
+        coordinateLabel.text = coordinateText;
+        [coordinateLabel setTextColor:[UIColor whiteColor]];
+        [coordinateLabel setBackgroundColor:[UIColor clearColor]];
+        [coordinateLabel setFont:font]; 
+        [coordinateLabelView addSubview:coordinateLabel];
+        coordinateLabelView.coordinateLabel = coordinateLabel;
+
+        // add to list
+        touchIndicatorViewList[index-1] = indicator;
+        coordinateView[index-1] = showCoordinates ? coordinateLabelView : nil;
+
+        // add to subview
+        [_window addSubview:indicator];
+        if (showCoordinates) [_window addSubview:coordinateLabelView];
+
+        //[indicator setHidden:YES];
+    });
+}
+
+- (void) show {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self updateWindowFrameForOrientation:cachedOrientation];
+        _window.autoresizingMask = indicatorLocksToPortrait ? UIViewAutoresizingNone :
+            (UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleBottomMargin);
+        _window.hidden = NO;
+    });
+}
+
+- (void) hide {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        _window.hidden = YES;
+    });
+}
+
+
+- (void)setIndicatorColorWithRed:(CGFloat)red green:(CGFloat)green blue:(CGFloat)blue alpha:(CGFloat)alpha {
+    indicatorColor = [UIColor colorWithRed:red/255 green:green/255 blue:blue/255 alpha:alpha];
+}
+
+
+- (void)moveIndicator:(int)index x:(CGFloat)x y:(CGFloat)y majorRadius:(CGFloat)radius {
+    if (index >= 20)
+    {
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (touchIndicatorViewList[index-1] == NULL)
+            return;
+        [self updateWindowFrameForOrientation:cachedOrientation];
+
+        // update width and height and cornerRadius
+        CGFloat indicatorSize = radius*SIZE_INDIACTOR_TOUCH_RADIUS_RATIO;
+        CGFloat halfSize = indicatorSize/2;
+        touchIndicatorViewList[index-1].frame = CGRectMake(x - halfSize, y - halfSize, indicatorSize, indicatorSize);
+        touchIndicatorViewList[index-1].layer.cornerRadius = halfSize;
+
+        NSString *coordinateText = [NSString stringWithFormat:@"(%d, %d)", (int)(x*scale), (int)(y*scale)];
+        UIFont *font = [UIFont fontWithName: @"Trebuchet MS" size: 11.0f];
+        CGSize stringSize = [coordinateText sizeWithFont:font]; 
+        CGFloat stringWidth = stringSize.width;
+
+        coordinateView[index-1].coordinateLabel.text = coordinateText;
+
+        coordinateView[index-1].coordinateLabel.frame = CGRectMake(0, 0, stringWidth+5, COORDINATE_VIEW_HEIGHT);
+        coordinateView[index-1].frame =  CGRectMake(x + halfSize + 5, y, stringWidth+5, COORDINATE_VIEW_HEIGHT);
+    });
+}
+
+@end
