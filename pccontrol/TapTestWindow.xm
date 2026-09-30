@@ -2,7 +2,6 @@
 #import "Screen.h"
 #import "Common.h"
 #import "FloatingMenu.h"
-#import "Socket.h"
 
 static FMPassthroughWindow *_testWindow = nil;
 static UIView *_testRootView = nil;
@@ -182,36 +181,20 @@ static NSString *kCornerNames[4] = { @"左上", @"右上", @"左下", @"右下" 
 
 + (void)_onExportTapped
 {
-    [self _flashInfo:@"正在导出..."];
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSArray *records = [self tapRecords];
-        // 发 socket 41;;get 让 SpringBoard 发回 JSON（但其实我们自己就能生成）
-        // 这里直接生成 JSON 字符串，通知 App 端弹窗显示
-        NSMutableDictionary *payload = [NSMutableDictionary dictionary];
-        payload[@"total_steps"] = @(kTotalSteps);
-        payload[@"completed"]   = @(records.count);
-        payload[@"records"]     = records;
+    NSArray *records = [self tapRecords];
+    NSDictionary *payload = @{
+        @"total_steps": @(kTotalSteps),
+        @"completed":   @(records.count),
+        @"records":     records
+    };
+    NSError *err = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:payload options:NSJSONWritingPrettyPrinted error:&err];
+    NSString *json = err ? @"JSON 序列化失败" : [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 
-        NSError *err = nil;
-        NSData *data = [NSJSONSerialization dataWithJSONObject:payload options:NSJSONWritingPrettyPrinted error:&err];
-        NSString *json = err ? @"JSON 序列化失败" : [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-
-        // 发通知让 App 侧看到（通过 GCDAsyncSocket 或直接弹 alert）
-        // 这里最简单：发到剪贴板 + 通知
-        UIPasteboard.generalPasteboard.string = json;
-
-        // 发 JSON 回 socket 客户端（如果有连接的话）
-        Socket *sock = [[Socket alloc] init];
-        if ([sock connect:@"127.0.0.1" byPort:6000] == 0) {
-            [sock send:@"41;;get\r\n"];  // Task.xm 会返回完整 JSON
-            [sock close];
-        }
-        // 本地也生成一份简洁摘要到 infoLabel
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            [self _refreshInfo];
-        });
-    });
+    UIPasteboard.generalPasteboard.string = json;
+    [self _flashInfo:[NSString stringWithFormat:
+        @"✅ 已复制 %d 条记录到剪贴板\n（JSON 可在悬浮窗调试页粘贴查看）",
+        (int)records.count]];
 }
 
 #pragma mark - 触摸处理（简化版：无方向校验，点一次记一次）
