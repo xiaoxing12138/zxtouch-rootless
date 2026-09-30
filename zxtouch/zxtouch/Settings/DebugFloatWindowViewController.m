@@ -12,7 +12,7 @@
 @interface DebugFloatWindowViewController () <UITableViewDataSource, UITableViewDelegate>
 
 @property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) NSMutableArray<NSArray<NSDictionary *> *> *sections; // 两个 section，每个 section 是 key-value 行数组
+@property (nonatomic, strong) NSMutableArray<NSMutableArray<NSDictionary *> *> *sections; // 两个 section，每个 section 是可变的 key-value 行数组
 @property (nonatomic, strong) UILabel *statusLabel;      // 顶部状态提示（"上次刷新时间 / 刷新失败"）
 @property (nonatomic, strong) UISwitch *autoRefreshSwitch;
 @property (nonatomic, strong) NSTimer *refreshTimer;
