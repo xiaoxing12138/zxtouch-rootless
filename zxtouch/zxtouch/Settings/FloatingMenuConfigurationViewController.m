@@ -26,11 +26,38 @@ static const float kDotSizeDefault = 48.0f;
 // 菜单黑底透明度（与 tweak 端 kFMMenuDefaultBgAlpha 保持一致）
 static const float kMenuBgAlphaDefault = 0.92f;
 
+typedef NS_ENUM(NSInteger, FMSection) {
+    FMSectionSwitch         = 0,  // 开关
+    FMSectionPosition       = 1,  // 吸附边 + 纵向位置
+    FMSectionAppearance     = 2,  // 圆点大小 + 菜单黑底透明度
+    FMSectionMenuAppearance = 3   // 菜单按钮大小/间距/标签字号/图标留白/圆点-菜单间距
+};
+
 // 「外观」分组行号
 typedef NS_ENUM(NSInteger, AppearanceRow) {
     AppearanceRowDotSize     = 0,
     AppearanceRowMenuBgAlpha = 1
 };
+
+/*
+ * 菜单外观滑块定义表（key / 标题 / 最小 / 最大 / 默认值）。
+ * 范围与默认值必须与 tweak 端 FloatingMenu.xm 的 kFMMenu* 宏保持一致。
+ * 用表驱动避免为 5 个几乎相同的滑块各写一份 cell 配置 + 回调。
+ */
+static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
+    static NSArray<NSDictionary *> *specs = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        specs = @[
+            @{@"key": @"floating_menu_menu_size",       @"title": @"按钮大小",      @"min": @32.0f, @"max": @72.0f, @"default": @36.0f},
+            @{@"key": @"floating_menu_menu_gap",        @"title": @"按钮间距",      @"min": @0.0f,  @"max": @24.0f, @"default": @8.0f},
+            @{@"key": @"floating_menu_label_font_size", @"title": @"标签字号",      @"min": @9.0f,  @"max": @18.0f, @"default": @12.0f},
+            @{@"key": @"floating_menu_icon_inset",      @"title": @"图标圆内留白",  @"min": @0.0f,  @"max": @10.0f, @"default": @5.0f},
+            @{@"key": @"floating_menu_panel_gap",       @"title": @"圆点到菜单间距", @"min": @0.0f,  @"max": @40.0f, @"default": @8.0f}
+        ];
+    });
+    return specs;
+}
 
 @interface FloatingMenuConfigurationViewController ()
 
@@ -165,6 +192,33 @@ typedef NS_ENUM(NSInteger, AppearanceRow) {
     [self saveConfig];
 }
 
+#pragma mark - 菜单外观（表驱动）
+
+- (void)menuAppearanceSliderChanged:(UISlider *)slider {
+    NSArray<NSDictionary *> *specs = FMMenuAppearanceSpecs();
+    NSInteger row = slider.tag;
+    if (row < 0 || row >= (NSInteger)specs.count) {
+        return;
+    }
+    NSDictionary *spec = specs[row];
+
+    float stepped = roundf(slider.value);
+    [slider setValue:stepped animated:NO];
+
+    // 显示实时数值
+    UIView *view = slider;
+    while (view && ![view isKindOfClass:[TableViewCellWithSlider class]]) {
+        view = view.superview;
+    }
+    if ([view isKindOfClass:[TableViewCellWithSlider class]]) {
+        ((TableViewCellWithSlider *)view).value.text = [NSString stringWithFormat:@"%.0f pt", stepped];
+    }
+
+    // 拖动过程中只写 plist，松手才 reload
+    _config[spec[@"key"]] = @((NSInteger)stepped);
+    [self saveConfig];
+}
+
 // 任意滑块松手后统一通知 tweak 重载配置
 - (void)sliderTouchUp:(id)sender {
     [self reloadTweak];
@@ -173,23 +227,29 @@ typedef NS_ENUM(NSInteger, AppearanceRow) {
 #pragma mark - UITableView
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 3;
+    return 4;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0) return 1; // 开关
-    if (section == 1) return 2; // 吸附边 + 纵向比例
-    return 2;                   // 外观：圆点大小 + 菜单黑底透明度
+    switch (section) {
+        case FMSectionSwitch:     return 1;  // 开关
+        case FMSectionPosition:   return 2;  // 吸附边 + 纵向位置
+        case FMSectionAppearance: return 2;  // 圆点大小 + 菜单黑底透明度
+        default:                  return (NSInteger)FMMenuAppearanceSpecs().count;
+    }
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if (section == 0) return @"开关";
-    if (section == 1) return @"位置";
-    return @"外观";
+    switch (section) {
+        case FMSectionSwitch:     return @"开关";
+        case FMSectionPosition:   return @"位置";
+        case FMSectionAppearance: return @"外观";
+        default:                  return @"菜单外观";
+    }
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 0) {
+    if (indexPath.section == FMSectionSwitch) {
         // 开关
         TableViewCellWithSwitch *cell = [tableView dequeueReusableCellWithIdentifier:@"SwitchCell" forIndexPath:indexPath];
         [cell setTitleText:@"控制按钮悬浮窗"];
@@ -201,8 +261,8 @@ typedef NS_ENUM(NSInteger, AppearanceRow) {
         return cell;
     }
 
-    // section 1 row 0：吸附边 — 用 Entry cell 包装一个 segment
-    if (indexPath.section == 1 && indexPath.row == 0) {
+    // 「位置」row 0：吸附边 — 用 Entry cell 包装一个 segment
+    if (indexPath.section == FMSectionPosition && indexPath.row == 0) {
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"EdgeCell"];
         if (!cell) {
             cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"EdgeCell"];
@@ -224,21 +284,36 @@ typedef NS_ENUM(NSInteger, AppearanceRow) {
         return cell;
     }
 
-    // 滑块（section 1 row 1 = 纵向位置；section 2 = 外观：圆点大小 / 菜单黑底透明度）
+    // 滑块：位置-纵向位置 / 外观-圆点大小·菜单黑底透明度 / 菜单外观-表驱动多项
     TableViewCellWithSlider *cell = [tableView dequeueReusableCellWithIdentifier:@"SliderCell" forIndexPath:indexPath];
     cell.slideBar.continuous = YES;
     [cell.slideBar removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
 
     SEL changedSelector = @selector(yRatioValueChanged:);
-    if (indexPath.section == 2) {
+    if (indexPath.section == FMSectionAppearance) {
         changedSelector = (indexPath.row == AppearanceRowDotSize) ? @selector(dotSizeValueChanged:)
                                                                   : @selector(menuBgAlphaValueChanged:);
+    } else if (indexPath.section == FMSectionMenuAppearance) {
+        changedSelector = @selector(menuAppearanceSliderChanged:);
     }
     [cell.slideBar addTarget:self action:changedSelector forControlEvents:UIControlEventValueChanged];
     [cell.slideBar addTarget:self action:@selector(sliderTouchUp:)
             forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
 
-    if (indexPath.section == 2 && indexPath.row == AppearanceRowDotSize) {
+    if (indexPath.section == FMSectionMenuAppearance) {
+        // 表驱动：按钮大小 / 按钮间距 / 标签字号 / 图标圆内留白 / 圆点到菜单间距
+        NSDictionary *spec = FMMenuAppearanceSpecs()[indexPath.row];
+        float minV = [spec[@"min"] floatValue];
+        float maxV = [spec[@"max"] floatValue];
+        float value = _config[spec[@"key"]] ? [_config[spec[@"key"]] floatValue] : [spec[@"default"] floatValue];
+        if (value < minV || value > maxV) value = [spec[@"default"] floatValue];
+        cell.title.text = spec[@"title"];
+        cell.slideBar.tag = indexPath.row;
+        cell.slideBar.minimumValue = minV;
+        cell.slideBar.maximumValue = maxV;
+        cell.slideBar.value = value;
+        cell.value.text = [NSString stringWithFormat:@"%.0f pt", value];
+    } else if (indexPath.section == FMSectionAppearance && indexPath.row == AppearanceRowDotSize) {
         float dotSize = _config[kCfgDotSize] ? [_config[kCfgDotSize] floatValue] : kDotSizeDefault;
         if (dotSize < kDotSizeMin || dotSize > kDotSizeMax) dotSize = kDotSizeDefault;
         cell.title.text = @"圆点大小";
@@ -246,7 +321,7 @@ typedef NS_ENUM(NSInteger, AppearanceRow) {
         cell.slideBar.maximumValue = kDotSizeMax;
         cell.slideBar.value = dotSize;
         cell.value.text = [NSString stringWithFormat:@"%.0f pt", dotSize];
-    } else if (indexPath.section == 2) {
+    } else if (indexPath.section == FMSectionAppearance) {
         float bgAlpha = _config[kCfgMenuBgAlpha] ? [_config[kCfgMenuBgAlpha] floatValue] : kMenuBgAlphaDefault;
         if (bgAlpha < 0.0f || bgAlpha > 1.0f) bgAlpha = kMenuBgAlphaDefault;
         cell.title.text = @"菜单黑底透明度";

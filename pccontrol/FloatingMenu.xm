@@ -36,11 +36,27 @@
 #define kFMDotDefaultSize 48.0f
 #define kFMDotMinSize     32.0f
 #define kFMDotMaxSize     80.0f
-#define kFMMenuBtnSize    44.0f   // 菜单圆形图标按钮尺寸
-#define kFMMenuPanelGap   8.0f    // 圆点到菜单面板间距
-#define kFMMenuBtnGap     4.0f    // 菜单圆形按钮之间的间距
-#define kFMMenuLabelGap   2.0f    // 圆形按钮到下方标签间距
+#define kFMMenuLabelGap   2.0f    // 圆形按钮到下方标签的固定间距
 #define kFMAnim           0.18
+
+// 菜单外观可配置项（设置页「菜单外观」分组）的默认值与范围
+// 注意：按钮尺寸/间距此前在 buildWindow 与 applyGeometry 各写一份且不一致，
+// 现在统一由这几个 ivar 驱动，两处必须使用同一组值。
+#define kFMMenuBtnSizeDefault   36.0f
+#define kFMMenuBtnSizeMin       32.0f
+#define kFMMenuBtnSizeMax       72.0f
+#define kFMMenuBtnGapDefault    8.0f
+#define kFMMenuBtnGapMin        0.0f
+#define kFMMenuBtnGapMax        24.0f
+#define kFMMenuLabelFontDefault 12.0f
+#define kFMMenuLabelFontMin     9.0f
+#define kFMMenuLabelFontMax     18.0f
+#define kFMMenuIconInsetDefault 5.0f
+#define kFMMenuIconInsetMin     0.0f
+#define kFMMenuIconInsetMax     10.0f
+#define kFMMenuPanelGapDefault  8.0f
+#define kFMMenuPanelGapMin      0.0f
+#define kFMMenuPanelGapMax      40.0f
 
 #define kFMCfgEnabled     @"floating_menu_enabled"
 #define kFMCfgEdge        @"floating_menu_edge"       // 1=贴右 0=左
@@ -50,6 +66,10 @@
 #define kFMCfgDotSize     @"floating_menu_dot_size"   // 圆点大小 32..80
 #define kFMCfgMenuBtnSize @"floating_menu_menu_size"  // 菜单按钮大小 32..72
 #define kFMCfgMenuBgAlpha @"floating_menu_menu_bg_alpha" // 菜单黑底透明度 0..1
+#define kFMCfgMenuBtnGap  @"floating_menu_menu_gap"       // 按钮间距 0..24
+#define kFMCfgLabelFont   @"floating_menu_label_font_size" // 标签字号 9..18
+#define kFMCfgIconInset   @"floating_menu_icon_inset"     // 图标圆内留白 0..10
+#define kFMCfgPanelGap    @"floating_menu_panel_gap"      // 圆点到菜单间距 0..40
 
 // 菜单按钮/标签背景底色的不透明度默认值、可调范围
 #define kFMMenuDefaultBgAlpha 0.92f
@@ -213,6 +233,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat  _yRatio;         // 圆点纵向位置比例
     CGFloat  _dotSize;        // 圆点直径 pt（32..80，配置驱动）
     CGFloat  _menuBgAlpha;    // 菜单按钮/标签黑底不透明度（0..1，配置驱动）
+    CGFloat  _menuBtnSize;    // 菜单按钮直径 pt（32..72）
+    CGFloat  _menuBtnGap;     // 菜单按钮之间间距 pt（0..24）
+    CGFloat  _menuLabelFont;  // 菜单标签字号（9..18）
+    CGFloat  _menuIconInset;  // 图标在按钮圆内的留白（0..10）
+    CGFloat  _menuPanelGap;   // 圆点到菜单整体的间距（0..40）
     int      _lastOrientation;
 
     CGPoint  _dragStartVisual;
@@ -233,6 +258,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (self) {
         _dotSize = kFMDotDefaultSize;
         _menuBgAlpha = kFMMenuDefaultBgAlpha;
+        _menuBtnSize = kFMMenuBtnSizeDefault;
+        _menuBtnGap = kFMMenuBtnGapDefault;
+        _menuLabelFont = kFMMenuLabelFontDefault;
+        _menuIconInset = kFMMenuIconInsetDefault;
+        _menuPanelGap = kFMMenuPanelGapDefault;
     }
     return self;
 }
@@ -284,6 +314,13 @@ static void fmPersistKeys(NSDictionary *pairs)
 - (UIColor *)menuBackgroundColor
 {
     return [UIColor colorWithWhite:0.12f alpha:_menuBgAlpha];
+}
+
+// 标签高度随字号推导。原代码 buildWindow 写死 14、applyGeometry 写死 12，
+// 后者比标签字号还小会把文字裁掉，现在统一由字号推导。
+- (CGFloat)menuLabelHeight
+{
+    return ceilf(_menuLabelFont * 1.35f);
 }
 
 - (void)canvasPortraitWidth:(CGFloat *)width height:(CGFloat *)height
@@ -430,11 +467,8 @@ static void fmPersistKeys(NSDictionary *pairs)
     _menuLabels  = [NSMutableArray array];
     _menuPanel = nil;  // 不再需要白色容器面板
 
-    CGFloat btnSize  = 36;   // 图标放大
-    CGFloat btnGap   = 6;    // 间距缩小
-    CGFloat labelH   = 14;
-    CGFloat btnLabelGap = 2;
-    CGFloat rowH     = btnSize + btnLabelGap + labelH;
+    CGFloat btnSize  = _menuBtnSize;
+    CGFloat labelH   = [self menuLabelHeight];
 
     NSArray *symbolNames = @[@"play.fill", @"gearshape.fill", @"arrow.uturn.backward.circle.fill"];
     NSArray *titles      = @[@"启动", @"设置", @"返回"];
@@ -449,7 +483,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         if (@available(iOS 13.0, *)) {
             [iconBtn setImage:[UIImage systemImageNamed:symbolNames[i]] forState:UIControlStateNormal];
             iconBtn.tintColor = [UIColor whiteColor];  // 白色图标
-            iconBtn.imageEdgeInsets = UIEdgeInsetsMake(5, 5, 5, 5);
+            iconBtn.imageEdgeInsets = UIEdgeInsetsMake(_menuIconInset, _menuIconInset, _menuIconInset, _menuIconInset);
         }
         [iconBtn addTarget:self action:@selector(handleMenuIconTap:) forControlEvents:UIControlEventTouchUpInside];
         [_content addSubview:iconBtn];
@@ -457,7 +491,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 
         UILabel *lbl = [[UILabel alloc] init];
         lbl.text = titles[i];
-        lbl.font = [UIFont systemFontOfSize:12.0f];   // 字号放大
+        lbl.font = [UIFont systemFontOfSize:_menuLabelFont];
         lbl.textColor = [UIColor whiteColor];          // 白色文字
         lbl.textAlignment = NSTextAlignmentCenter;
         lbl.frame = CGRectMake(0, 0, btnSize, labelH);
@@ -519,20 +553,20 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat dotRadius = [self dotRadius];
 
     if (_expanded) {
-        // 三个按钮+标签的整体尺寸
-        CGFloat btnSize  = 32;
-        CGFloat btnGap   = 10;
-        CGFloat labelH   = 12;
-        CGFloat btnLabelGap = 2;
+        // 三个按钮+标签的整体尺寸（与 buildWindow 共用同一组配置，不再各写一份）
+        CGFloat btnSize  = _menuBtnSize;
+        CGFloat btnGap   = _menuBtnGap;
+        CGFloat labelH   = [self menuLabelHeight];
+        CGFloat btnLabelGap = kFMMenuLabelGap;
         CGFloat totalBtnW = btnSize * 3 + btnGap * 2;
         CGFloat rowH      = btnSize + btnLabelGap + labelH;
 
         // 横向位置：贴右 → 按钮在圆点左边；贴左 → 按钮在圆点右边
         CGFloat firstBtnX;
         if (_edge == 0) {
-            firstBtnX = dot.x + dotRadius + kFMMenuPanelGap;
+            firstBtnX = dot.x + dotRadius + _menuPanelGap;
         } else {
-            firstBtnX = dot.x - dotRadius - kFMMenuPanelGap - totalBtnW;
+            firstBtnX = dot.x - dotRadius - _menuPanelGap - totalBtnW;
         }
 
         // 纵向：整体居中对齐圆点中心
@@ -1135,6 +1169,11 @@ static void fmPersistKeys(NSDictionary *pairs)
             CGFloat ratio = 0.5f;
             CGFloat dotSize = kFMDotDefaultSize;
             CGFloat menuBgAlpha = kFMMenuDefaultBgAlpha;
+            CGFloat menuBtnSize = kFMMenuBtnSizeDefault;
+            CGFloat menuBtnGap = kFMMenuBtnGapDefault;
+            CGFloat menuLabelFont = kFMMenuLabelFontDefault;
+            CGFloat menuIconInset = kFMMenuIconInsetDefault;
+            CGFloat menuPanelGap = kFMMenuPanelGapDefault;
             NSString *script = @"";
 
             NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
@@ -1158,6 +1197,26 @@ static void fmPersistKeys(NSDictionary *pairs)
                 if ([menuBgAlphaValue isKindOfClass:[NSNumber class]]) {
                     menuBgAlpha = [menuBgAlphaValue doubleValue];
                 }
+                NSNumber *menuBtnSizeValue = config[kFMCfgMenuBtnSize];
+                if ([menuBtnSizeValue isKindOfClass:[NSNumber class]]) {
+                    menuBtnSize = [menuBtnSizeValue doubleValue];
+                }
+                NSNumber *menuBtnGapValue = config[kFMCfgMenuBtnGap];
+                if ([menuBtnGapValue isKindOfClass:[NSNumber class]]) {
+                    menuBtnGap = [menuBtnGapValue doubleValue];
+                }
+                NSNumber *menuLabelFontValue = config[kFMCfgLabelFont];
+                if ([menuLabelFontValue isKindOfClass:[NSNumber class]]) {
+                    menuLabelFont = [menuLabelFontValue doubleValue];
+                }
+                NSNumber *menuIconInsetValue = config[kFMCfgIconInset];
+                if ([menuIconInsetValue isKindOfClass:[NSNumber class]]) {
+                    menuIconInset = [menuIconInsetValue doubleValue];
+                }
+                NSNumber *menuPanelGapValue = config[kFMCfgPanelGap];
+                if ([menuPanelGapValue isKindOfClass:[NSNumber class]]) {
+                    menuPanelGap = [menuPanelGapValue doubleValue];
+                }
                 if (!hasEdge) {
                     NSNumber *xValue = config[@"floating_menu_x"];
                     CGFloat pw, ph;
@@ -1176,6 +1235,11 @@ static void fmPersistKeys(NSDictionary *pairs)
             self->_yRatio = MIN(MAX(hasRatio ? ratio : 0.5f, 0.02f), 0.98f);
             self->_dotSize = MIN(MAX(dotSize, kFMDotMinSize), kFMDotMaxSize);
             self->_menuBgAlpha = MIN(MAX(menuBgAlpha, kFMMenuMinBgAlpha), kFMMenuMaxBgAlpha);
+            self->_menuBtnSize = MIN(MAX(menuBtnSize, kFMMenuBtnSizeMin), kFMMenuBtnSizeMax);
+            self->_menuBtnGap = MIN(MAX(menuBtnGap, kFMMenuBtnGapMin), kFMMenuBtnGapMax);
+            self->_menuLabelFont = MIN(MAX(menuLabelFont, kFMMenuLabelFontMin), kFMMenuLabelFontMax);
+            self->_menuIconInset = MIN(MAX(menuIconInset, kFMMenuIconInsetMin), kFMMenuIconInsetMax);
+            self->_menuPanelGap = MIN(MAX(menuPanelGap, kFMMenuPanelGapMin), kFMMenuPanelGapMax);
             self->_scriptPath = script;
 
             // 彻底照搬 NetSpeedIndicator.reloadAppearance 模式：
@@ -1225,6 +1289,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     info[@"y_ratio"] = @(_yRatio);
     info[@"dot_size"] = @(_dotSize);
     info[@"menu_bg_alpha"] = @(_menuBgAlpha);
+    info[@"menu_btn_size"] = @(_menuBtnSize);
+    info[@"menu_btn_gap"] = @(_menuBtnGap);
+    info[@"menu_label_font"] = @(_menuLabelFont);
+    info[@"menu_icon_inset"] = @(_menuIconInset);
+    info[@"menu_panel_gap"] = @(_menuPanelGap);
     info[@"last_orientation"] = @(_lastOrientation);
 
     CGFloat visW, visH;
