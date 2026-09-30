@@ -2,7 +2,7 @@
 //  NetSpeedConfigurationViewController.m
 //  zxtouch
 //
-//  网速指示器设置详情页（位置 / 字号 / 边距 / 息屏暂停）
+//  网速指示器设置详情页（位置 / 字号 / 水平边距 / 垂直边距 / 息屏暂停）
 //
 
 #import "NetSpeedConfigurationViewController.h"
@@ -15,13 +15,16 @@
 // 配置键（与 SpringBoard 端 tweak 的 common config 对应，文件为 SPRINGBOARD_CONFIG_PATH）
 static NSString * const kNetSpeedCornerKey        = @"net_speed_corner";
 static NSString * const kNetSpeedFontSizeKey      = @"net_speed_font_size";
-static NSString * const kNetSpeedMarginKey        = @"net_speed_margin";
+static NSString * const kNetSpeedMarginXKey       = @"net_speed_margin_x";
+static NSString * const kNetSpeedMarginYKey       = @"net_speed_margin_y";
+static NSString * const kNetSpeedMarginLegacyKey  = @"net_speed_margin"; // 旧版单边距，仅缺省回退
 static NSString * const kNetSpeedPauseScreenOffKey = @"net_speed_pause_screen_off";
 
 // 默认值
 static const NSInteger kNetSpeedDefaultCorner    = 0;      // 0=右上 1=左上 2=左下 3=右下
 static const float     kNetSpeedDefaultFontSize  = 11.0f;  // 8.0 - 20.0，步长 0.5
-static const NSInteger kNetSpeedDefaultMargin    = 10;     // 4 - 60 pt，步长 1
+static const NSInteger kNetSpeedDefaultMarginX   = 10;     // 4 - 80 pt
+static const NSInteger kNetSpeedDefaultMarginY   = 10;     // 4 - 200 pt（避开刘海/灵动岛）
 static const BOOL      kNetSpeedDefaultPauseOff  = YES;
 
 typedef NS_ENUM(NSInteger, NetSpeedSection) {
@@ -31,12 +34,14 @@ typedef NS_ENUM(NSInteger, NetSpeedSection) {
 };
 
 typedef NS_ENUM(NSInteger, NetSpeedDisplayRow) {
-    NetSpeedDisplayRowCorner = 0,  // 位置
-    NetSpeedDisplayRowFont   = 1,  // 字号
-    NetSpeedDisplayRowMargin = 2   // 边距
+    NetSpeedDisplayRowCorner  = 0,  // 位置
+    NetSpeedDisplayRowFont    = 1,  // 字号
+    NetSpeedDisplayRowMarginX = 2,  // 水平边距
+    NetSpeedDisplayRowMarginY = 3   // 垂直边距
 };
 
 static const NSInteger kAboutTextLabelTag = 9001;
+static NSString * const kAboutText = @"修改后立即生效。网速窗总开关在设置 → 控制 → 网速指示器。";
 
 @interface NetSpeedConfigurationViewController ()
 
@@ -47,7 +52,8 @@ static const NSInteger kAboutTextLabelTag = 9001;
     ConfigManager *configManager;
     NSInteger cornerPosition;
     float fontSize;
-    NSInteger margin;
+    NSInteger marginX;
+    NSInteger marginY;
     BOOL pauseScreenOff;
     NSArray<NSString *> *cornerTitles;
 }
@@ -109,10 +115,20 @@ static const NSInteger kAboutTextLabelTag = 9001;
         fontSize = kNetSpeedDefaultFontSize;
     }
 
-    NSNumber *marginValue = [configManager getValueFromKey:kNetSpeedMarginKey];
-    margin = marginValue ? [marginValue integerValue] : kNetSpeedDefaultMargin;
-    if (margin < 4 || margin > 60) {
-        margin = kNetSpeedDefaultMargin;
+    // X/Y 独立边距；未设置时回退旧版单一边距
+    NSNumber *legacyValue = [configManager getValueFromKey:kNetSpeedMarginLegacyKey];
+    NSInteger legacyMargin = legacyValue ? [legacyValue integerValue] : kNetSpeedDefaultMarginX;
+
+    NSNumber *marginXValue = [configManager getValueFromKey:kNetSpeedMarginXKey];
+    marginX = marginXValue ? [marginXValue integerValue] : legacyMargin;
+    if (marginX < 4 || marginX > 80) {
+        marginX = kNetSpeedDefaultMarginX;
+    }
+
+    NSNumber *marginYValue = [configManager getValueFromKey:kNetSpeedMarginYKey];
+    marginY = marginYValue ? [marginYValue integerValue] : legacyMargin;
+    if (marginY < 4 || marginY > 200) {
+        marginY = kNetSpeedDefaultMarginY;
     }
 
     NSNumber *pauseValue = [configManager getValueFromKey:kNetSpeedPauseScreenOffKey];
@@ -153,16 +169,28 @@ static const NSInteger kAboutTextLabelTag = 9001;
     [self persistKey:kNetSpeedFontSizeKey value:@(stepped)];
 }
 
-- (void)marginChanged:(UISlider *)slider {
+- (void)marginXChanged:(UISlider *)slider {
     float stepped = roundf(slider.value);
     [slider setValue:stepped animated:NO];
-    margin = (NSInteger)stepped;
+    marginX = (NSInteger)stepped;
 
     TableViewCellWithSlider *cell = [self.tableView cellForRowAtIndexPath:
-        [NSIndexPath indexPathForRow:NetSpeedDisplayRowMargin inSection:NetSpeedSectionDisplay]];
-    cell.value.text = [NSString stringWithFormat:@"%ld", (long)margin];
+        [NSIndexPath indexPathForRow:NetSpeedDisplayRowMarginX inSection:NetSpeedSectionDisplay]];
+    cell.value.text = [NSString stringWithFormat:@"%ld pt", (long)marginX];
 
-    [self persistKey:kNetSpeedMarginKey value:@((NSInteger)stepped)];
+    [self persistKey:kNetSpeedMarginXKey value:@((NSInteger)stepped)];
+}
+
+- (void)marginYChanged:(UISlider *)slider {
+    float stepped = roundf(slider.value);
+    [slider setValue:stepped animated:NO];
+    marginY = (NSInteger)stepped;
+
+    TableViewCellWithSlider *cell = [self.tableView cellForRowAtIndexPath:
+        [NSIndexPath indexPathForRow:NetSpeedDisplayRowMarginY inSection:NetSpeedSectionDisplay]];
+    cell.value.text = [NSString stringWithFormat:@"%ld pt", (long)marginY];
+
+    [self persistKey:kNetSpeedMarginYKey value:@((NSInteger)stepped)];
 }
 
 // 滑块松手时再通知一次，避免拖动过程中频繁建立 socket 连接
@@ -177,9 +205,30 @@ static const NSInteger kAboutTextLabelTag = 9001;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == NetSpeedSectionDisplay) return 3;  // 位置 / 字号 / 边距
+    if (section == NetSpeedSectionDisplay) return 4;  // 位置 / 字号 / 水平边距 / 垂直边距
     if (section == NetSpeedSectionPower)   return 1;  // 息屏时暂停刷新
     return 1;                                         // 关于说明行
+}
+
+- (void)configureSliderCell:(TableViewCellWithSlider *)cell
+                      title:(NSString *)title
+                       min:(float)min
+                       max:(float)max
+                      value:(float)value
+                   valueText:(NSString *)valueText
+                    changed:(SEL)changedSelector {
+    cell.title.text = title;
+    cell.slideBar.minimumValue = min;
+    cell.slideBar.maximumValue = max;
+    cell.slideBar.continuous = YES;
+    [cell.slideBar removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+    [cell.slideBar addTarget:self action:changedSelector forControlEvents:UIControlEventValueChanged];
+    [cell.slideBar addTarget:self action:@selector(sliderTouchFinished:)
+           forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+    cell.slideBar.value = value;
+    cell.value.text = valueText;
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -204,37 +253,29 @@ static const NSInteger kAboutTextLabelTag = 9001;
         if (cell == nil) {
             cell = [[TableViewCellWithSlider alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"SliderCell"];
         }
-        cell.title.text = @"字号";
-        cell.slideBar.minimumValue = 8.0f;
-        cell.slideBar.maximumValue = 20.0f;
-        cell.slideBar.continuous = YES;
-        [cell.slideBar removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
-        [cell.slideBar addTarget:self action:@selector(fontSizeChanged:) forControlEvents:UIControlEventValueChanged];
-        [cell.slideBar addTarget:self action:@selector(sliderTouchFinished:)
-               forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
-        cell.slideBar.value = fontSize;
-        cell.value.text = [NSString stringWithFormat:@"%.1f", fontSize];
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+        [self configureSliderCell:cell title:@"字号" min:8.0f max:20.0f value:fontSize
+                        valueText:[NSString stringWithFormat:@"%.1f", fontSize]
+                          changed:@selector(fontSizeChanged:)];
         result = cell;
     }
-    else if (indexPath.section == NetSpeedSectionDisplay && indexPath.row == NetSpeedDisplayRowMargin) {
+    else if (indexPath.section == NetSpeedSectionDisplay && indexPath.row == NetSpeedDisplayRowMarginX) {
         TableViewCellWithSlider *cell = [tableView dequeueReusableCellWithIdentifier:@"SliderCell"];
         if (cell == nil) {
             cell = [[TableViewCellWithSlider alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"SliderCell"];
         }
-        cell.title.text = @"边距";
-        cell.slideBar.minimumValue = 4.0f;
-        cell.slideBar.maximumValue = 60.0f;
-        cell.slideBar.continuous = YES;
-        [cell.slideBar removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
-        [cell.slideBar addTarget:self action:@selector(marginChanged:) forControlEvents:UIControlEventValueChanged];
-        [cell.slideBar addTarget:self action:@selector(sliderTouchFinished:)
-               forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
-        cell.slideBar.value = margin;
-        cell.value.text = [NSString stringWithFormat:@"%ld", (long)margin];
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+        [self configureSliderCell:cell title:@"水平边距" min:4.0f max:80.0f value:(float)marginX
+                        valueText:[NSString stringWithFormat:@"%ld pt", (long)marginX]
+                          changed:@selector(marginXChanged:)];
+        result = cell;
+    }
+    else if (indexPath.section == NetSpeedSectionDisplay && indexPath.row == NetSpeedDisplayRowMarginY) {
+        TableViewCellWithSlider *cell = [tableView dequeueReusableCellWithIdentifier:@"SliderCell"];
+        if (cell == nil) {
+            cell = [[TableViewCellWithSlider alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"SliderCell"];
+        }
+        [self configureSliderCell:cell title:@"垂直边距" min:4.0f max:200.0f value:(float)marginY
+                        valueText:[NSString stringWithFormat:@"%ld pt", (long)marginY]
+                          changed:@selector(marginYChanged:)];
         result = cell;
     }
     else if (indexPath.section == NetSpeedSectionPower) {
@@ -273,7 +314,7 @@ static const NSInteger kAboutTextLabelTag = 9001;
             cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
         }
         UILabel *label = (UILabel *)[cell.contentView viewWithTag:kAboutTextLabelTag];
-        label.text = @"修改后立即生效。网速窗总开关在设置 → 控制 → 网速指示器。";
+        label.text = kAboutText;
         result = cell;
     }
 
@@ -294,11 +335,10 @@ static const NSInteger kAboutTextLabelTag = 9001;
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.section == NetSpeedSectionAbout) {
-        NSString *text = @"修改后立即生效。网速窗总开关在设置 → 控制 → 网速指示器。";
-        CGRect rect = [text boundingRectWithSize:CGSizeMake(tableView.bounds.size.width - 32.0f, CGFLOAT_MAX)
-                                         options:NSStringDrawingUsesLineFragmentOrigin
-                                      attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:13]}
-                                         context:nil];
+        CGRect rect = [kAboutText boundingRectWithSize:CGSizeMake(tableView.bounds.size.width - 32.0f, CGFLOAT_MAX)
+                                               options:NSStringDrawingUsesLineFragmentOrigin
+                                            attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:13]}
+                                               context:nil];
         return ceil(rect.size.height) + 20.0f;  // 上下各 10pt 间距
     }
     return 44.0f;

@@ -9,10 +9,11 @@
  * 常驻一个 48pt 圆形悬浮按钮，可拖动、可展开「启动 / 设置 / 返回」三个
  * 纵向菜单按钮。所有配置存放在 getCommonConfigFilePath() 返回的 plist 中：
  *
- *   floating_menu_enabled  BOOL      是否开启
- *   floating_menu_x        NSNumber  竖屏坐标空间下圆点中心点 X
- *   floating_menu_y        NSNumber  竖屏坐标空间下圆点中心点 Y
- *   floating_menu_script   NSString  选中的 .bdl 脚本绝对路径
+ *   floating_menu_enabled   BOOL      是否开启
+ *   floating_menu_edge      NSNumber  吸附边：1=视觉右边(默认) 0=左边
+ *   floating_menu_y_ratio   NSNumber  圆点纵向位置比例 0..1
+ *   floating_menu_script    NSString  选中的 .bdl 脚本绝对路径
+ *   （旧版 floating_menu_x/y 仍可被读取并自动迁移，不再写入）
  */
 @interface FloatingMenu : NSObject
 

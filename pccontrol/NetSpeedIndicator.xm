@@ -7,22 +7,23 @@
 #include <string.h>
 #import <notify.h>
 
-#define kNetSpeedPaddingX 6.0f
-#define kNetSpeedPaddingY 2.0f
 #define kNetSpeedCornerRadius 4.0f
 #define kNetSpeedDefaultFontSize 11.0f
 #define kNetSpeedDefaultMargin 10.0f
 
-// 配置键（common.plist）
+// 配置键（config.plist）
 static NSString *const kCfgEnabled     = @"net_speed_indicator_enabled";
 static NSString *const kCfgCorner      = @"net_speed_corner";        // 0右上 1左上 2左下 3右下
-static NSString *const kCfgMargin      = @"net_speed_margin";        // 距屏幕边缘 pt
-static NSString *const kCfgFontSize    = @"net_speed_font_size";    // 字号 pt
+static NSString *const kCfgMarginX     = @"net_speed_margin_x";      // 视觉水平边距 pt
+static NSString *const kCfgMarginY     = @"net_speed_margin_y";      // 视觉垂直边距 pt
+static NSString *const kCfgMarginLegacy = @"net_speed_margin";       // 旧版单边距，仅作缺省回退
+static NSString *const kCfgFontSize    = @"net_speed_font_size";
 static NSString *const kCfgPauseOff    = @"net_speed_pause_screen_off";
 
 static UIWindow *_netSpeedWindow = nil;
-static UILabel *_netSpeedLabel = nil;
-static NSTimer *_netSpeedTimer = nil;
+static UIView   *_netSpeedContent = nil;  // 视觉坐标容器（跟随方向旋转）
+static UILabel  *_netSpeedLabel = nil;
+static NSTimer  *_netSpeedTimer = nil;
 static BOOL _netSpeedEnabled = NO;
 static uint64_t _lastRxBytes = 0;
 static uint64_t _lastTxBytes = 0;
@@ -30,29 +31,40 @@ static BOOL _firstSample = YES;
 
 // 可配置参数
 static int _cfgCorner = 0;
-static CGFloat _cfgMargin = kNetSpeedDefaultMargin;
+static CGFloat _cfgMarginX = kNetSpeedDefaultMargin;
+static CGFloat _cfgMarginY = kNetSpeedDefaultMargin;
 static CGFloat _cfgFontSize = kNetSpeedDefaultFontSize;
 static BOOL _cfgPauseScreenOff = YES;
 
 // 屏幕开关状态（com.apple.iokit.hid.displayStatus: 1 亮屏 0 灭屏）
 static BOOL _screenIsOn = YES;
-static int _screenNotifyToken = -1;       // notify_get_state 用
-static uintptr_t _screenNotifyReg = 0;    // notify_register_dispatch 用
+static int _screenNotifyToken = -1;
+static uintptr_t _screenNotifyReg = 0;
 static BOOL _screenNotifyRegistered = NO;
 
 // 上次应用的方向，用于检测变化
 static int _lastAppliedOrientation = -1;
+
+// 固定窗口宽度（只随字号变化，不随网速跳变）
+static CGFloat netSpeedWinWidth(void)
+{
+    // 文案形如 ↑10.0M/↓10.0M，共 12 个字符
+    return ceil(_cfgFontSize * 7.6f) + 10.0f;
+}
+
+static CGFloat netSpeedWinHeight(void)
+{
+    return ceil(_cfgFontSize) + 6.0f;
+}
 
 static inline NSString *formatSpeed(uint64_t bytesPerSecond)
 {
     double value = (double)bytesPerSecond;
     if (value >= 1048576.0) {
         return [NSString stringWithFormat:@"%.1fM", value / 1048576.0];
-    } else if (value >= 1024.0) {
-        return [NSString stringWithFormat:@"%.1fK", value / 1024.0];
-    } else {
-        return [NSString stringWithFormat:@"%lluB", bytesPerSecond];
     }
+    // 不再显示 B：不足 1KB 一律按 0.xK 显示
+    return [NSString stringWithFormat:@"%.1fK", value / 1024.0];
 }
 
 static void getTotalNetworkBytes(uint64_t *rxBytes, uint64_t *txBytes)
@@ -87,7 +99,6 @@ static UIWindowScene *zxActiveWindowScene(void)
 {
     @try {
         NSSet *scenes = [UIApplication sharedApplication].connectedScenes;
-        // 优先前台活跃的 window scene
         for (UIScene *scene in scenes) {
             if ([scene isKindOfClass:[UIWindowScene class]] &&
                 scene.activationState == UISceneActivationStateForegroundActive) {
@@ -105,34 +116,28 @@ static UIWindowScene *zxActiveWindowScene(void)
     return nil;
 }
 
-/*
- * 当前界面方向。优先读 windowScene.interfaceOrientation（iPadOS 13+ 可靠），
- * 拿不到再回落到 SpringBoard 私有接口 _frontMostAppOrientation。
- */
+// 方向统一以最前台 app 为准（与触摸指示器、1.0.2 旧版一致）
 static int zxCurrentOrientation(void)
 {
-    @try {
-        UIWindowScene *scene = zxActiveWindowScene();
-        if (scene) {
-            UIInterfaceOrientation o = scene.interfaceOrientation;
-            if (o != UIInterfaceOrientationUnknown) {
-                return (int)o;
-            }
-        }
-    } @catch (NSException *exception) {
-        ZXLogUIException(exception);
+    int orientation = [Screen getScreenOrientation];
+    switch (orientation) {
+        case UIInterfaceOrientationPortrait:
+        case UIInterfaceOrientationPortraitUpsideDown:
+        case UIInterfaceOrientationLandscapeLeft:
+        case UIInterfaceOrientationLandscapeRight:
+            return orientation;
+        default:
+            return UIInterfaceOrientationPortrait;
     }
-    int fallback = [Screen getScreenOrientation];
-    return fallback > 0 ? fallback : UIInterfaceOrientationPortrait;
 }
 
+// 与 1.0.2 旧版（位置验证正确）完全一致的角度
 static CGAffineTransform zxTransformForOrientation(int orientation)
 {
-    // UIView transform 正值在 UIKit(y 轴向下) 坐标中视觉为顺时针。
     switch (orientation) {
-        case UIInterfaceOrientationLandscapeRight:   // home 指示条在右，视觉顺时针 90°
+        case UIInterfaceOrientationLandscapeLeft:
             return CGAffineTransformMakeRotation(M_PI_2);
-        case UIInterfaceOrientationLandscapeLeft:    // home 指示条在左，视觉逆时针 90°
+        case UIInterfaceOrientationLandscapeRight:
             return CGAffineTransformMakeRotation(-M_PI_2);
         case UIInterfaceOrientationPortraitUpsideDown:
             return CGAffineTransformMakeRotation(M_PI);
@@ -142,87 +147,71 @@ static CGAffineTransform zxTransformForOrientation(int orientation)
 }
 
 /*
- * window 挂在 SpringBoard 的固定竖屏坐标空间里，通过手动旋转适配方向。
- * 先在「视觉坐标系」（宽始终沿视觉水平方向）按所选角点算位置，再逆变换
- * 回竖屏坐标，保证四角选择在任何方向下都正确。必须主线程调用。
+ * 窗口模型（与触摸指示器同源，已在本机长期验证稳定）：
+ *   - UIWindow 占满「竖屏固定坐标空间」（短边宽、长边高），window 本身不旋转，
+ *     userInteractionEnabled = NO，完全不拦截触摸；
+ *   - 内部 _netSpeedContent 容器按当前方向整体旋转，容器内一律使用
+ *     「视觉坐标系」（原点始终是视觉左上角），所以四角定位只需视觉坐标，
+ *     不再做容易出错的逆变换。
+ * 必须主线程调用。
  */
 static void updateNetSpeedWindowGeometry(void)
 {
-    if (!_netSpeedWindow || !_netSpeedLabel) {
+    if (!_netSpeedWindow || !_netSpeedLabel || !_netSpeedContent) {
         return;
     }
 
-    CGRect screenBounds = [UIScreen mainScreen].bounds;
-    CGFloat canvasW = MIN(CGRectGetWidth(screenBounds), CGRectGetHeight(screenBounds)); // 短边（竖屏宽）
-    CGFloat canvasH = MAX(CGRectGetWidth(screenBounds), CGRectGetHeight(screenBounds)); // 长边（竖屏高）
+    CGRect screenBounds = [Screen getBounds];
+    CGFloat canvasW = MIN(CGRectGetWidth(screenBounds), CGRectGetHeight(screenBounds));
+    CGFloat canvasH = MAX(CGRectGetWidth(screenBounds), CGRectGetHeight(screenBounds));
     if (canvasW <= 0 || canvasH <= 0) {
         return;
     }
-
-    CGSize contentSize = [_netSpeedLabel sizeThatFits:CGSizeMake(CGFLOAT_MAX, CGFLOAT_MAX)];
-    if (contentSize.width < 1 || contentSize.height < 1) {
-        contentSize = CGSizeMake(80, 16);
-    }
-    CGFloat winW = contentSize.width + kNetSpeedPaddingX * 2;
-    CGFloat winH = contentSize.height + kNetSpeedPaddingY * 2;
 
     int orientation = zxCurrentOrientation();
     BOOL landscape = (orientation == UIInterfaceOrientationLandscapeLeft ||
                       orientation == UIInterfaceOrientationLandscapeRight);
 
+    CGFloat winW = netSpeedWinWidth();
+    CGFloat winH = netSpeedWinHeight();
+
     // 视觉坐标系尺寸
     CGFloat visW = landscape ? canvasH : canvasW;
     CGFloat visH = landscape ? canvasW : canvasH;
 
-    // 视觉坐标系下的中心（按用户选的角点 + 边距）
+    // 视觉坐标系下的中心（按用户选的角点 + X/Y 边距）
     CGFloat vx = 0, vy = 0;
     switch (_cfgCorner) {
         case 1: // 左上
-            vx = _cfgMargin + winW / 2;
-            vy = _cfgMargin + winH / 2;
+            vx = _cfgMarginX + winW / 2.0f;
+            vy = _cfgMarginY + winH / 2.0f;
             break;
         case 2: // 左下
-            vx = _cfgMargin + winW / 2;
-            vy = visH - _cfgMargin - winH / 2;
+            vx = _cfgMarginX + winW / 2.0f;
+            vy = visH - _cfgMarginY - winH / 2.0f;
             break;
         case 3: // 右下
-            vx = visW - _cfgMargin - winW / 2;
-            vy = visH - _cfgMargin - winH / 2;
+            vx = visW - _cfgMarginX - winW / 2.0f;
+            vy = visH - _cfgMarginY - winH / 2.0f;
             break;
         default: // 0 右上
-            vx = visW - _cfgMargin - winW / 2;
-            vy = _cfgMargin + winH / 2;
+            vx = visW - _cfgMarginX - winW / 2.0f;
+            vy = _cfgMarginY + winH / 2.0f;
             break;
     }
 
-    // 视觉坐标 → 竖屏 window 坐标
-    CGFloat cx = vx, cy = vy;
-    switch (orientation) {
-        case UIInterfaceOrientationLandscapeRight:   // 视觉顺时针 90°：x = vy, y = H - vx
-            cx = vy;
-            cy = canvasH - vx;
-            break;
-        case UIInterfaceOrientationLandscapeLeft:    // 视觉逆时针 90°：x = W - vy, y = vx
-            cx = canvasW - vy;
-            cy = vx;
-            break;
-        case UIInterfaceOrientationPortraitUpsideDown:
-            cx = canvasW - vx;
-            cy = canvasH - vy;
-            break;
-        default:
-            break;
+    // 容器先归位，按方向设置视觉尺寸，再摆 label，最后旋转
+    _netSpeedContent.transform = CGAffineTransformIdentity;
+    if (landscape) {
+        _netSpeedContent.bounds = CGRectMake(0, 0, canvasH, canvasW);
+    } else {
+        _netSpeedContent.bounds = CGRectMake(0, 0, canvasW, canvasH);
     }
+    _netSpeedContent.center = CGPointMake(canvasW / 2.0f, canvasH / 2.0f);
 
-    // 边界夹取
-    cx = MAX(winW / 2, MIN(canvasW - winW / 2, cx));
-    cy = MAX(winH / 2, MIN(canvasH - winH / 2, cy));
+    _netSpeedLabel.frame = CGRectMake(vx - winW / 2.0f, vy - winH / 2.0f, winW, winH);
 
-    _netSpeedWindow.transform = CGAffineTransformIdentity;
-    _netSpeedWindow.frame = CGRectMake(cx - winW / 2, cy - winH / 2, winW, winH);
-    _netSpeedLabel.frame = CGRectMake(kNetSpeedPaddingX, kNetSpeedPaddingY,
-                                      contentSize.width, contentSize.height);
-    _netSpeedWindow.transform = zxTransformForOrientation(orientation);
+    _netSpeedContent.transform = zxTransformForOrientation(orientation);
     _lastAppliedOrientation = orientation;
 }
 
@@ -264,13 +253,16 @@ static void startNetSpeedTimer(void)
                 }
             }
 
-            // 每秒顺便校正方向（iPad 上方向通知不可靠，轮询最稳）
+            // 宽度已固定，只有方向变化时才重新布局
             int orientation = zxCurrentOrientation();
             if (orientation != _lastAppliedOrientation) {
-                updateNetSpeedWindowGeometry();
-            } else if (_netSpeedLabel) {
-                // 文案变化后宽度可能改变（M/K/B 位数变化），重新布局
-                updateNetSpeedWindowGeometry();
+                ZXSafeMainAsync(^{
+                    @try {
+                        updateNetSpeedWindowGeometry();
+                    } @catch (NSException *exception) {
+                        ZXLogUIException(exception);
+                    }
+                });
             }
         } @catch (NSException *exception) {
             ZXLogUIException(exception);
@@ -333,7 +325,15 @@ static void createNetSpeedWindow(void)
 {
     UIWindowScene *scene = zxActiveWindowScene();
 
-    CGRect frame = CGRectMake(0, 0, 80, 18);
+    CGRect screenBounds = [Screen getBounds];
+    CGFloat canvasW = MIN(CGRectGetWidth(screenBounds), CGRectGetHeight(screenBounds));
+    CGFloat canvasH = MAX(CGRectGetWidth(screenBounds), CGRectGetHeight(screenBounds));
+    if (canvasW <= 0 || canvasH <= 0) {
+        canvasW = 375.0f;
+        canvasH = 667.0f;
+    }
+    CGRect frame = CGRectMake(0, 0, canvasW, canvasH);
+
     if (scene) {
         _netSpeedWindow = [[UIWindow alloc] initWithWindowScene:scene];
         _netSpeedWindow.frame = frame;
@@ -342,24 +342,34 @@ static void createNetSpeedWindow(void)
     }
 
     _netSpeedWindow.windowLevel = UIWindowLevelStatusBar + 1;
-    _netSpeedWindow.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.4f];
-    _netSpeedWindow.layer.cornerRadius = kNetSpeedCornerRadius;
-    _netSpeedWindow.layer.masksToBounds = YES;
+    _netSpeedWindow.backgroundColor = [UIColor clearColor];
     _netSpeedWindow.userInteractionEnabled = NO;
+    _netSpeedWindow.autoresizingMask = UIViewAutoresizingNone;
 
     UIViewController *root = [[UIViewController alloc] init];
     root.view.backgroundColor = [UIColor clearColor];
+    root.view.frame = frame;
     _netSpeedWindow.rootViewController = root;
 
-    _netSpeedLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    _netSpeedContent = [[UIView alloc] initWithFrame:root.view.bounds];
+    _netSpeedContent.backgroundColor = [UIColor clearColor];
+    _netSpeedContent.userInteractionEnabled = NO;
+    [root.view addSubview:_netSpeedContent];
+
+    CGFloat winW = netSpeedWinWidth();
+    CGFloat winH = netSpeedWinHeight();
+    _netSpeedLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, winW, winH)];
     _netSpeedLabel.font = [UIFont systemFontOfSize:_cfgFontSize];
     _netSpeedLabel.textColor = [UIColor whiteColor];
     _netSpeedLabel.shadowColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.85f];
     _netSpeedLabel.shadowOffset = CGSizeMake(0, 1);
-    _netSpeedLabel.backgroundColor = [UIColor clearColor];
+    _netSpeedLabel.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.4f];
+    _netSpeedLabel.layer.cornerRadius = kNetSpeedCornerRadius;
+    _netSpeedLabel.layer.masksToBounds = YES;
     _netSpeedLabel.textAlignment = NSTextAlignmentCenter;
-    _netSpeedLabel.text = @"\u21910.0M/\u21930.0M";
-    [_netSpeedWindow addSubview:_netSpeedLabel];
+    _netSpeedLabel.adjustsFontSizeToFitWidth = NO;
+    _netSpeedLabel.text = @"\u21910.0K/\u21930.0K";
+    [_netSpeedContent addSubview:_netSpeedLabel];
 
     _lastAppliedOrientation = -1;
     updateNetSpeedWindowGeometry();
@@ -374,6 +384,7 @@ static void destroyNetSpeedWindow(void)
         _netSpeedWindow.hidden = YES;
         _netSpeedWindow.rootViewController = nil;
         _netSpeedWindow = nil;
+        _netSpeedContent = nil;
         _netSpeedLabel = nil;
     }
 }
@@ -390,15 +401,33 @@ static void applyConfigParams(NSDictionary *config)
     _cfgCorner = config[kCfgCorner] ? [config[kCfgCorner] intValue] : 0;
     if (_cfgCorner < 0 || _cfgCorner > 3) _cfgCorner = 0;
 
-    _cfgMargin = config[kCfgMargin] ? [config[kCfgMargin] doubleValue] : kNetSpeedDefaultMargin;
-    if (_cfgMargin < 4) _cfgMargin = 4;
-    if (_cfgMargin > 60) _cfgMargin = 60;
+    // 新版 X/Y 边距；未设置时回退旧版单一边距，再回退默认值
+    CGFloat legacy = config[kCfgMarginLegacy] ? [config[kCfgMarginLegacy] doubleValue] : kNetSpeedDefaultMargin;
+    _cfgMarginX = config[kCfgMarginX] ? [config[kCfgMarginX] doubleValue] : legacy;
+    _cfgMarginY = config[kCfgMarginY] ? [config[kCfgMarginY] doubleValue] : legacy;
+    if (_cfgMarginX < 4) _cfgMarginX = 4;
+    if (_cfgMarginX > 80) _cfgMarginX = 80;
+    if (_cfgMarginY < 4) _cfgMarginY = 4;
+    if (_cfgMarginY > 200) _cfgMarginY = 200;
 
     _cfgFontSize = config[kCfgFontSize] ? [config[kCfgFontSize] doubleValue] : kNetSpeedDefaultFontSize;
     if (_cfgFontSize < 8) _cfgFontSize = 8;
     if (_cfgFontSize > 20) _cfgFontSize = 20;
 
     _cfgPauseScreenOff = config[kCfgPauseOff] ? [config[kCfgPauseOff] boolValue] : YES;
+}
+
+static void reloadAppearance(void)
+{
+    if (!_netSpeedWindow) {
+        createNetSpeedWindow();
+        return;
+    }
+    _netSpeedWindow.hidden = NO;
+    if (_netSpeedLabel) {
+        _netSpeedLabel.font = [UIFont systemFontOfSize:_cfgFontSize];
+    }
+    updateNetSpeedWindowGeometry();
 }
 
 @implementation NetSpeedIndicator
@@ -444,14 +473,7 @@ static void applyConfigParams(NSDictionary *config)
             applyConfigParams(config);
 
             if (_netSpeedEnabled) {
-                if (!_netSpeedWindow) {
-                    createNetSpeedWindow();
-                } else {
-                    // 字号可能改变，更新字体后重布局
-                    _netSpeedLabel.font = [UIFont systemFontOfSize:_cfgFontSize];
-                    _netSpeedWindow.hidden = NO;
-                    updateNetSpeedWindowGeometry();
-                }
+                reloadAppearance();
             } else {
                 destroyNetSpeedWindow();
             }
@@ -468,13 +490,18 @@ NSString *handleNetSpeedIndicatorTaskWithRawData(UInt8 *eventData, NSError **err
 {
     NSString *response = nil;
     @autoreleasepool {
-        NSString *data = [NSString stringWithUTF8String:(const char *)eventData] ?: @"";
+        NSString *data = @"";
+        if (eventData) {
+            data = [NSString stringWithUTF8String:(const char *)eventData] ?: @"";
+        }
         NSArray *parts = [data componentsSeparatedByString:@";;"];
         int action = [parts count] > 1 ? [parts[1] intValue] : 2;
 
         if (action == 2) {
             response = [NSString stringWithFormat:@"0;;%d\r\n", [NetSpeedIndicator isEnabled] ? 1 : 0];
-            *error = nil;
+            if (error) {
+                *error = nil;
+            }
             return response;
         }
 
@@ -482,13 +509,17 @@ NSString *handleNetSpeedIndicatorTaskWithRawData(UInt8 *eventData, NSError **err
             // 只重新加载配置（角点/边距/字号/息屏开关等），不改变总开关
             [NetSpeedIndicator reloadConfig];
             response = @"0\r\n";
-            *error = nil;
+            if (error) {
+                *error = nil;
+            }
             return response;
         }
 
         if (action != 0 && action != 1) {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+            if (error) {
+                *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
                                      userInfo:@{NSLocalizedDescriptionKey:@"-1;;数据格式应为 \"enabled\"（1=开启, 0=关闭, 2=查询, 3=重新加载配置）\r\n"}];
+            }
             return nil;
         }
 
@@ -504,7 +535,9 @@ NSString *handleNetSpeedIndicatorTaskWithRawData(UInt8 *eventData, NSError **err
         [config writeToFile:configPath atomically:YES];
 
         response = @"0\r\n";
-        *error = nil;
+        if (error) {
+            *error = nil;
+        }
     }
     return response;
 }

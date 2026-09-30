@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <title>ZXTouch 控制台</title>
   <style>
@@ -24,28 +24,42 @@
       --amber: #e9b34f;
       --red: #ef6565;
       --red-bg: #713036;
+      --appbar-h: 50px;
     }
 
     * { box-sizing: border-box; letter-spacing: 0; }
-    html { min-width: 320px; background: var(--page); }
-    body { margin: 0; min-width: 320px; color: var(--text); background: var(--page); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    html { min-width: 320px; height: 100%; background: var(--page); }
+    body { margin: 0; height: 100%; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; min-width: 320px; color: var(--text); background: var(--page); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     button, input, select { font: inherit; }
     button { -webkit-tap-highlight-color: transparent; }
     [hidden] { display: none !important; }
 
-    .appbar { position: sticky; z-index: 20; top: 0; min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px max(18px, calc((100vw - 1180px) / 2)); border-bottom: 1px solid var(--line); background: rgba(17, 19, 24, .97); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
-    .brand { min-width: 0; display: flex; align-items: center; gap: 11px; }
-    .brand-mark { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border: 1px solid #2b68a5; border-radius: 8px; color: #b9dcff; background: #132438; font-size: 12px; font-weight: 800; }
-    .brand-title { margin: 0; font-size: 16px; line-height: 1.15; }
-    .brand-subtitle { margin-top: 2px; color: var(--muted); font-size: 11px; }
-    .appbar-actions { display: flex; align-items: center; gap: 8px; }
-    .connection { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted-strong); background: var(--panel); font-size: 12px; white-space: nowrap; }
+    /* ===== 最顶栏（品牌 + 录制状态 + 录制/保存/停止 + 刷新 + 连接） ===== */
+    .appbar { flex: 0 0 auto; z-index: 30; height: var(--appbar-h); display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); background: rgba(17, 19, 24, .98); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+    .brand { flex: 0 0 auto; min-width: 0; display: flex; align-items: center; gap: 9px; }
+    .brand-mark { width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border: 1px solid #2b68a5; border-radius: 7px; color: #b9dcff; background: #132438; font-size: 11px; font-weight: 800; }
+    .brand-title { margin: 0; font-size: 15px; line-height: 1; white-space: nowrap; }
+    .appbar-state { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .rec-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #6b7480; }
+    .rec-dot.running { background: var(--blue); box-shadow: 0 0 0 3px rgba(46, 140, 255, .15); }
+    .rec-dot.recording { background: var(--red); box-shadow: 0 0 0 3px rgba(239, 101, 101, .18); animation: rec-pulse 1.2s ease-in-out infinite; }
+    @keyframes rec-pulse { 50% { box-shadow: 0 0 0 5px rgba(239, 101, 101, .07); } }
+    #activity { white-space: nowrap; }
+    #activity.running { color: #9dc7ff; }
+    #activity.recording { color: var(--red); font-weight: 680; }
+    .appbar-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
+    .topbar-btn { min-height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: #242a32; cursor: pointer; font-size: 12.5px; white-space: nowrap; transition: background .15s ease, border-color .15s ease, opacity .15s ease; }
+    .topbar-btn:hover:not([disabled]) { border-color: #505a68; background: #303742; }
+    .topbar-btn.danger { border-color: #9d454b; color: #fff; background: var(--red-bg); }
+    .topbar-btn.danger:hover:not([disabled]) { border-color: #b6525a; background: #803740; }
+    .topbar-btn[disabled] { cursor: not-allowed; opacity: .4; }
+    .connection { height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted-strong); background: var(--panel); font-size: 12px; white-space: nowrap; }
     .status-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--red); }
     .status-dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(57, 203, 132, .13); }
 
     .icon-button, .button { min-height: 34px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: #242a32; cursor: pointer; transition: background .15s ease, border-color .15s ease, opacity .15s ease; }
     .icon-button:hover, .button:hover { border-color: #505a68; background: #303742; }
-    .icon-button:focus-visible, .button:focus-visible, .tab:focus-visible, input:focus-visible, select:focus-visible, .dropzone:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
+    .icon-button:focus-visible, .button:focus-visible, .topbar-btn:focus-visible, .view-switcher:focus-visible, .view-menu-item:focus-visible, input:focus-visible, select:focus-visible, .dropzone:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
     .icon-button { width: 36px; height: 36px; display: inline-grid; place-items: center; padding: 0; font-size: 18px; }
     .button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 11px; white-space: nowrap; }
     .button.primary { border-color: var(--blue); color: #fff; background: var(--blue); font-weight: 650; }
@@ -55,18 +69,15 @@
     .button[disabled], .icon-button[disabled] { cursor: not-allowed; opacity: .4; }
     .button-symbol { width: 15px; display: inline-grid; place-items: center; line-height: 1; }
 
-    .tabs-shell { position: sticky; z-index: 19; top: 62px; border-bottom: 1px solid var(--line); background: rgba(12, 14, 17, .97); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
-    .tabs { width: min(1180px, 100%); height: 48px; display: flex; align-items: stretch; margin: 0 auto; padding: 0 18px; overflow-x: auto; }
-    .tab { position: relative; min-width: 92px; padding: 0 16px; border: 0; color: var(--muted); background: transparent; cursor: pointer; font-weight: 620; }
-    .tab:hover { color: var(--muted-strong); }
-    .tab.active { color: var(--text); }
-    .tab.active::after { position: absolute; right: 15px; bottom: 0; left: 15px; height: 2px; border-radius: 2px 2px 0 0; background: var(--blue); content: ""; }
-
-    .offline-banner { width: min(1144px, calc(100% - 36px)); margin: 14px auto 0; padding: 10px 13px; border: 1px solid #66383c; border-radius: 7px; color: #ffd2d2; background: #29171a; }
+    /* ===== 整页纵向布局：顶栏固定 + 内容区吃满剩余高度，页面本身绝不滚动 ===== */
+    .app-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .offline-banner { flex: 0 0 auto; width: min(1144px, calc(100% - 36px)); margin: 10px auto 0; padding: 9px 13px; border: 1px solid #66383c; border-radius: 7px; color: #ffd2d2; background: #29171a; }
     .offline-banner strong { margin-right: 5px; }
-    main { width: min(1180px, 100%); min-height: calc(100vh - 110px); margin: 0 auto; padding: 18px 18px 38px; }
-    .view { min-width: 0; }
-    .view-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin: 2px 0 14px; }
+    main { flex: 1 1 auto; min-height: 0; width: min(1180px, 100%); margin: 0 auto; padding: 14px 18px; display: flex; flex-direction: column; }
+    .view { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; }
+    .view-scroll-pad { padding-bottom: 20px; }
+    #view-scripts, #view-logs { overflow: hidden; display: flex; flex-direction: column; }
+    .view-heading { flex: 0 0 auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin: 2px 0 12px; }
     .view-heading h2 { margin: 0; font-size: 19px; }
     .view-heading p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
 
@@ -76,24 +87,16 @@
     .panel-title p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
     .panel-tools { display: flex; align-items: center; gap: 8px; }
 
-    .commandbar { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-    .run-state { min-width: 0; display: flex; align-items: center; gap: 12px; }
-    .activity-mark { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 7px; color: var(--green); background: #152b22; font-size: 13px; }
-    .run-state-title { font-weight: 680; }
-    .run-state-detail { margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-    .quick-controls { display: flex; align-items: center; gap: 7px; }
-    .recording-label { margin-right: 4px; color: var(--muted); font-size: 12px; }
-
     .search { width: 235px; min-height: 35px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .search::placeholder, .log-filter::placeholder { color: #737d89; }
     .segmented { display: inline-flex; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); }
     .segment { min-height: 29px; padding: 4px 10px; border: 0; border-radius: 4px; color: var(--muted); background: transparent; cursor: pointer; }
     .segment.active { color: var(--text); background: #2b323c; }
 
-    .scripts-layout { display: grid; grid-template-columns: minmax(300px, 38%) minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-    .library-panel { display: flex; flex-direction: column; min-width: 0; border: 0; border-radius: 0; }
-    .editor-panel { display: flex; flex-direction: column; min-width: 0; margin: 0; border: 0; border-left: 1px solid var(--line); border-radius: 0; }
-    @media (min-width: 821px) { .scripts-layout { height: calc(100vh - 250px); min-height: 460px; } }
+    /* ===== 脚本视图：左右分栏吃满内容区高度 ===== */
+    .scripts-layout { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(300px, 38%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+    .library-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 0; border-radius: 0; }
+    .editor-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; margin: 0; border: 0; border-left: 1px solid var(--line); border-radius: 0; }
 
     .library-head { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
     .library-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -103,8 +106,8 @@
     .button.mini { min-height: 30px; padding: 4px 10px; border-color: var(--line); color: var(--muted-strong); font-size: 12px; }
     .button.mini:hover { border-color: var(--line-strong); color: var(--text); background: var(--panel-hover); }
 
-    .script-list { min-height: 320px; max-height: calc(100vh - 310px); overflow: auto; overscroll-behavior: contain; }
-    .scripts-layout .script-list { flex: 1; min-height: 0; max-height: none; }
+    .script-list { overflow: auto; overscroll-behavior: contain; }
+    .scripts-layout .script-list { flex: 1 1 auto; min-height: 0; max-height: none; }
     .script-row { display: flex; align-items: center; gap: 9px; padding: 9px 13px; border-bottom: 1px solid var(--line); }
     .script-row:last-child { border-bottom: 0; }
     .script-row:hover { background: var(--panel-hover); }
@@ -135,12 +138,16 @@
     @media (hover: hover) { .folder-row .mini-link { opacity: 0; transition: opacity .15s ease; } .folder-row:hover .mini-link, .folder-row:focus-within .mini-link { opacity: 1; } }
     .script-list .script-row { padding-left: calc(13px + var(--depth, 0) * 18px); }
 
+    /* ===== 编辑器：头部右侧操作按钮，textarea 吃满剩余高度 ===== */
     .editor-dirty { display: inline-flex; align-items: center; gap: 4px; color: var(--amber); font-size: 11px; font-weight: 650; white-space: nowrap; }
     .editor-empty { flex: 1; display: grid; place-content: center; gap: 12px; padding: 30px; color: var(--muted); text-align: center; }
     .editor-empty-mark { font-size: 30px; color: #3a424d; }
     .editor-empty p { margin: 0; }
     .editor-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-    .editor-header { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .editor-header { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+    .editor-head-main { flex: 1 1 auto; min-width: 0; }
+    .editor-head-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
+    .editor-head-actions .button { min-height: 36px; padding: 0 11px; font-size: 12px; }
     .editor-back { display: none; margin-bottom: 8px; }
     .editor-title-line { display: flex; align-items: center; min-width: 0; gap: 9px; }
     .editor-title-line h3 { margin: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
@@ -148,8 +155,6 @@
     .script-editor { display: block; width: 100%; margin: 0; padding: 15px; border: 0; color: #d5dbe3; background: #090b0e; font: 12.5px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; resize: none; tab-size: 4; white-space: pre; overflow: auto; }
     .editor-body .script-editor { flex: 1; min-height: 0; height: auto; }
     .script-editor:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
-    .editor-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
-    .editor-actions { display: flex; gap: 8px; }
 
     .modal-fields { display: grid; gap: 12px; margin-top: 14px; }
     .modal-field { display: grid; gap: 6px; }
@@ -174,11 +179,12 @@
     .note-mark { color: var(--green); }
 
     .log-panel .panel-head { min-height: 62px; }
+    #view-logs .log-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
     .log-tools { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
     .log-filter { width: 190px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .toggle { height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted-strong); background: var(--field); font-size: 12px; cursor: pointer; }
     .toggle input { accent-color: var(--blue); }
-    .log-output { height: calc(100vh - 260px); min-height: 360px; margin: 0; overflow: auto; padding: 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .log-output { flex: 1 1 auto; min-height: 0; margin: 0; padding: 15px; overflow: auto; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 
     .device-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, .7fr); gap: 14px; }
     .data-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -195,6 +201,20 @@
     .diagnostic-label { color: var(--muted); font-size: 11px; }
     .diagnostic-value { overflow-wrap: anywhere; color: var(--muted-strong); font-size: 12px; font-weight: 650; text-align: right; }
 
+    /* ===== 右侧悬浮视图菜单（z-index 低于 toast/弹窗，高于内容与全屏编辑器） ===== */
+    .view-fab { position: fixed; right: max(14px, env(safe-area-inset-right, 0px)); top: 45%; z-index: 45; }
+    .view-switcher { width: 52px; height: 52px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--text); background: rgba(28, 32, 39, .92); box-shadow: 0 8px 24px rgba(0, 0, 0, .42); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); font-size: 13px; font-weight: 680; cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+    .view-switcher:hover { border-color: var(--blue); background: #2a3340; transform: translateY(-1px); }
+    .view-fab.open .view-switcher { border-color: var(--blue); background: #243142; }
+    .view-menu { display: none; position: absolute; right: 0; bottom: calc(100% + 10px); min-width: 136px; padding: 6px; border: 1px solid var(--line-strong); border-radius: 10px; background: rgba(22, 25, 31, .98); box-shadow: 0 14px 40px rgba(0, 0, 0, .5); }
+    .view-fab.drop-down .view-menu { bottom: auto; top: calc(100% + 10px); }
+    .view-fab.open .view-menu { display: block; }
+    .view-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 38px; padding: 0 12px; border: 0; border-radius: 6px; color: var(--muted-strong); background: transparent; font-size: 13px; text-align: left; cursor: pointer; }
+    .view-menu-item:hover { color: var(--text); background: var(--panel-hover); }
+    .view-menu-item.active { color: #9dc7ff; background: #122032; font-weight: 650; }
+    .vm-check { flex: 0 0 14px; width: 14px; color: var(--blue); font-size: 12px; text-align: center; visibility: hidden; }
+    .view-menu-item.active .vm-check { visibility: visible; }
+
     .toast { position: fixed; z-index: 50; right: 18px; bottom: 18px; width: min(390px, calc(100vw - 36px)); padding: 12px 14px; border: 1px solid #44505f; border-left: 3px solid var(--blue); border-radius: 7px; color: var(--text); background: #222832; box-shadow: 0 18px 50px rgba(0, 0, 0, .35); }
     .toast.error { border-left-color: var(--red); }
     .modal-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(0, 0, 0, .7); }
@@ -205,113 +225,137 @@
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); background: #171a20; }
 
     @media (max-width: 820px) {
+      .appbar { gap: 9px; padding: 0 12px; }
+      .appbar-actions { gap: 6px; }
+      .topbar-btn { padding: 0 10px; }
       .asset-layout, .device-layout { grid-template-columns: 1fr; }
       .asset-notes { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-      .script-list { max-height: 560px; }
       .scripts-layout { grid-template-columns: minmax(0, 1fr); }
       .editor-panel { display: none; border-left: 0; }
       .editor-panel.is-open { display: flex; position: fixed; inset: 0; z-index: 40; background: var(--panel); }
       .editor-back { display: inline-flex; }
-      .scripts-layout .script-list { min-height: 260px; max-height: 58vh; }
     }
 
     @media (max-width: 620px) {
-      .appbar { position: static; padding: 10px 12px; }
-      .brand-subtitle, .connection span { display: none; }
-      .tabs-shell { top: 0; }
-      .tabs { padding: 0 5px; }
-      .tab { min-width: 78px; padding: 0 12px; }
-      main { padding: 14px 12px 28px; }
-      .offline-banner { width: calc(100% - 24px); margin-top: 12px; }
+      main { padding: 12px; }
+      .offline-banner { width: calc(100% - 24px); }
       .view-heading { align-items: flex-start; flex-direction: column; }
-      .commandbar { align-items: stretch; flex-direction: column; gap: 12px; }
-      .quick-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .quick-controls .button { width: 100%; padding-right: 6px; padding-left: 6px; }
-      .recording-label { display: none; }
       .panel-head { align-items: flex-start; flex-direction: column; }
       .panel-tools { width: 100%; flex-wrap: wrap; }
       .search { width: 100%; }
       .segmented { width: 100%; }
       .segment { flex: 1; }
-      .script-list { min-height: 300px; max-height: calc(100vh - 370px); }
       .library-head .panel-tools { width: auto; }
       .library-filters { flex-wrap: wrap; }
       .library-filters .search { flex-basis: 100%; }
       .log-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
       .log-filter { width: 100%; grid-column: 1 / -1; }
       .log-tools .button { width: 100%; }
-      .log-output { height: calc(100vh - 390px); min-height: 340px; }
-      .editor-actions { flex: 1; }
-      .editor-actions .button { flex: 1; padding-right: 8px; padding-left: 8px; }
-      .editor-hint { display: none; }
+      .editor-header { flex-wrap: wrap; }
+      .editor-head-actions { width: 100%; }
+      .editor-head-actions .button { flex: 1; padding-right: 8px; padding-left: 8px; }
       .data-grid { grid-template-columns: 1fr; }
       .data-row, .data-row:nth-child(2n), .data-row:nth-last-child(-n + 2) { border-right: 0; border-bottom: 1px solid var(--line); }
       .data-row:last-child { border-bottom: 0; }
+    }
+
+    @media (max-width: 560px) {
+      .appbar-state { flex: 0 0 auto; gap: 0; }
+      .appbar-state #activity { display: none; }
+      .connection { padding: 0 8px; }
+      .connection .connection-text { display: none; }
+      .topbar-btn { padding: 0 8px; }
+    }
+
+    @media (max-width: 380px) {
+      .brand-title { display: none; }
+      .appbar { gap: 7px; }
+      .topbar-btn { padding: 0 7px; }
     }
   </style>
 </head>
 <body>
   <header class="appbar">
-    <div class="brand"><div class="brand-mark" aria-hidden="true">ZX</div><div><h1 class="brand-title">ZXTouch</h1><div class="brand-subtitle">控制中心</div></div></div>
-    <div class="appbar-actions"><div class="connection"><span class="status-dot" id="serviceDot"></span><span id="connectionText">连接中</span></div><button class="icon-button" id="refresh" title="刷新控制台" aria-label="刷新控制台">&#8635;</button></div>
+    <div class="brand"><div class="brand-mark" aria-hidden="true">ZX</div><h1 class="brand-title">ZXTouch</h1></div>
+    <div class="appbar-state" id="recStateWrap" title="空闲"><span class="rec-dot" id="recDot" aria-hidden="true"></span><span id="activity">空闲</span><span id="recordingState" hidden>录制器空闲</span><span id="lastAction" hidden>就绪</span></div>
+    <div class="appbar-actions">
+      <button class="topbar-btn" id="recordStart" type="button" title="开始触摸录制">录制</button>
+      <button class="topbar-btn" id="recordStop" type="button" title="停止并保存本次录制">保存</button>
+      <button class="topbar-btn danger" id="stop" type="button" title="停止当前运行的脚本">停止</button>
+      <button class="icon-button" id="refresh" title="刷新控制台" aria-label="刷新控制台">&#8635;</button>
+      <div class="connection"><span class="status-dot" id="serviceDot"></span><span class="connection-text" id="connectionText">连接中</span></div>
+    </div>
   </header>
 
-  <nav class="tabs-shell" aria-label="控制台视图"><div class="tabs" role="tablist"><button class="tab active" role="tab" aria-selected="true" data-view="scripts">脚本</button><button class="tab" role="tab" aria-selected="false" data-view="assets">资源</button><button class="tab" role="tab" aria-selected="false" data-view="logs">日志</button><button class="tab" role="tab" aria-selected="false" data-view="device">设备</button></div></nav>
-  <div class="offline-banner" id="offlineBanner" hidden><strong>ZXTouch 服务不可用。</strong>本地服务重新连接后，控制功能将自动恢复。</div>
+  <div class="app-body">
+    <div class="offline-banner" id="offlineBanner" hidden><strong>ZXTouch 服务不可用。</strong>本地服务重新连接后，控制功能将自动恢复。</div>
 
-  <main>
-    <section class="view" id="view-scripts" role="tabpanel">
-      <div class="commandbar">
-        <div class="run-state"><div class="activity-mark" aria-hidden="true">&#9679;</div><div class="script-copy"><div class="run-state-title" id="activity">空闲</div><div class="run-state-detail" id="lastAction">就绪</div></div></div>
-        <div class="quick-controls"><span class="recording-label" id="recordingState">录制器空闲</span><button class="button" id="recordStart"><span class="button-symbol">&#9679;</span>录制</button><button class="button" id="recordStop"><span class="button-symbol">&#9632;</span>保存</button><button class="button danger" id="stop"><span class="button-symbol">&#9632;</span>停止</button></div>
-      </div>
-      <div class="scripts-layout">
-      <section class="panel library-panel">
-        <div class="panel-head library-head"><div class="library-head-row"><div class="panel-title"><h3>脚本库</h3><p id="scriptSummary">正在加载脚本</p></div><div class="panel-tools"><button class="button ghost mini" id="createScript" type="button"><span class="button-symbol">&#43;</span>脚本</button><button class="button ghost mini" id="createFolder" type="button"><span class="button-symbol">&#43;</span>文件夹</button></div></div><div class="library-filters"><input class="search" id="scriptSearch" type="search" placeholder="搜索脚本" aria-label="搜索脚本"><div class="segmented" aria-label="脚本类型筛选"><button class="segment active" type="button" data-filter="all">全部</button><button class="segment" type="button" data-filter="py">Python</button><button class="segment" type="button" data-filter="raw">原始</button></div></div></div>
-        <div class="script-list" id="scripts"><div class="empty-state">正在加载脚本库…</div></div>
-      </section>
-      <section class="panel editor-panel" id="editorPanel">
-        <div class="editor-empty" id="editorEmpty"><div class="editor-empty-mark" aria-hidden="true">&#9998;</div><p>点击左侧脚本名进行编辑</p></div>
-        <div class="editor-body" id="editorBody" hidden>
-          <div class="editor-header">
-            <button class="button ghost mini editor-back" id="editorBack" type="button"><span class="button-symbol">&#8592;</span>返回列表</button>
-            <div class="editor-title-line"><h3 id="editorName">编辑脚本</h3><span class="editor-dirty" id="editorDirty" hidden><span aria-hidden="true">&#9679;</span>未保存</span></div>
-            <p id="editorMeta">尚未加载</p>
+    <main>
+      <section class="view" id="view-scripts" role="tabpanel">
+        <div class="scripts-layout">
+        <section class="panel library-panel">
+          <div class="panel-head library-head"><div class="library-head-row"><div class="panel-title"><h3>脚本库</h3><p id="scriptSummary">正在加载脚本</p></div><div class="panel-tools"><button class="button ghost mini" id="createScript" type="button"><span class="button-symbol">&#43;</span>脚本</button><button class="button ghost mini" id="createFolder" type="button"><span class="button-symbol">&#43;</span>文件夹</button></div></div><div class="library-filters"><input class="search" id="scriptSearch" type="search" placeholder="搜索脚本" aria-label="搜索脚本"><div class="segmented" aria-label="脚本类型筛选"><button class="segment active" type="button" data-filter="all">全部</button><button class="segment" type="button" data-filter="py">Python</button><button class="segment" type="button" data-filter="raw">原始</button></div></div></div>
+          <div class="script-list" id="scripts"><div class="empty-state">正在加载脚本库…</div></div>
+        </section>
+        <section class="panel editor-panel" id="editorPanel">
+          <div class="editor-empty" id="editorEmpty"><div class="editor-empty-mark" aria-hidden="true">&#9998;</div><p>点击左侧脚本名进行编辑</p></div>
+          <div class="editor-body" id="editorBody" hidden>
+            <div class="editor-header">
+              <div class="editor-head-main">
+                <button class="button ghost mini editor-back" id="editorBack" type="button"><span class="button-symbol">&#8592;</span>返回列表</button>
+                <div class="editor-title-line"><h3 id="editorName">编辑脚本</h3><span class="editor-dirty" id="editorDirty" hidden><span aria-hidden="true">&#9679;</span>未保存</span></div>
+                <p id="editorMeta">尚未加载</p>
+              </div>
+              <div class="editor-head-actions">
+                <button class="button primary" id="runEditor" type="button" disabled title="运行当前脚本"><span class="button-symbol">&#9654;</span>运行</button>
+                <button class="button danger" id="deleteEditor" type="button" title="删除当前脚本"><span class="button-symbol">&#10005;</span>删除</button>
+                <button class="button" id="saveScript" type="button" title="保存脚本（Ctrl + S）"><span class="button-symbol">&#10003;</span>保存</button>
+              </div>
+            </div>
+            <textarea class="script-editor" id="scriptEditor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="脚本编辑器"></textarea>
           </div>
-          <textarea class="script-editor" id="scriptEditor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="脚本编辑器"></textarea>
-          <div class="editor-foot"><div class="editor-actions"><button class="button primary" id="runEditor" type="button" disabled><span class="button-symbol">&#9654;</span>运行</button><button class="button danger" id="deleteEditor" type="button"><span class="button-symbol">&#10005;</span>删除</button><button class="button" id="saveScript" type="button"><span class="button-symbol">&#10003;</span>保存</button></div><span class="editor-hint">Ctrl + S 保存</span></div>
+        </section>
         </div>
       </section>
-      </div>
-    </section>
 
-    <section class="view" id="view-assets" role="tabpanel" hidden>
-      <div class="view-heading"><div><h2>脚本资源</h2><p>为脚本包添加图片和辅助文件。</p></div></div>
-      <div class="asset-layout">
-        <section class="panel">
-          <form class="asset-form" id="assetForm">
-            <label class="field"><span class="field-label">目标脚本</span><select id="assetScript" name="script"></select></label>
-            <label class="dropzone" for="assetFile"><input class="asset-input" id="assetFile" name="asset" type="file" required><span><span class="drop-icon">&#8593;</span><strong class="drop-title" id="assetFileName">选择资源文件</strong><span class="drop-detail">点按浏览文件，最大 25 MB</span></span></label>
-            <button class="button primary" id="uploadButton" type="submit"><span class="button-symbol">&#8593;</span>上传资源</button>
-          </form>
-        </section>
-        <aside class="asset-notes"><h3>上传安全说明</h3><div class="note-row"><span class="note-mark">&#10003;</span><span>文件仅保留在所选脚本包内。</span></div><div class="note-row"><span class="note-mark">&#10003;</span><span>脚本包元数据不可被覆盖。</span></div><div class="note-row"><span class="note-mark">&#10003;</span><span>超过 25 MB 的上传会被拒绝。</span></div></aside>
-      </div>
-    </section>
+      <section class="view view-scroll-pad" id="view-assets" role="tabpanel" hidden>
+        <div class="view-heading"><div><h2>脚本资源</h2><p>为脚本包添加图片和辅助文件。</p></div></div>
+        <div class="asset-layout">
+          <section class="panel">
+            <form class="asset-form" id="assetForm">
+              <label class="field"><span class="field-label">目标脚本</span><select id="assetScript" name="script"></select></label>
+              <label class="dropzone" for="assetFile"><input class="asset-input" id="assetFile" name="asset" type="file" required><span><span class="drop-icon">&#8593;</span><strong class="drop-title" id="assetFileName">选择资源文件</strong><span class="drop-detail">点按浏览文件，最大 25 MB</span></span></label>
+              <button class="button primary" id="uploadButton" type="submit"><span class="button-symbol">&#8593;</span>上传资源</button>
+            </form>
+          </section>
+          <aside class="asset-notes"><h3>上传安全说明</h3><div class="note-row"><span class="note-mark">&#10003;</span><span>文件仅保留在所选脚本包内。</span></div><div class="note-row"><span class="note-mark">&#10003;</span><span>脚本包元数据不可被覆盖。</span></div><div class="note-row"><span class="note-mark">&#10003;</span><span>超过 25 MB 的上传会被拒绝。</span></div></aside>
+        </div>
+      </section>
 
-    <section class="view" id="view-logs" role="tabpanel" hidden>
-      <div class="view-heading"><div><h2>运行时日志</h2><p id="logSummary">等待输出</p></div></div>
-      <section class="panel log-panel"><div class="panel-head"><div class="panel-title"><h3>实时输出</h3></div><div class="log-tools"><input class="log-filter" id="logFilter" type="search" placeholder="筛选输出" aria-label="筛选日志输出"><label class="toggle"><input id="autoFollow" type="checkbox" checked>自动跟随</label><button class="button ghost" id="copyLogs">复制</button><button class="button ghost" id="downloadLogs"><span class="button-symbol">&#8595;</span>导出</button><button class="button danger" id="clearLogs">清空</button></div></div><pre class="log-output" id="logs">正在加载运行时日志…</pre></section>
-    </section>
+      <section class="view" id="view-logs" role="tabpanel" hidden>
+        <div class="view-heading"><div><h2>运行时日志</h2><p id="logSummary">等待输出</p></div></div>
+        <section class="panel log-panel"><div class="panel-head"><div class="panel-title"><h3>实时输出</h3></div><div class="log-tools"><input class="log-filter" id="logFilter" type="search" placeholder="筛选输出" aria-label="筛选日志输出"><label class="toggle"><input id="autoFollow" type="checkbox" checked>自动跟随</label><button class="button ghost" id="copyLogs">复制</button><button class="button ghost" id="downloadLogs"><span class="button-symbol">&#8595;</span>导出</button><button class="button danger" id="clearLogs">清空</button></div></div><pre class="log-output" id="logs">正在加载运行时日志…</pre></section>
+      </section>
 
-    <section class="view" id="view-device" role="tabpanel" hidden>
-      <div class="view-heading"><div><h2>设备</h2><p>设备与服务的实时状态。</p></div></div>
-      <div class="device-layout">
-        <section class="panel"><div class="panel-head"><div class="panel-title"><h3>当前状态</h3></div></div><div class="data-grid"><div class="data-row"><div class="data-label">服务</div><div class="data-value" id="service">检查中</div></div><div class="data-row"><div class="data-label">活动</div><div class="data-value" id="deviceActivity">空闲</div></div><div class="data-row"><div class="data-label">屏幕</div><div class="data-value" id="screen">-</div></div><div class="data-row"><div class="data-label">方向</div><div class="data-value" id="orientation">-</div></div><div class="data-row"><div class="data-label">电量</div><div class="data-value" id="battery">-</div></div><div class="data-row"><div class="data-label">前台应用</div><div class="data-value" id="foreground">-</div></div></div></section>
-        <section class="panel"><div class="panel-head"><div class="panel-title"><h3>诊断</h3></div></div><div class="diagnostics"><div class="diagnostic"><span class="diagnostic-label">套接字</span><span class="diagnostic-value" id="socketState">检查中</span></div><div class="diagnostic"><span class="diagnostic-label">HTTP 端口</span><span class="diagnostic-value" id="port">8080</span></div><div class="diagnostic"><span class="diagnostic-label">已索引脚本</span><span class="diagnostic-value" id="scriptCount">-</span></div><div class="diagnostic"><span class="diagnostic-label">访问权限</span><span class="diagnostic-value">私有令牌</span></div><div class="diagnostic"><span class="diagnostic-label">最近错误</span><span class="diagnostic-value" id="lastError">无</span></div></div></section>
-      </div>
-    </section>
-  </main>
+      <section class="view view-scroll-pad" id="view-device" role="tabpanel" hidden>
+        <div class="view-heading"><div><h2>设备</h2><p>设备与服务的实时状态。</p></div></div>
+        <div class="device-layout">
+          <section class="panel"><div class="panel-head"><div class="panel-title"><h3>当前状态</h3></div></div><div class="data-grid"><div class="data-row"><div class="data-label">服务</div><div class="data-value" id="service">检查中</div></div><div class="data-row"><div class="data-label">活动</div><div class="data-value" id="deviceActivity">空闲</div></div><div class="data-row"><div class="data-label">屏幕</div><div class="data-value" id="screen">-</div></div><div class="data-row"><div class="data-label">方向</div><div class="data-value" id="orientation">-</div></div><div class="data-row"><div class="data-label">电量</div><div class="data-value" id="battery">-</div></div><div class="data-row"><div class="data-label">前台应用</div><div class="data-value" id="foreground">-</div></div></div></section>
+          <section class="panel"><div class="panel-head"><div class="panel-title"><h3>诊断</h3></div></div><div class="diagnostics"><div class="diagnostic"><span class="diagnostic-label">套接字</span><span class="diagnostic-value" id="socketState">检查中</span></div><div class="diagnostic"><span class="diagnostic-label">HTTP 端口</span><span class="diagnostic-value" id="port">8080</span></div><div class="diagnostic"><span class="diagnostic-label">已索引脚本</span><span class="diagnostic-value" id="scriptCount">-</span></div><div class="diagnostic"><span class="diagnostic-label">访问权限</span><span class="diagnostic-value">私有令牌</span></div><div class="diagnostic"><span class="diagnostic-label">最近错误</span><span class="diagnostic-value" id="lastError">无</span></div></div></section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="view-fab" id="viewFab">
+    <div class="view-menu" id="viewMenuPanel" role="menu" aria-label="切换控制台视图">
+      <button class="view-menu-item active" type="button" role="menuitemradio" aria-checked="true" data-view="scripts"><span class="vm-check" aria-hidden="true">&#10003;</span><span>脚本</span></button>
+      <button class="view-menu-item" type="button" role="menuitemradio" aria-checked="false" data-view="assets"><span class="vm-check" aria-hidden="true">&#10003;</span><span>资源</span></button>
+      <button class="view-menu-item" type="button" role="menuitemradio" aria-checked="false" data-view="logs"><span class="vm-check" aria-hidden="true">&#10003;</span><span>日志</span></button>
+      <button class="view-menu-item" type="button" role="menuitemradio" aria-checked="false" data-view="device"><span class="vm-check" aria-hidden="true">&#10003;</span><span>设备</span></button>
+    </div>
+    <button class="view-switcher" id="viewSwitcher" type="button" aria-haspopup="menu" aria-expanded="false" title="视图菜单（当前：脚本）" aria-label="切换视图，当前为脚本视图">脚本</button>
+  </div>
 
   <div class="toast" id="toast" role="status" hidden></div>
   <div class="modal-backdrop" id="confirmModal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage"><div class="modal-body"><h3 id="confirmTitle">确认操作</h3><p id="confirmMessage"></p></div><div class="modal-actions"><button class="button ghost" id="confirmCancel">取消</button><button class="button primary" id="confirmAccept">继续</button></div></div></div>
@@ -323,6 +367,7 @@
     const elements = Object.fromEntries(Array.from(document.querySelectorAll('[id]')).map(element => [element.id, element]));
     const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, prompting: null, collapsed: new Set(), editing: null };
     const orientationNames = { '1': '竖屏', '2': '竖屏（倒置）', '3': '横屏（右）', '4': '横屏（左）' };
+    const viewNames = { scripts: '脚本', assets: '资源', logs: '日志', device: '设备' };
 
     function escapeHTML(value) { const span = document.createElement('span'); span.textContent = String(value || ''); return span.innerHTML; }
     function escapeAttr(value) { return String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
@@ -343,8 +388,24 @@
     function selectView(name) {
       const valid = ['scripts', 'assets', 'logs', 'device'].includes(name) ? name : 'scripts';
       document.querySelectorAll('.view').forEach(view => { view.hidden = view.id !== `view-${valid}`; });
-      document.querySelectorAll('.tab').forEach(tab => { const active = tab.dataset.view === valid; tab.classList.toggle('active', active); tab.setAttribute('aria-selected', String(active)); });
+      document.querySelectorAll('.view-menu-item').forEach(item => { const active = item.dataset.view === valid; item.classList.toggle('active', active); item.setAttribute('aria-checked', String(active)); });
+      const label = viewNames[valid];
+      elements.editorPanel.classList.toggle('is-open', !elements.editorBody.hidden && valid === 'scripts');
+      elements.viewSwitcher.textContent = label;
+      elements.viewSwitcher.title = `视图菜单（当前：${label}）`;
+      elements.viewSwitcher.setAttribute('aria-label', `切换视图，当前为${label}视图`);
       if (location.hash !== `#${valid}`) history.replaceState(null, '', `${location.pathname}${location.search}#${valid}`);
+    }
+    function setViewMenu(force) {
+      const fab = elements.viewFab;
+      const open = typeof force === 'boolean' ? force : !fab.classList.contains('open');
+      fab.classList.toggle('open', open);
+      elements.viewSwitcher.setAttribute('aria-expanded', String(open));
+      if (open) {
+        const menuHeight = elements.viewMenuPanel.offsetHeight;
+        const spaceUp = elements.viewSwitcher.getBoundingClientRect().top;
+        fab.classList.toggle('drop-down', spaceUp - menuHeight - 20 < 0);
+      }
     }
 
     function buildScriptTree(list) {
@@ -540,12 +601,17 @@
       const online = Boolean(status.serviceOnline);
       const orientation = String(status.orientation || '');
       const battery = Number(status.battery);
-      const activity = status.recording ? '录制中' : (status.scriptPlaying ? '脚本运行中' : '空闲');
+      const recording = Boolean(status.recording);
+      const playing = Boolean(status.scriptPlaying);
+      const activity = recording ? '录制中' : (playing ? '脚本运行中' : '空闲');
       elements.service.textContent = online ? '在线' : '不可用'; elements.service.className = `data-value ${online ? 'good' : 'bad'}`;
       elements.serviceDot.classList.toggle('online', online); elements.connectionText.textContent = online ? '已连接' : '离线'; elements.offlineBanner.hidden = online;
       elements.activity.textContent = activity; elements.deviceActivity.textContent = activity; elements.screen.textContent = status.screen.width && status.screen.height ? `${Math.round(Number(status.screen.width))} x ${Math.round(Number(status.screen.height))}` : '-'; elements.orientation.textContent = orientation ? `${orientation} / ${orientationNames[orientation] || '未知'}` : '-'; elements.battery.textContent = Number.isFinite(battery) ? `${Math.round(battery)}%` : '-'; elements.foreground.textContent = status.foregroundApp || '-';
-      elements.lastAction.textContent = status.lastAction || '就绪'; elements.recordingState.textContent = status.recording ? '正在录制' : '录制器空闲'; elements.socketState.textContent = online ? '已连接' : '离线'; elements.port.textContent = status.port || '8080'; elements.scriptCount.textContent = status.scriptCount ?? state.scripts.length; elements.lastError.textContent = status.lastError || '无';
-      elements.stop.disabled = !online || !status.scriptPlaying; elements.recordStart.disabled = !online || status.recording; elements.recordStop.disabled = !online || !status.recording;
+      elements.lastAction.textContent = status.lastAction || '就绪'; elements.recordingState.textContent = recording ? '正在录制' : '录制器空闲'; elements.socketState.textContent = online ? '已连接' : '离线'; elements.port.textContent = status.port || '8080'; elements.scriptCount.textContent = status.scriptCount ?? state.scripts.length; elements.lastError.textContent = status.lastError || '无';
+      elements.recDot.classList.toggle('recording', recording); elements.recDot.classList.toggle('running', !recording && playing);
+      elements.activity.classList.toggle('recording', recording); elements.activity.classList.toggle('running', !recording && playing);
+      elements.recStateWrap.title = `${activity} · ${status.lastAction || '就绪'}`;
+      elements.stop.disabled = !online || !playing; elements.recordStart.disabled = !online || recording; elements.recordStop.disabled = !online || !recording;
       if (elements.runEditor.dataset.busy !== '1') elements.runEditor.disabled = !online || !state.editing;
     }
 
@@ -566,9 +632,11 @@
     [elements.inputName, elements.inputFolder].forEach(field => field.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); closeInput({ name: elements.inputName.value, folder: elements.inputFolder.value }); } }));
     elements.createScript.addEventListener('click', createScript); elements.createFolder.addEventListener('click', createFolder);
     elements.saveScript.addEventListener('click', saveEditor); elements.editorBack.addEventListener('click', closeEditor); elements.runEditor.addEventListener('click', runCurrentScript); elements.deleteEditor.addEventListener('click', deleteCurrentScript); elements.scriptEditor.addEventListener('input', syncEditorMeta);
-    document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { if (state.editing && !elements.editorBody.hidden) { event.preventDefault(); saveEditor(); } return; } if (event.key === 'Escape') { if (!elements.confirmModal.hidden) closeConfirmation(false); else if (!elements.inputModal.hidden) closeInput(null); } });
+    document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { if (state.editing && !elements.editorBody.hidden) { event.preventDefault(); saveEditor(); } return; } if (event.key === 'Escape') { if (elements.viewFab.classList.contains('open')) setViewMenu(false); else if (!elements.confirmModal.hidden) closeConfirmation(false); else if (!elements.inputModal.hidden) closeInput(null); } });
     elements.refresh.addEventListener('click', refreshAll); elements.stop.addEventListener('click', stopScript); elements.recordStart.addEventListener('click', () => changeRecording(true)); elements.recordStop.addEventListener('click', () => changeRecording(false)); elements.assetForm.addEventListener('submit', uploadAsset); elements.assetFile.addEventListener('change', () => { elements.assetFileName.textContent = elements.assetFile.files[0]?.name || '选择资源文件'; }); elements.scriptSearch.addEventListener('input', renderScripts); elements.logFilter.addEventListener('input', renderLogs);
-    document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => selectView(tab.dataset.view)));
+    elements.viewSwitcher.addEventListener('click', () => setViewMenu());
+    document.querySelectorAll('.view-menu-item').forEach(item => item.addEventListener('click', () => { selectView(item.dataset.view); setViewMenu(false); }));
+    document.addEventListener('click', event => { if (elements.viewFab.classList.contains('open') && !elements.viewFab.contains(event.target)) setViewMenu(false); });
     document.querySelectorAll('.segment').forEach(button => button.addEventListener('click', () => { state.scriptFilter = button.dataset.filter; document.querySelectorAll('.segment').forEach(segment => segment.classList.toggle('active', segment === button)); renderScripts(); }));
     elements.copyLogs.addEventListener('click', async () => { try { await copyText(state.rawLogs); showToast('日志已复制。'); } catch (_) { showToast('无法复制日志。', true); } });
     elements.downloadLogs.addEventListener('click', () => { const url = URL.createObjectURL(new Blob([state.rawLogs], { type: 'text/plain' })); const link = document.createElement('a'); link.href = url; link.download = `zxtouch-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }); elements.clearLogs.addEventListener('click', clearLogs);
