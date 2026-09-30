@@ -37,6 +37,10 @@
 // 返回当前悬浮按钮的调试信息字典；若 window 尚未创建则返回 nil
 + (NSDictionary *)debugInfo;
 
+// 脚本运行中旋转光圈特效
++ (void)startRunningSpinner;
++ (void)stopRunningSpinner;
+
 // 获取当前前台可用的 UIWindowScene（iOS 13+ 创建可渲染 window 必需）
 + (UIWindowScene *)preferredWindowScene;
 

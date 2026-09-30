@@ -132,6 +132,53 @@
 
 static FloatingMenu *_fmShared = nil;
 
+#pragma mark - Script running spinner（旋转光圈）
+
+- (void)startRunningSpinner
+{
+    if (!_dotButton) return;
+    // 已经在转就不重复加
+    if ([_dotButton.layer animationForKey:@"fmSpinning"]) return;
+
+    CGFloat s = kFMDotSize + 6;  // 比 dot 略大 3pt
+    CAShapeLayer *ring = [CAShapeLayer layer];
+    ring.frame = CGRectMake(-3, -3, s, s);
+    UIBezierPath *path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(2, 2, s - 4, s - 4)];
+    ring.path = path.CGPath;
+    ring.fillColor = [UIColor clearColor].CGColor;
+    ring.strokeColor = [UIColor colorWithRed:0.2f green:0.6f blue:1.0f alpha:0.9f].CGColor;
+    ring.lineWidth = 2.0f;
+    ring.lineCap = kCALineCapRound;
+    ring.strokeStart = 0.0f;
+    ring.strokeEnd = 0.7f;  // 只画圆弧，不是整圈
+    ring.name = @"fmSpinnerRing";
+    ring.zPosition = -1;
+    [_dotButton.layer addSublayer:ring];
+
+    CABasicAnimation *rot = [CABasicAnimation animationWithKeyPath:@"transform.rotation"];
+    rot.fromValue = @(0);
+    rot.toValue = @(2 * M_PI);
+    rot.duration = 0.8f;
+    rot.repeatCount = INFINITY;
+    rot.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+    [ring addAnimation:rot forKey:@"fmSpinning"];
+}
+
+- (void)stopRunningSpinner
+{
+    if (!_dotButton) return;
+    for (CALayer *sub in _dotButton.layer.sublayers) {
+        if ([sub.name isEqualToString:@"fmSpinnerRing"]) {
+            [sub removeAllAnimations];
+            [sub removeFromSuperlayer];
+            break;
+        }
+    }
+}
+
++ (void)startRunningSpinner { [[self shared] startRunningSpinner]; }
++ (void)stopRunningSpinner  { [[self shared] stopRunningSpinner]; }
+
 #pragma mark - C helpers
 
 static CGAffineTransform fmTransformForOrientation(int orientation)
@@ -371,56 +418,50 @@ static void fmPersistKeys(NSDictionary *pairs)
     [_dotButton addGestureRecognizer:pan];
     [_dotButton addGestureRecognizer:tap];
 
-    // 菜单面板：紧凑白色圆角框（仿按键精灵）
+    // 菜单：三个独立圆形按钮 + 下方文字标签（仿按键精灵，无容器面板）
     _menuButtons = [NSMutableArray array];
     _menuLabels  = [NSMutableArray array];
+    _menuPanel = nil;  // 不再需要白色容器面板
 
-    CGFloat btnSize  = 32;   // 圆形图标按钮（紧凑）
-    CGFloat btnGap   = 8;    // 按钮间距
+    CGFloat btnSize  = 32;
+    CGFloat btnGap   = 10;
     CGFloat labelH   = 12;
-    CGFloat labelGap = 2;    // 按钮到标签
-    CGFloat padding  = 8;    // 面板内边距
-    CGFloat rowGap   = 4;    // 按钮行到标签行
+    CGFloat btnLabelGap = 2;
+    CGFloat rowH     = btnSize + btnLabelGap + labelH;
 
     NSArray *symbolNames = @[@"play.fill", @"gearshape.fill", @"arrow.uturn.backward.circle.fill"];
     NSArray *titles      = @[@"启动", @"设置", @"返回"];
 
-    CGFloat totalW = btnSize * 3 + btnGap * 2;
-    CGFloat panelW = totalW + padding * 2;
-    CGFloat panelH = btnSize + rowGap + labelH + padding * 2;
-
-    _menuPanel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelW, panelH)];
-    _menuPanel.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.92f];
-    _menuPanel.layer.cornerRadius = 10;
-    _menuPanel.layer.borderWidth = 0.5f;
-    _menuPanel.layer.borderColor = [UIColor colorWithWhite:0.85f alpha:1.0f].CGColor;
-    _menuPanel.hidden = YES;
-    _menuPanel.alpha = 0.0f;
-    [_content addSubview:_menuPanel];
-
     for (NSUInteger i = 0; i < 3; i++) {
         UIButton *iconBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        iconBtn.frame = CGRectMake(padding + i * (btnSize + btnGap), padding, btnSize, btnSize);
-        iconBtn.backgroundColor = [UIColor colorWithWhite:0.90f alpha:1.0f];
+        iconBtn.frame = CGRectMake(0, 0, btnSize, btnSize);  // applyGeometry 里定位
+        iconBtn.backgroundColor = [UIColor colorWithWhite:1.0f alpha:0.85f];
         iconBtn.layer.cornerRadius = btnSize / 2.0f;
+        iconBtn.layer.shadowColor = [UIColor blackColor].CGColor;
+        iconBtn.layer.shadowOpacity = 0.15f;
+        iconBtn.layer.shadowRadius = 2;
+        iconBtn.layer.shadowOffset = CGSizeMake(0, 1);
+        iconBtn.hidden = YES;
+        iconBtn.alpha = 0.0f;
         if (@available(iOS 13.0, *)) {
             [iconBtn setImage:[UIImage systemImageNamed:symbolNames[i]] forState:UIControlStateNormal];
             iconBtn.tintColor = [UIColor colorWithWhite:0.2f alpha:1.0f];
             iconBtn.imageEdgeInsets = UIEdgeInsetsMake(6, 6, 6, 6);
         }
         [iconBtn addTarget:self action:@selector(handleMenuIconTap:) forControlEvents:UIControlEventTouchUpInside];
-        [_menuPanel addSubview:iconBtn];
+        [_content addSubview:iconBtn];
         [_menuButtons addObject:iconBtn];
 
         UILabel *lbl = [[UILabel alloc] init];
         lbl.text = titles[i];
-        lbl.font = [UIFont systemFontOfSize:11.0f];
-        lbl.textColor = [UIColor colorWithWhite:0.3f alpha:1.0f];
+        lbl.font = [UIFont systemFontOfSize:10.0f];
+        lbl.textColor = [UIColor colorWithWhite:0.35f alpha:1.0f];
         lbl.textAlignment = NSTextAlignmentCenter;
-        lbl.frame = CGRectMake(padding + i * (btnSize + btnGap),
-                               padding + btnSize + rowGap,
-                               btnSize, labelH);
-        [_menuPanel addSubview:lbl];
+        lbl.frame = CGRectMake(0, 0, btnSize, labelH);  // applyGeometry 里定位
+        lbl.backgroundColor = [UIColor clearColor];
+        lbl.hidden = YES;
+        lbl.alpha = 0.0f;
+        [_content addSubview:lbl];
         [_menuLabels addObject:lbl];
     }
 
@@ -444,46 +485,52 @@ static void fmPersistKeys(NSDictionary *pairs)
     int orientation = [self currentOrientation];
     _lastOrientation = orientation;
 
-    // 简化：content 直接填满 window.bounds，不用 transform
     _content.frame = _window.bounds;
     _content.transform = CGAffineTransformIdentity;
 
     CGPoint dot = [self dotVisualPoint];
+    _dotButton.frame = CGRectMake(dot.x - kFMDotRadius, dot.y - kFMDotRadius,
+                                  kFMDotSize, kFMDotSize);
 
-    if (!_expanded) {
-        // 收起态：面板隐藏
-        _menuPanel.hidden = YES;
-        _menuPanel.alpha = 0.0f;
-        _dotButton.frame = CGRectMake(dot.x - kFMDotRadius, dot.y - kFMDotRadius,
-                                      kFMDotSize, kFMDotSize);
-    } else {
-        // 展开态：面板水平排列在圆点"屏幕内侧"方向
-        CGFloat panelW = _menuPanel.frame.size.width;
-        CGFloat panelH = _menuPanel.frame.size.height;
+    if (_expanded) {
+        // 三个按钮+标签的整体尺寸
+        CGFloat btnSize  = 32;
+        CGFloat btnGap   = 10;
+        CGFloat labelH   = 12;
+        CGFloat btnLabelGap = 2;
+        CGFloat totalBtnW = btnSize * 3 + btnGap * 2;
+        CGFloat rowH      = btnSize + btnLabelGap + labelH;
 
-        // 横向位置：贴右 → 面板在圆点左边；贴左 → 面板在圆点右边
-        CGFloat panelX;
+        // 横向位置：贴右 → 按钮在圆点左边；贴左 → 按钮在圆点右边
+        CGFloat firstBtnX;
         if (_edge == 0) {
-            // edge=0 贴左，面板放圆点右边
-            panelX = dot.x + kFMDotRadius + kFMMenuPanelGap;
+            firstBtnX = dot.x + kFMDotRadius + kFMMenuPanelGap;
         } else {
-            // edge=1 贴右，面板放圆点左边
-            panelX = dot.x - kFMDotRadius - kFMMenuPanelGap - panelW;
+            firstBtnX = dot.x - kFMDotRadius - kFMMenuPanelGap - totalBtnW;
         }
 
-        // 纵向：面板中心对齐圆点中心，但不超出屏幕
-        CGFloat panelCenterY = dot.y;
-        CGFloat panelY = panelCenterY - panelH / 2.0f;
-        panelY = MIN(MAX(panelY, 4.0f), visH - panelH - 4.0f);
+        // 纵向：整体居中对齐圆点中心
+        CGFloat startY = dot.y - rowH / 2.0f;
 
-        _menuPanel.frame = CGRectMake(panelX, panelY, panelW, panelH);
-        _menuPanel.hidden = NO;
-
-        _dotButton.frame = CGRectMake(dot.x - kFMDotRadius, dot.y - kFMDotRadius,
-                                      kFMDotSize, kFMDotSize);
+        for (NSUInteger i = 0; i < 3; i++) {
+            CGFloat bx = firstBtnX + i * (btnSize + btnGap);
+            CGFloat by = startY;
+            CGFloat ly = by + btnSize + btnLabelGap;
+            if (i < _menuButtons.count) {
+                UIButton *b = _menuButtons[i];
+                b.frame = CGRectMake(bx, by, btnSize, btnSize);
+                b.hidden = NO;
+            }
+            if (i < _menuLabels.count) {
+                UILabel *l = _menuLabels[i];
+                l.frame = CGRectMake(bx, ly, btnSize, labelH);
+                l.hidden = NO;
+            }
+        }
+    } else {
+        for (UIButton *b in _menuButtons) { b.hidden = YES; }
+        for (UILabel *l in _menuLabels) { l.hidden = YES; }
     }
-
-    // 不再需要 content transform —— 所有位置直接用 window 像素坐标
 }
 
 #pragma mark 展开 / 收起
@@ -496,12 +543,15 @@ static void fmPersistKeys(NSDictionary *pairs)
     _expanded = YES;
     [self applyGeometry];
 
-    _menuPanel.alpha = 0.0f;
+    for (UIButton *b in _menuButtons) { b.alpha = 0.0f; }
+    for (UILabel *l in _menuLabels)  { l.alpha = 0.0f; }
+
     [UIView animateWithDuration:kFMAnim
                           delay:0
                         options:UIViewAnimationOptionCurveEaseOut
                      animations:^{
-        self->_menuPanel.alpha = 1.0f;
+        for (UIButton *b in self->_menuButtons) { b.alpha = 1.0f; }
+        for (UILabel *l in self->_menuLabels)  { l.alpha = 1.0f; }
     } completion:nil];
 }
 
@@ -512,10 +562,10 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
     [UIView animateWithDuration:kFMAnim
                      animations:^{
-        self->_menuPanel.alpha = 0.0f;
+        for (UIButton *b in self->_menuButtons) { b.alpha = 0.0f; }
+        for (UILabel *l in self->_menuLabels)  { l.alpha = 0.0f; }
     } completion:^(BOOL finished) {
         self->_expanded = NO;
-        self->_menuPanel.hidden = YES;
         [self applyGeometry];
     }];
 }
@@ -551,10 +601,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (pan.state == UIGestureRecognizerStateBegan) {
         _dragging = YES;
         _dragStartVisual = [self dotVisualPoint];
-        // 拖动开始收起菜单（用动画），避免视觉干扰
-        if (_expanded) {
-            [self collapseMenu];
-        }
+        // 注意：拖动时菜单保持展开，实时跟随（按键精灵行为）
     } else if (pan.state == UIGestureRecognizerStateChanged) {
         CGPoint t = [pan translationInView:rootView];
         CGPoint vt = [self visualTranslationFromRootView:t orientation:orientation];
@@ -563,10 +610,13 @@ static void fmPersistKeys(NSDictionary *pairs)
 
         _content.transform = CGAffineTransformIdentity;
         _dotButton.frame = CGRectMake(x - kFMDotRadius, y - kFMDotRadius, kFMDotSize, kFMDotSize);
-        // 实时更新 dot 位置对应的 edge（拖动跨过半屏时切换）
+        // 实时更新 edge（跨过半屏自动切换）并重算按钮位置
         int curEdge = (x < visW / 2.0f) ? 0 : 1;
         if (curEdge != _edge) {
             _edge = curEdge;
+        }
+        if (_expanded) {
+            [self applyGeometry];
         }
     } else if (pan.state == UIGestureRecognizerStateEnded ||
                pan.state == UIGestureRecognizerStateCancelled ||
@@ -711,8 +761,17 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)actionBack
 {
-    [self collapseMenu];
-    [self launchZXTouchApp];
+    // 同步隐藏（不要动画，立即消失），避免 UIView 动画 block 阻塞后续 launch
+    _expanded = NO;
+    for (UIButton *b in _menuButtons) { b.hidden = YES; b.alpha = 0.0f; }
+    for (UILabel *l in _menuLabels)  { l.hidden = YES; l.alpha = 0.0f; }
+    [self applyGeometry];
+
+    // 延迟 50ms 让主线程先处理完隐藏动画的 final state，再 launch app
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05f * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        [self launchZXTouchApp];
+    });
 }
 
 #pragma mark 返回 ZXTouch app

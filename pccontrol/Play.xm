@@ -5,6 +5,7 @@
 #include "AlertBox.h"
 #include "Config.h"
 #import "ScriptPlayer.h"
+#import "FloatingMenu.h"
 #include "Common.h"
 #import <CoreFoundation/CoreFoundation.h>
 
@@ -81,6 +82,9 @@ int playScriptWithSettings(UInt8* path, int repeatTime, float playSpeed, float s
 
     [scriptPlayer play:error];
 
+    // 启动悬浮窗旋转光圈特效
+    ZXSafeMainAsync(^{ [FloatingMenu startRunningSpinner]; });
+
     return 0;
 }
 
@@ -97,6 +101,9 @@ BOOL isScriptPlaying()
 
 void playHasStoppedCallBack()
 {
+    // 脚本结束 → 停旋转光圈（必须最先执行，确保任何提前 return 都不会漏掉）
+    ZXSafeMainAsync(^{ [FloatingMenu stopRunningSpinner]; });
+
     // Users can turn the "Script Finished" popup off in the app's settings
     // (Script -> Script Finished Popup). Absent key means on, so existing
     // installs keep the previous behaviour.
