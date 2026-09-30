@@ -244,10 +244,12 @@ static NSString *ZXDashboardIPAddress(void)
     NSArray *sizeParts = [size componentsSeparatedByString:@";;"];
     NSArray *batteryParts = [battery componentsSeparatedByString:@";;"];
     NSArray *runtimeParts = [runtime componentsSeparatedByString:@";;"];
+    NSString *version = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
     return @{
         @"running": @(self.server.running),
         @"serviceOnline": @([rawSize hasPrefix:@"0"]),
         @"port": @(self.server.port),
+        @"version": version,
         @"screen": @{ @"width": sizeParts.count > 0 ? sizeParts[0] : @"", @"height": sizeParts.count > 1 ? sizeParts[1] : @"" },
         @"orientation": orientation ?: @"",
         @"battery": batteryParts.count > 1 ? batteryParts[1] : @"",
