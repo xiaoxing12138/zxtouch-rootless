@@ -82,6 +82,13 @@
 #define kFMLabelColorDefault   @"#FFFFFF"
 #define kFMDotBgAlpha          0.82f   // 圆点底色不透明度（未开放配置）
 
+// 「启动」钮三态
+typedef NS_ENUM(NSInteger, FMScriptPlayState) {
+    FMScriptPlayStateIdle    = 0,  // 未运行 → play.fill「启动」
+    FMScriptPlayStateRunning = 1,  // 运行中 → pause.fill「暂停」
+    FMScriptPlayStatePaused  = 2   // 已暂停 → play.fill「继续」
+};
+
 // 圆点图标来源
 #define kFMDotIconModeZ       0
 #define kFMDotIconModeApp     1
@@ -310,6 +317,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)applyGeometry;
 - (void)applyDotIcon;
+- (void)applyScriptPlayState:(FMScriptPlayState)state;
 - (void)expandMenu;
 - (void)collapseMenu;
 
@@ -545,6 +553,13 @@ static void fmPersistKeys(NSDictionary *pairs)
     [_dotButton addSubview:_dotIconView];
 
     [self applyDotIcon];
+    [FloatingMenu refreshScriptPlayState];
+
+    // 重建窗口后脚本可能仍在跑（例如改了配置触发 reload），恢复旋转光圈，
+    // 否则会出现「脚本运行中但光圈消失」的假象。
+    if (isScriptPlaying()) {
+        [self startRunningSpinner];
+    }
 
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self
                                                                           action:@selector(handleDotPan:)];
@@ -644,6 +659,45 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
 }
 
+#pragma mark 「启动」钮三态
+
+// 按脚本当前状态刷新按钮：未运行=启动 / 运行中=暂停 / 已暂停=继续。
+// 结果不缓存——暂停/停止可能由 App 端或脚本自然结束触发，缓存会显示过期状态。
++ (void)refreshScriptPlayState
+{
+    FMScriptPlayState state = FMScriptPlayStateIdle;
+    if (isScriptPlaying()) {
+        state = isScriptPaused() ? FMScriptPlayStatePaused : FMScriptPlayStateRunning;
+    }
+    [[self shared] applyScriptPlayState:state];
+}
+
++ (void)setScriptIdle
+{
+    [[self shared] applyScriptPlayState:FMScriptPlayStateIdle];
+}
+
+- (void)applyScriptPlayState:(FMScriptPlayState)state
+{
+    if (_menuButtons.count < 1 || _menuLabels.count < 1) {
+        return;
+    }
+
+    NSString *symbol = (state == FMScriptPlayStateRunning) ? @"pause.fill" : @"play.fill";
+    NSString *title = @"启动";
+    if (state == FMScriptPlayStateRunning) {
+        title = @"暂停";
+    } else if (state == FMScriptPlayStatePaused) {
+        title = @"继续";
+    }
+
+    UIButton *button = _menuButtons[0];
+    if (@available(iOS 13.0, *)) {
+        [button setImage:[UIImage systemImageNamed:symbol] forState:UIControlStateNormal];
+    }
+    _menuLabels[0].text = title;
+}
+
 #pragma mark 几何布局（主线程，视觉坐标）
 
 - (void)applyGeometry
@@ -735,6 +789,9 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (_expanded || !_window) return;
     _expanded = YES;
     _menuAnimating = YES;
+    // 展开是唯一能看到按钮的时机：此处按真实状态刷新「启动/暂停/继续」，
+    // 避免脚本被 App 端或自然结束后这里还显示「暂停」
+    [FloatingMenu refreshScriptPlayState];
     [self applyGeometry];  // 先让按钮/标签到正确位置
 
     CGPoint dotCenter = _dotButton.center;
@@ -969,6 +1026,19 @@ static void fmPersistKeys(NSDictionary *pairs)
 - (void)actionStart
 {
     [self collapseMenu];
+
+    // 脚本在跑 → 这个按钮是「暂停 / 继续」；没跑 → 才是「启动」
+    if (isScriptPlaying()) {
+        if (isScriptPaused()) {
+            resumeScriptPlaying();
+            fmToast(@"已继续", 3);
+        } else {
+            pauseScriptPlaying();
+            fmToast(@"已暂停", 3);
+        }
+        [FloatingMenu refreshScriptPlayState];
+        return;
+    }
 
     NSString *path = [_scriptPath copy];
     if (path.length == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:path]) {

@@ -91,7 +91,10 @@ int playScriptWithSettings(UInt8* path, int repeatTime, float playSpeed, float s
 
 void stopScriptPlaying(NSError **error)
 {
-    ZXSafeMainAsync(^{ [FloatingMenu stopRunningSpinner]; });
+    ZXSafeMainAsync(^{
+        [FloatingMenu stopRunningSpinner];
+        [FloatingMenu setScriptIdle];
+    });
     [scriptPlayer forceStop:error];
 }
 
@@ -100,10 +103,29 @@ BOOL isScriptPlaying()
     return scriptPlayer && [scriptPlayer isPlaying];
 }
 
+BOOL isScriptPaused()
+{
+    return scriptPlayer && [scriptPlayer isPaused];
+}
+
+void pauseScriptPlaying()
+{
+    [scriptPlayer pause];
+}
+
+void resumeScriptPlaying()
+{
+    [scriptPlayer resume];
+}
+
 void playHasStoppedCallBack()
 {
     // 脚本结束 → 停旋转光圈（必须最先执行，确保任何提前 return 都不会漏掉）
-    ZXSafeMainAsync(^{ [FloatingMenu stopRunningSpinner]; });
+    ZXSafeMainAsync(^{
+        [FloatingMenu stopRunningSpinner];
+        // 此处 isPlaying 还没被 clear() 置 false，只能强制回「未运行」态
+        [FloatingMenu setScriptIdle];
+    });
 
     // Users can turn the "Script Finished" popup off in the app's settings
     // (Script -> Script Finished Popup). Absent key means on, so existing

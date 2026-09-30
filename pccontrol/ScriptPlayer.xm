@@ -9,6 +9,8 @@
 #include "Common.h"
 #import <sys/stat.h>
 #include <errno.h>
+#include <unistd.h>
+#include <signal.h>
 
 static BOOL isPlaying = false;
 
@@ -106,6 +108,7 @@ static NSString *ZXPythonModulePath(void)
     UIView *circleView;
     Boolean scriptPlayForceStop;
     volatile sig_atomic_t scriptStopRequested;
+    volatile sig_atomic_t scriptPauseRequested;
     pid_t pythonProcessGroup;
     Boolean switchAppBeforePlaying;
     int _completedRuns;
@@ -113,6 +116,31 @@ static NSString *ZXPythonModulePath(void)
 
 - (BOOL)isPlaying {
     return isPlaying;
+}
+
+- (BOOL)isPaused {
+    return isPlaying && scriptPauseRequested != 0;
+}
+
+- (void)pause {
+    if (!isPlaying || scriptPauseRequested) {
+        return;
+    }
+    scriptPauseRequested = 1;
+    // py 脚本跑在独立进程组里，冻结整个进程组（含 shell 管道）才能真正停住
+    if (currentScriptType == 2 && pythonProcessGroup > 0) {
+        kill(-pythonProcessGroup, SIGSTOP);
+    }
+}
+
+- (void)resume {
+    if (!scriptPauseRequested) {
+        return;
+    }
+    scriptPauseRequested = 0;
+    if (currentScriptType == 2 && pythonProcessGroup > 0) {
+        kill(-pythonProcessGroup, SIGCONT);
+    }
 }
 
 - (int)getCompletedRuns {
@@ -179,6 +207,7 @@ static NSString *ZXPythonModulePath(void)
     {
         [self clear];
         scriptStopRequested = 0;
+        scriptPauseRequested = 0;
         pythonProcessGroup = 0;
     }
     return self;
@@ -191,6 +220,7 @@ static NSString *ZXPythonModulePath(void)
         scriptBundlePath = path;
         currentScriptType = -1;
         scriptStopRequested = 0;
+        scriptPauseRequested = 0;
         pythonProcessGroup = 0;
     }
     return self;
@@ -198,6 +228,7 @@ static NSString *ZXPythonModulePath(void)
 
 -(int)runScript:(NSError**)error {
     scriptStopRequested = 0;
+    scriptPauseRequested = 0;
     pythonProcessGroup = 0;
 
     if (!scriptBundlePath)
@@ -319,12 +350,27 @@ static NSString *ZXPythonModulePath(void)
     int sleepTime;
     
     BOOL stoppedByUser = NO;
-    while (fgets(buffer, sizeof(char)*256, file) != NULL)
+    while (YES)
     {
         if (scriptPlayForceStop)
         {
             scriptPlayForceStop = false;
             stoppedByUser = YES;
+            break;
+        }
+        // 暂停：原地等待（50ms 轮询），期间仍能响应停止
+        while (scriptPauseRequested && !scriptPlayForceStop)
+        {
+            usleep(50 * 1000);
+        }
+        if (scriptPlayForceStop)
+        {
+            scriptPlayForceStop = false;
+            stoppedByUser = YES;
+            break;
+        }
+        if (fgets(buffer, sizeof(char)*256, file) == NULL)
+        {
             break;
         }
         if (speed > 0 && speed != 1)
@@ -493,6 +539,7 @@ static NSString *ZXPythonModulePath(void)
     speed = 1.0f;
     scriptBundlePath = nil;
     isPlaying = false;
+    scriptPauseRequested = 0;
     currentScriptType = -1;
     //scriptPlayForceStop = false;
 
@@ -530,6 +577,11 @@ static NSString *ZXPythonModulePath(void)
     {
         scriptStopRequested = 1;
         pid_t processGroup = pythonProcessGroup;
+        // 暂停中进程组是 SIGSTOP 状态，先 SIGCONT 唤醒再杀，避免留下停住的僵尸组
+        if (scriptPauseRequested && processGroup > 0) {
+            kill(-processGroup, SIGCONT);
+        }
+        scriptPauseRequested = 0;
         if (processGroup > 0 && kill(-processGroup, SIGKILL) != 0 && errno != ESRCH) {
             NSLog(@"com.zjx.springboard: failed to stop Python process group %d: errno %d",
                   processGroup, errno);

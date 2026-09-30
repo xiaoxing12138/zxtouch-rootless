@@ -41,6 +41,11 @@
 + (void)startRunningSpinner;
 + (void)stopRunningSpinner;
 
+// 「启动」钮三态：按当前脚本状态刷新（未运行=启动 / 运行中=暂停 / 已暂停=继续）
++ (void)refreshScriptPlayState;
+// 脚本结束或被停止后强制回到「未运行」态（此时 getter 可能还没更新，不能靠查询）
++ (void)setScriptIdle;
+
 // 获取当前前台可用的 UIWindowScene（iOS 13+ 创建可渲染 window 必需）
 + (UIWindowScene *)preferredWindowScene;
 
