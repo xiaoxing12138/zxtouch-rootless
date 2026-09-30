@@ -31,9 +31,11 @@
  *     杜绝"显示一秒后消失"。
  */
 
-#define kFMDotSize        48.0f
-#define kFMDotRadius      (kFMDotSize / 2.0f)
-#define kFMDotReveal      24.0f   // = kFMDotRadius，完全贴边全显示
+// 圆点尺寸改为可配置（设置页滑块 32..80pt），默认 48pt。
+// 吸附时圆点中心距屏幕边缘恒等于半径 → 永远「完全贴边全显示」。
+#define kFMDotDefaultSize 48.0f
+#define kFMDotMinSize     32.0f
+#define kFMDotMaxSize     80.0f
 #define kFMMenuBtnSize    44.0f   // 菜单圆形图标按钮尺寸
 #define kFMMenuPanelGap   8.0f    // 圆点到菜单面板间距
 #define kFMMenuBtnGap     4.0f    // 菜单圆形按钮之间的间距
@@ -203,6 +205,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     NSInteger _menuUp;        // 1 = 菜单按钮排在圆点上方；-1 = 下方；0 = 收起
     int      _edge;           // 1 右 / 0 左
     CGFloat  _yRatio;         // 圆点纵向位置比例
+    CGFloat  _dotSize;        // 圆点直径 pt（32..80，配置驱动）
     int      _lastOrientation;
 
     CGPoint  _dragStartVisual;
@@ -216,6 +219,15 @@ static void fmPersistKeys(NSDictionary *pairs)
 @end
 
 @implementation FloatingMenu
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self) {
+        _dotSize = kFMDotDefaultSize;
+    }
+    return self;
+}
 
 + (instancetype)shared
 {
@@ -247,6 +259,18 @@ static void fmPersistKeys(NSDictionary *pairs)
 }
 
 #pragma mark 视觉坐标工具
+
+// 圆点半径。吸附时圆点中心距屏幕边缘恒等于半径，因此不论多大都「完全贴边全显示」。
+- (CGFloat)dotRadius
+{
+    return _dotSize / 2.0f;
+}
+
+// 圆点内字母随直径等比缩放，保持默认 48pt → 22pt 的视觉比例
+- (CGFloat)dotTitleFontSize
+{
+    return roundf(_dotSize * (22.0f / kFMDotDefaultSize));
+}
 
 - (void)canvasPortraitWidth:(CGFloat *)width height:(CGFloat *)height
 {
@@ -294,10 +318,11 @@ static void fmPersistKeys(NSDictionary *pairs)
 {
     CGFloat visW, visH;
     [self visualWidth:&visW height:&visH portrait:NULL];
+    CGFloat radius = [self dotRadius];
     CGFloat y = _yRatio * visH;
-    y = MIN(MAX(y, kFMDotRadius + 2.0f), visH - kFMDotRadius - 2.0f);
-    // 中心距边缘 kFMDotReveal(8pt) → 圆点露出 2/3 = 32pt，更容易点击
-    CGFloat x = (_edge == 0) ? kFMDotReveal : (visW - kFMDotReveal);
+    y = MIN(MAX(y, radius + 2.0f), visH - radius - 2.0f);
+    // 中心距边缘 = 半径 → 圆点完全贴边且完整显示
+    CGFloat x = (_edge == 0) ? radius : (visW - radius);
     return CGPointMake(x, y);
 }
 
@@ -365,13 +390,13 @@ static void fmPersistKeys(NSDictionary *pairs)
 
     // 圆点
     _dotButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    _dotButton.frame = CGRectMake(0, 0, kFMDotSize, kFMDotSize);
+    _dotButton.frame = CGRectMake(0, 0, _dotSize, _dotSize);
     _dotButton.backgroundColor = [UIColor colorWithRed:20.0f / 255.0f
                                                 green:20.0f / 255.0f
                                                  blue:28.0f / 255.0f
                                                 alpha:0.82f];
-    _dotButton.layer.cornerRadius = kFMDotRadius;
-    _dotButton.titleLabel.font = [UIFont systemFontOfSize:22.0f weight:UIFontWeightBold];
+    _dotButton.layer.cornerRadius = [self dotRadius];
+    _dotButton.titleLabel.font = [UIFont systemFontOfSize:[self dotTitleFontSize] weight:UIFontWeightBold];
     [_dotButton setTitle:@"Z" forState:UIControlStateNormal];
     [_dotButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     _dotButton.adjustsImageWhenHighlighted = NO;
@@ -472,10 +497,12 @@ static void fmPersistKeys(NSDictionary *pairs)
         dot = _dotButton.center;
     } else {
         dot = [self dotVisualPoint];
+        CGFloat radius = [self dotRadius];
         _dotButton.transform = CGAffineTransformIdentity;
-        _dotButton.frame = CGRectMake(dot.x - kFMDotRadius, dot.y - kFMDotRadius,
-                                      kFMDotSize, kFMDotSize);
+        _dotButton.frame = CGRectMake(dot.x - radius, dot.y - radius, _dotSize, _dotSize);
     }
+
+    CGFloat dotRadius = [self dotRadius];
 
     if (_expanded) {
         // 三个按钮+标签的整体尺寸
@@ -489,9 +516,9 @@ static void fmPersistKeys(NSDictionary *pairs)
         // 横向位置：贴右 → 按钮在圆点左边；贴左 → 按钮在圆点右边
         CGFloat firstBtnX;
         if (_edge == 0) {
-            firstBtnX = dot.x + kFMDotRadius + kFMMenuPanelGap;
+            firstBtnX = dot.x + dotRadius + kFMMenuPanelGap;
         } else {
-            firstBtnX = dot.x - kFMDotRadius - kFMMenuPanelGap - totalBtnW;
+            firstBtnX = dot.x - dotRadius - kFMMenuPanelGap - totalBtnW;
         }
 
         // 纵向：整体居中对齐圆点中心
@@ -688,6 +715,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 {
     CGFloat visW, visH;
     [self visualWidth:&visW height:&visH portrait:NULL];
+    CGFloat dotRadius = [self dotRadius];
 
     // 用 rootView（未旋转）作为参考，避免 translationInView:_content 在
     // _content 旋转后行为不一致导致拖动方向错乱（用户反馈横屏拖不到右侧）
@@ -701,11 +729,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     } else if (pan.state == UIGestureRecognizerStateChanged) {
         CGPoint t = [pan translationInView:rootView];
         CGPoint vt = [self visualTranslationFromRootView:t orientation:orientation];
-        CGFloat x = MIN(MAX(_dragStartVisual.x + vt.x, kFMDotRadius), visW - kFMDotRadius);
-        CGFloat y = MIN(MAX(_dragStartVisual.y + vt.y, kFMDotRadius + 2.0f), visH - kFMDotRadius - 2.0f);
+        CGFloat x = MIN(MAX(_dragStartVisual.x + vt.x, dotRadius), visW - dotRadius);
+        CGFloat y = MIN(MAX(_dragStartVisual.y + vt.y, dotRadius + 2.0f), visH - dotRadius - 2.0f);
 
         _content.transform = CGAffineTransformIdentity;
-        _dotButton.frame = CGRectMake(x - kFMDotRadius, y - kFMDotRadius, kFMDotSize, kFMDotSize);
+        _dotButton.frame = CGRectMake(x - dotRadius, y - dotRadius, _dotSize, _dotSize);
         // 实时更新 edge（跨过半屏自动切换）并重算按钮位置
         int curEdge = (x < visW / 2.0f) ? 0 : 1;
         if (curEdge != _edge) {
@@ -719,10 +747,10 @@ static void fmPersistKeys(NSDictionary *pairs)
                pan.state == UIGestureRecognizerStateFailed) {
         CGPoint t = [pan translationInView:rootView];
         CGPoint vt = [self visualTranslationFromRootView:t orientation:orientation];
-        CGFloat x = MIN(MAX(_dragStartVisual.x + vt.x, kFMDotRadius), visW - kFMDotRadius);
-        CGFloat y = MIN(MAX(_dragStartVisual.y + vt.y, kFMDotRadius + 2.0f), visH - kFMDotRadius - 2.0f);
+        CGFloat x = MIN(MAX(_dragStartVisual.x + vt.x, dotRadius), visW - dotRadius);
+        CGFloat y = MIN(MAX(_dragStartVisual.y + vt.y, dotRadius + 2.0f), visH - dotRadius - 2.0f);
 
-        // 吸附：离哪条竖边近贴哪条，中心距边缘 kFMDotReveal → 露出 2/3
+        // 吸附：离哪条竖边近贴哪条，中心距边缘 = 半径 → 圆点完全贴边且完整显示
         int newEdge = (x < visW / 2.0f) ? 0 : 1;
         _dragging = NO;
         _edge = newEdge;
@@ -743,8 +771,8 @@ static void fmPersistKeys(NSDictionary *pairs)
                          animations:^{
             // dot 最终吸附位置
             CGPoint finalDot = [self dotVisualPoint];
-            self->_dotButton.frame = CGRectMake(finalDot.x - kFMDotRadius, finalDot.y - kFMDotRadius,
-                                                 kFMDotSize, kFMDotSize);
+            self->_dotButton.frame = CGRectMake(finalDot.x - dotRadius, finalDot.y - dotRadius,
+                                                 self->_dotSize, self->_dotSize);
             // menu 按钮/标签也跟着到最终位置
             if (self->_expanded) {
                 [self applyGeometry];
@@ -991,7 +1019,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (!_dotButton) return;
     if ([_dotButton.layer animationForKey:@"fmSpinning"]) return;
 
-    CGFloat s = kFMDotSize + 10;  // 比 dot 大 5pt（更明显）
+    CGFloat s = _dotSize + 10;  // 比 dot 大 5pt（更明显）
 
     // 绿蛇：3 段渐变圆弧，每段粗细不同，前深后浅
     NSArray *segments = @[
@@ -1091,6 +1119,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             int edge = 1;
             BOOL hasRatio = NO;
             CGFloat ratio = 0.5f;
+            CGFloat dotSize = kFMDotDefaultSize;
             NSString *script = @"";
 
             NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
@@ -1105,6 +1134,10 @@ static void fmPersistKeys(NSDictionary *pairs)
                 if ([ratioValue isKindOfClass:[NSNumber class]]) {
                     ratio = [ratioValue doubleValue];
                     hasRatio = YES;
+                }
+                NSNumber *dotSizeValue = config[kFMCfgDotSize];
+                if ([dotSizeValue isKindOfClass:[NSNumber class]]) {
+                    dotSize = [dotSizeValue doubleValue];
                 }
                 if (!hasEdge) {
                     NSNumber *xValue = config[@"floating_menu_x"];
@@ -1122,6 +1155,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 
             self->_edge = (edge == 0) ? 0 : 1;
             self->_yRatio = MIN(MAX(hasRatio ? ratio : 0.5f, 0.02f), 0.98f);
+            self->_dotSize = MIN(MAX(dotSize, kFMDotMinSize), kFMDotMaxSize);
             self->_scriptPath = script;
 
             // 彻底照搬 NetSpeedIndicator.reloadAppearance 模式：
@@ -1169,6 +1203,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     info[@"edge"] = @(_edge);          // 1=右 0=左
     info[@"edge_name"] = (_edge == 0) ? @"左" : @"右";
     info[@"y_ratio"] = @(_yRatio);
+    info[@"dot_size"] = @(_dotSize);
     info[@"last_orientation"] = @(_lastOrientation);
 
     CGFloat visW, visH;
@@ -1205,8 +1240,8 @@ static void fmPersistKeys(NSDictionary *pairs)
 
     if (_dotButton) {
         CGRect df = _dotButton.frame;
-        CGPoint centerInRoot = [_dotButton convertPoint:CGPointMake(kFMDotSize/2, kFMDotSize/2) toView:_window.rootViewController.view];
-        CGPoint centerInWindow = [_dotButton convertPoint:CGPointMake(kFMDotSize/2, kFMDotSize/2) toView:nil];
+        CGPoint centerInRoot = [_dotButton convertPoint:CGPointMake(_dotSize/2, _dotSize/2) toView:_window.rootViewController.view];
+        CGPoint centerInWindow = [_dotButton convertPoint:CGPointMake(_dotSize/2, _dotSize/2) toView:nil];
         info[@"dot_frame_x"] = @(df.origin.x);
         info[@"dot_frame_y"] = @(df.origin.y);
         info[@"dot_frame_w"] = @(df.size.width);

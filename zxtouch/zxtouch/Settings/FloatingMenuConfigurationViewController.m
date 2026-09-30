@@ -15,6 +15,12 @@
 static NSString *kCfgEnabled = @"floating_menu_enabled";
 static NSString *kCfgEdge    = @"floating_menu_edge";     // 1=右 0=左
 static NSString *kCfgYRatio  = @"floating_menu_y_ratio"; // 0..1
+static NSString *kCfgDotSize = @"floating_menu_dot_size"; // 32..80 pt
+
+// 圆点大小范围（与 tweak 端 kFMDotMinSize / kFMDotMaxSize 保持一致）
+static const float kDotSizeMin     = 32.0f;
+static const float kDotSizeMax     = 80.0f;
+static const float kDotSizeDefault = 48.0f;
 
 @interface FloatingMenuConfigurationViewController ()
 
@@ -111,23 +117,46 @@ static NSString *kCfgYRatio  = @"floating_menu_y_ratio"; // 0..1
     [self saveConfig];
 }
 
-- (void)yRatioSliderTouchUp:(id)sender {
+#pragma mark - 圆点大小
+
+- (void)dotSizeValueChanged:(id)sender {
+    UISlider *slider = (UISlider *)sender;
+    float stepped = roundf(slider.value);
+    [slider setValue:stepped animated:NO];
+    // 显示实时数值
+    UIView *view = slider;
+    while (view && ![view isKindOfClass:[TableViewCellWithSlider class]]) {
+        view = view.superview;
+    }
+    if ([view isKindOfClass:[TableViewCellWithSlider class]]) {
+        ((TableViewCellWithSlider *)view).value.text = [NSString stringWithFormat:@"%.0f pt", stepped];
+    }
+    // 拖动过程中只写 plist，松手才 reload
+    _config[kCfgDotSize] = @((NSInteger)stepped);
+    [self saveConfig];
+}
+
+// 任意滑块松手后统一通知 tweak 重载配置
+- (void)sliderTouchUp:(id)sender {
     [self reloadTweak];
 }
 
 #pragma mark - UITableView
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 2;
+    return 3;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 1; // 开关
-    return 2; // 吸附边 + 纵向比例
+    if (section == 1) return 2; // 吸附边 + 纵向比例
+    return 1;                   // 外观：圆点大小
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return section == 0 ? @"开关" : @"位置";
+    if (section == 0) return @"开关";
+    if (section == 1) return @"位置";
+    return @"外观";
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -143,9 +172,8 @@ static NSString *kCfgYRatio  = @"floating_menu_y_ratio"; // 0..1
         return cell;
     }
 
-    // section 1
-    if (indexPath.row == 0) {
-        // 吸附边 — 用 Entry cell 包装一个 segment
+    // section 1 row 0：吸附边 — 用 Entry cell 包装一个 segment
+    if (indexPath.section == 1 && indexPath.row == 0) {
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"EdgeCell"];
         if (!cell) {
             cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"EdgeCell"];
@@ -167,18 +195,32 @@ static NSString *kCfgYRatio  = @"floating_menu_y_ratio"; // 0..1
         return cell;
     }
 
-    // 纵向比例滑块
+    // 滑块（section 1 = 纵向位置；section 2 = 圆点大小）
     TableViewCellWithSlider *cell = [tableView dequeueReusableCellWithIdentifier:@"SliderCell" forIndexPath:indexPath];
-    cell.title.text = @"纵向位置";
-    cell.slideBar.minimumValue = 0.0f;
-    cell.slideBar.maximumValue = 1.0f;
     cell.slideBar.continuous = YES;
     [cell.slideBar removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
-    [cell.slideBar addTarget:self action:@selector(yRatioValueChanged:) forControlEvents:UIControlEventValueChanged];
-    [cell.slideBar addTarget:self action:@selector(yRatioSliderTouchUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
-    float ratio = [_config[kCfgYRatio] floatValue];
-    cell.slideBar.value = ratio;
-    cell.value.text = [NSString stringWithFormat:@"%.2f", ratio];
+    [cell.slideBar addTarget:self
+                      action:(indexPath.section == 2 ? @selector(dotSizeValueChanged:) : @selector(yRatioValueChanged:))
+            forControlEvents:UIControlEventValueChanged];
+    [cell.slideBar addTarget:self action:@selector(sliderTouchUp:)
+            forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+
+    if (indexPath.section == 2) {
+        float dotSize = _config[kCfgDotSize] ? [_config[kCfgDotSize] floatValue] : kDotSizeDefault;
+        if (dotSize < kDotSizeMin || dotSize > kDotSizeMax) dotSize = kDotSizeDefault;
+        cell.title.text = @"圆点大小";
+        cell.slideBar.minimumValue = kDotSizeMin;
+        cell.slideBar.maximumValue = kDotSizeMax;
+        cell.slideBar.value = dotSize;
+        cell.value.text = [NSString stringWithFormat:@"%.0f pt", dotSize];
+    } else {
+        float ratio = [_config[kCfgYRatio] floatValue];
+        cell.title.text = @"纵向位置";
+        cell.slideBar.minimumValue = 0.0f;
+        cell.slideBar.maximumValue = 1.0f;
+        cell.slideBar.value = ratio;
+        cell.value.text = [NSString stringWithFormat:@"%.2f", ratio];
+    }
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     return cell;
 }
