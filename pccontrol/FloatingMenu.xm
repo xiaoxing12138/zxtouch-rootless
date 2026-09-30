@@ -32,6 +32,7 @@
 
 #define kFMDotSize        48.0f
 #define kFMDotRadius      (kFMDotSize / 2.0f)
+#define kFMDotReveal      8.0f    // 吸附边缘时圆点中心距边缘的距离，露出 2/3 = 32pt
 #define kFMItemWidth      72.0f
 #define kFMItemHeight     36.0f
 #define kFMItemGap        8.0f
@@ -244,9 +245,26 @@ static void fmPersistKeys(NSDictionary *pairs)
     [self visualWidth:&visW height:&visH portrait:NULL];
     CGFloat y = _yRatio * visH;
     y = MIN(MAX(y, kFMDotRadius + 2.0f), visH - kFMDotRadius - 2.0f);
-    // 中心压在边线上 → 正好露出一半
-    CGFloat x = (_edge == 0) ? 0.0f : visW;
+    // 中心距边缘 kFMDotReveal(8pt) → 圆点露出 2/3 = 32pt，更容易点击
+    CGFloat x = (_edge == 0) ? kFMDotReveal : (visW - kFMDotReveal);
     return CGPointMake(x, y);
+}
+
+// rootView 坐标系下的位移 → 视觉坐标系下的位移
+// LandscapeLeft: 设备顺时针 90°（用户视角），rootView +x = 视觉 -y，rootView +y = 视觉 +x
+// LandscapeRight: 设备逆时针 90°（用户视角），rootView +x = 视觉 +y，rootView +y = 视觉 -x
+- (CGPoint)visualTranslationFromRootView:(CGPoint)t orientation:(int)orientation
+{
+    switch (orientation) {
+        case UIInterfaceOrientationLandscapeLeft:
+            return CGPointMake(t.y, -t.x);
+        case UIInterfaceOrientationLandscapeRight:
+            return CGPointMake(-t.y, t.x);
+        case UIInterfaceOrientationPortraitUpsideDown:
+            return CGPointMake(-t.x, -t.y);
+        default:
+            return t;
+    }
 }
 
 #pragma mark window 构建
@@ -510,6 +528,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat visW, visH;
     [self visualWidth:&visW height:&visH portrait:NULL];
 
+    // 用 rootView（未旋转）作为参考，避免 translationInView:_content 在
+    // _content 旋转后行为不一致导致拖动方向错乱（用户反馈横屏拖不到右侧）
+    UIView *rootView = _window.rootViewController.view;
+    int orientation = [self currentOrientation];
+
     if (pan.state == UIGestureRecognizerStateBegan) {
         _dragging = YES;
         _dragStartVisual = [self dotVisualPoint];
@@ -522,22 +545,24 @@ static void fmPersistKeys(NSDictionary *pairs)
             _expanded = NO;
         }
     } else if (pan.state == UIGestureRecognizerStateChanged) {
-        // translationInView 已扣除 contentView 的旋转，拿到的是视觉位移
-        CGPoint t = [pan translationInView:_content];
-        CGFloat x = MIN(MAX(_dragStartVisual.x + t.x, kFMDotRadius), visW - kFMDotRadius);
-        CGFloat y = MIN(MAX(_dragStartVisual.y + t.y, kFMDotRadius + 2.0f), visH - kFMDotRadius - 2.0f);
+        // 把 rootView 坐标系位移按方向旋转成视觉坐标系位移
+        CGPoint t = [pan translationInView:rootView];
+        CGPoint vt = [self visualTranslationFromRootView:t orientation:orientation];
+        CGFloat x = MIN(MAX(_dragStartVisual.x + vt.x, kFMDotRadius), visW - kFMDotRadius);
+        CGFloat y = MIN(MAX(_dragStartVisual.y + vt.y, kFMDotRadius + 2.0f), visH - kFMDotRadius - 2.0f);
 
         _content.transform = CGAffineTransformIdentity;
         _dotButton.frame = CGRectMake(x - kFMDotRadius, y - kFMDotRadius, kFMDotSize, kFMDotSize);
-        _content.transform = fmTransformForOrientation([self currentOrientation]);
+        _content.transform = fmTransformForOrientation(orientation);
     } else if (pan.state == UIGestureRecognizerStateEnded ||
                pan.state == UIGestureRecognizerStateCancelled ||
                pan.state == UIGestureRecognizerStateFailed) {
-        CGPoint t = [pan translationInView:_content];
-        CGFloat x = MIN(MAX(_dragStartVisual.x + t.x, kFMDotRadius), visW - kFMDotRadius);
-        CGFloat y = MIN(MAX(_dragStartVisual.y + t.y, kFMDotRadius + 2.0f), visH - kFMDotRadius - 2.0f);
+        CGPoint t = [pan translationInView:rootView];
+        CGPoint vt = [self visualTranslationFromRootView:t orientation:orientation];
+        CGFloat x = MIN(MAX(_dragStartVisual.x + vt.x, kFMDotRadius), visW - kFMDotRadius);
+        CGFloat y = MIN(MAX(_dragStartVisual.y + vt.y, kFMDotRadius + 2.0f), visH - kFMDotRadius - 2.0f);
 
-        // 吸附：离哪条竖边近贴哪条，圆点中心压在边线上 → 正好露出一半
+        // 吸附：离哪条竖边近贴哪条，中心距边缘 kFMDotReveal → 露出 2/3
         int newEdge = (x < visW / 2.0f) ? 0 : 1;
         _dragging = NO;
         _edge = newEdge;

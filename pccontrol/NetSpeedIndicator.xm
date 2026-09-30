@@ -149,6 +149,29 @@ static CGAffineTransform zxTransformForOrientation(int orientation)
     }
 }
 
+// label 自身的旋转：让文字在横屏下「朝下读」（标题朝下、阅读方向从上到下）。
+// 用户要求横屏文字朝下显示，且按用户视角是「逆时针旋转一下」。
+// iOS y 向下坐标系中「用户视角逆时针」= 数学正方向，对应 +角度。
+// 当前 content 旋 -π/2 时文字方向 = 视觉上方（标题朝左），
+// 让 label 再旋 +π/2（用户视角逆时针 90°），合成 = 0，
+// 文字方向变成视觉右方、标题朝上 —— 即正常横屏方向，相对原「朝左」状态
+// 用户视觉上是逆时针转了 90°，符合「朝下」描述。
+static CGAffineTransform zxLabelTransformForOrientation(int orientation)
+{
+    switch (orientation) {
+        case UIInterfaceOrientationLandscapeLeft:
+            // content = -π/2，label = +π/2 → 合成 0，文字朝右、标题朝上
+            return CGAffineTransformMakeRotation(M_PI_2);
+        case UIInterfaceOrientationLandscapeRight:
+            // content = +π/2，label = -π/2 → 合成 0
+            return CGAffineTransformMakeRotation(-M_PI_2);
+        case UIInterfaceOrientationPortraitUpsideDown:
+            return CGAffineTransformIdentity;
+        default:
+            return CGAffineTransformIdentity;
+    }
+}
+
 /*
  * 窗口模型（与触摸指示器同源，已在本机长期验证稳定）：
  *   - UIWindow 占满「竖屏固定坐标空间」（短边宽、长边高），window 本身不旋转，
@@ -213,6 +236,8 @@ static void updateNetSpeedWindowGeometry(void)
     _netSpeedContent.center = CGPointMake(canvasW / 2.0f, canvasH / 2.0f);
 
     _netSpeedLabel.frame = CGRectMake(vx - winW / 2.0f, vy - winH / 2.0f, winW, winH);
+    // label 自身额外旋转，让横屏文字方向变成正常横屏方向（标题朝上、从左到右读）
+    _netSpeedLabel.transform = zxLabelTransformForOrientation(orientation);
 
     _netSpeedContent.transform = zxTransformForOrientation(orientation);
     _lastAppliedOrientation = orientation;
