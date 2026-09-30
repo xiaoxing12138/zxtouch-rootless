@@ -371,54 +371,57 @@ static void fmPersistKeys(NSDictionary *pairs)
     [_dotButton addGestureRecognizer:pan];
     [_dotButton addGestureRecognizer:tap];
 
-    // 菜单面板：白色圆角框 + 三个纯文字标签横排（仿按键精灵）
-    _menuButtons = [NSMutableArray array];  // 保留（空数组，兼容旧代码遍历）
-    _menuLabels  = [NSMutableArray arrayWithCapacity:3];
+    // 菜单面板：白色圆角框，内三列，每列圆形图标按钮 + 下方文字标签（仿按键精灵）
+    _menuButtons = [NSMutableArray array];
+    _menuLabels  = [NSMutableArray array];
 
-    CGFloat panelPadding = 12;
-    CGFloat labelGap = 16;
-    CGFloat fontSize = 14;
-    CGFloat labelH = 20;
+    CGFloat btnSize  = 44;   // 圆形图标按钮尺寸
+    CGFloat btnGap   = 16;   // 圆形按钮之间的水平间距
+    CGFloat labelH   = 16;
+    CGFloat labelGap = 4;    // 按钮到标签间距
+    CGFloat padding  = 12;
+    CGFloat rowGap   = 8;    // 两行之间间距
 
-    NSArray *titles = @[@"启动", @"设置", @"返回"];
-    // 估算宽度
-    CGFloat totalLabelsW = 0;
-    for (NSString *t in titles) {
-        CGSize s = [t sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:fontSize]}];
-        totalLabelsW += s.width;
-    }
-    CGFloat panelW = totalLabelsW + panelPadding * 2 + labelGap * 2;
-    CGFloat panelH = labelH + panelPadding * 2;
+    NSArray *symbolNames = @[@"play.fill", @"gearshape.fill", @"arrow.uturn.backward.circle.fill"];
+    NSArray *titles      = @[@"启动", @"设置", @"返回"];
+
+    CGFloat totalW = btnSize * 3 + btnGap * 2;
+    CGFloat panelW = totalW + padding * 2;
+    CGFloat panelH = btnSize + rowGap + labelH + padding * 2;
 
     _menuPanel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelW, panelH)];
-    _menuPanel.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.95f];
-    _menuPanel.layer.cornerRadius = 12;
-    _menuPanel.layer.borderWidth = 0;
+    _menuPanel.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.97f];
+    _menuPanel.layer.cornerRadius = 14;
     _menuPanel.hidden = YES;
     _menuPanel.alpha = 0.0f;
     [_content addSubview:_menuPanel];
 
-    CGFloat curX = panelPadding;
-    for (NSString *title in titles) {
+    for (NSUInteger i = 0; i < 3; i++) {
+        // 圆形图标按钮（灰底）
+        UIButton *iconBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        iconBtn.frame = CGRectMake(padding + i * (btnSize + btnGap), padding, btnSize, btnSize);
+        iconBtn.backgroundColor = [UIColor colorWithWhite:0.88f alpha:1.0f];
+        iconBtn.layer.cornerRadius = btnSize / 2.0f;
+        if (@available(iOS 13.0, *)) {
+            [iconBtn setImage:[UIImage systemImageNamed:symbolNames[i]] forState:UIControlStateNormal];
+            iconBtn.tintColor = [UIColor colorWithWhite:0.15f alpha:1.0f];
+        }
+        [iconBtn addTarget:self action:@selector(handleMenuIconTap:) forControlEvents:UIControlEventTouchUpInside];
+        [_menuPanel addSubview:iconBtn];
+        [_menuButtons addObject:iconBtn];
+
+        // 下方文字标签
         UILabel *lbl = [[UILabel alloc] init];
-        lbl.text = title;
-        lbl.font = [UIFont systemFontOfSize:fontSize];
-        lbl.textColor = [UIColor colorWithWhite:0.15f alpha:1.0f];
+        lbl.text = titles[i];
+        lbl.font = [UIFont systemFontOfSize:12.0f];
+        lbl.textColor = [UIColor colorWithWhite:0.25f alpha:1.0f];
         lbl.textAlignment = NSTextAlignmentCenter;
-        CGSize s = [title sizeWithAttributes:@{NSFontAttributeName: lbl.font}];
-        lbl.frame = CGRectMake(curX, panelPadding, s.width, labelH);
-        lbl.userInteractionEnabled = YES;
-
-        // 加点击手势
-        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self
-                                                                              action:@selector(handleMenuLabelTap:)];
-        [lbl addGestureRecognizer:tap];
-
+        lbl.frame = CGRectMake(padding + i * (btnSize + btnGap),
+                               padding + btnSize + rowGap,
+                               btnSize, labelH);
         [_menuPanel addSubview:lbl];
         [_menuLabels addObject:lbl];
-        curX += s.width + labelGap;
     }
-    // 三个 tap 手势各自对应 action（通过 label 在数组里的 index 区分）
 
     _lastOrientation = [self currentOrientation];
     [self applyGeometry];
@@ -588,11 +591,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
 }
 
-#pragma mark - 菜单 label 点击
+#pragma mark - 菜单 icon 点击
 
-- (void)handleMenuLabelTap:(UITapGestureRecognizer *)tap
+- (void)handleMenuIconTap:(UIButton *)sender
 {
-    NSUInteger idx = [_menuLabels indexOfObject:(UILabel *)tap.view];
+    NSUInteger idx = [_menuButtons indexOfObject:sender];
     if (idx == NSNotFound) return;
     [self collapseMenu];
     if (idx == 0) [self actionStart];
