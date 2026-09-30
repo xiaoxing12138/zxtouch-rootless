@@ -10,6 +10,7 @@
 #import "TouchIndicatorConfigurationViewController.h"
 #import "NetSpeedConfigurationViewController.h"
 #import "DebugFloatWindowViewController.h"
+#import "FloatingMenuConfigurationViewController.h"
 #import "Util.h"
 #import "Socket.h"
 
@@ -222,10 +223,9 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         [self remoteManagementCells],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"双击下音量键打开控制面板", @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速指示器设置", @"secondary_title": @"位置 / 字号 / 边距 / 息屏暂停", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"悬浮控制按钮", @"switch_click_handler": NSStringFromSelector(@selector(handleFloatingMenuToggle:)), @"switch_init_status": @(floatingMenu)},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮控制按钮", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))}
         ],
         @[
@@ -295,10 +295,9 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         [self remoteManagementCells],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"双击下音量键打开控制面板", @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速指示器设置", @"secondary_title": @"位置 / 字号 / 边距 / 息屏暂停", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"悬浮控制按钮", @"switch_click_handler": NSStringFromSelector(@selector(handleFloatingMenuToggle:)), @"switch_init_status": @(floatingMenu)},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮控制按钮", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))}
         ],
         @[
@@ -584,18 +583,9 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [self.navigationController pushViewController:vc animated:YES];
 }
 
-- (void)handleFloatingMenuToggle:(UISwitch*)s {
-    BOOL enabled = [s isOn];
-    [configManager updateKey:@"floating_menu_enabled" forValue:@(enabled)];
-    [configManager save];
-
-    // Notify SpringBoard tweak via socket (command 32)
-    Socket *socket = [[Socket alloc] init];
-    if ([socket connect:@"127.0.0.1" byPort:6000] == 0) {
-        NSString *cmd = [NSString stringWithFormat:@"32;;%d\r\n", enabled ? 1 : 0];
-        [socket send:cmd];
-        [socket close];
-    }
+- (void)handleFloatingMenuEntryTap:(TableViewCellWithEntry *)cell {
+    FloatingMenuConfigurationViewController *vc = [[FloatingMenuConfigurationViewController alloc] init];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)handleDebugFloatWindowTap:(TableViewCellWithEntry *)cell {

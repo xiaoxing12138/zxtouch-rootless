@@ -1012,13 +1012,20 @@ NSString *handleFloatingMenuTaskWithRawData(UInt8 *eventData, NSError **error)
             return response;
         }
 
-        if (action != 0 && action != 1) {
+        if (action != 0 && action != 1 && action != 3) {
             if (error) {
                 *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp"
                                              code:999
-                                         userInfo:@{NSLocalizedDescriptionKey:@"-1;;数据格式应为 \"enabled\"（1=开启, 0=关闭, 2=查询）\r\n"}];
+                                         userInfo:@{NSLocalizedDescriptionKey:@"-1;;数据格式应为 \"enabled\"（1=开启, 0=关闭, 2=查询, 3=reload 配置）\r\n"}];
             }
             return nil;
+        }
+
+        if (action == 3) {
+            [FloatingMenu reloadConfig];
+            response = @"0\r\n";
+            if (error) *error = nil;
+            return response;
         }
 
         BOOL enabled = (action == 1);
