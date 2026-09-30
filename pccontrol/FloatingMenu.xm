@@ -133,53 +133,6 @@
 
 static FloatingMenu *_fmShared = nil;
 
-#pragma mark - Script running spinner（旋转光圈）
-
-- (void)startRunningSpinner
-{
-    if (!_dotButton) return;
-    // 已经在转就不重复加
-    if ([_dotButton.layer animationForKey:@"fmSpinning"]) return;
-
-    CGFloat s = kFMDotSize + 6;  // 比 dot 略大 3pt
-    CAShapeLayer *ring = [CAShapeLayer layer];
-    ring.frame = CGRectMake(-3, -3, s, s);
-    UIBezierPath *path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(2, 2, s - 4, s - 4)];
-    ring.path = path.CGPath;
-    ring.fillColor = [UIColor clearColor].CGColor;
-    ring.strokeColor = [UIColor colorWithRed:0.2f green:0.6f blue:1.0f alpha:0.9f].CGColor;
-    ring.lineWidth = 2.0f;
-    ring.lineCap = kCALineCapRound;
-    ring.strokeStart = 0.0f;
-    ring.strokeEnd = 0.7f;  // 只画圆弧，不是整圈
-    ring.name = @"fmSpinnerRing";
-    ring.zPosition = -1;
-    [_dotButton.layer addSublayer:ring];
-
-    CABasicAnimation *rot = [CABasicAnimation animationWithKeyPath:@"transform.rotation"];
-    rot.fromValue = @(0);
-    rot.toValue = @(2 * M_PI);
-    rot.duration = 0.8f;
-    rot.repeatCount = INFINITY;
-    rot.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
-    [ring addAnimation:rot forKey:@"fmSpinning"];
-}
-
-- (void)stopRunningSpinner
-{
-    if (!_dotButton) return;
-    for (CALayer *sub in _dotButton.layer.sublayers) {
-        if ([sub.name isEqualToString:@"fmSpinnerRing"]) {
-            [sub removeAllAnimations];
-            [sub removeFromSuperlayer];
-            break;
-        }
-    }
-}
-
-+ (void)startRunningSpinner { [[self shared] startRunningSpinner]; }
-+ (void)stopRunningSpinner  { [[self shared] stopRunningSpinner]; }
-
 #pragma mark - C helpers
 
 static CGAffineTransform fmTransformForOrientation(int orientation)
@@ -870,6 +823,52 @@ static void fmPersistKeys(NSDictionary *pairs)
         }
     });
 }
+
+#pragma mark - Script running spinner（旋转光圈）
+
+- (void)startRunningSpinner
+{
+    if (!_dotButton) return;
+    if ([_dotButton.layer animationForKey:@"fmSpinning"]) return;
+
+    CGFloat s = kFMDotSize + 6;
+    CAShapeLayer *ring = [CAShapeLayer layer];
+    ring.frame = CGRectMake(-3, -3, s, s);
+    UIBezierPath *path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(2, 2, s - 4, s - 4)];
+    ring.path = path.CGPath;
+    ring.fillColor = [UIColor clearColor].CGColor;
+    ring.strokeColor = [UIColor colorWithRed:0.2f green:0.6f blue:1.0f alpha:0.9f].CGColor;
+    ring.lineWidth = 2.0f;
+    ring.lineCap = kCALineCapRound;
+    ring.strokeStart = 0.0f;
+    ring.strokeEnd = 0.7f;
+    ring.name = @"fmSpinnerRing";
+    ring.zPosition = -1;
+    [_dotButton.layer addSublayer:ring];
+
+    CABasicAnimation *rot = [CABasicAnimation animationWithKeyPath:@"transform.rotation"];
+    rot.fromValue = @(0);
+    rot.toValue = @(2 * M_PI);
+    rot.duration = 0.8f;
+    rot.repeatCount = INFINITY;
+    rot.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+    [ring addAnimation:rot forKey:@"fmSpinning"];
+}
+
+- (void)stopRunningSpinner
+{
+    if (!_dotButton) return;
+    for (CALayer *sub in _dotButton.layer.sublayers) {
+        if ([sub.name isEqualToString:@"fmSpinnerRing"]) {
+            [sub removeAllAnimations];
+            [sub removeFromSuperlayer];
+            break;
+        }
+    }
+}
+
++ (void)startRunningSpinner { [[self shared] startRunningSpinner]; }
++ (void)stopRunningSpinner  { [[self shared] stopRunningSpinner]; }
 
 #pragma mark 开关 / 配置
 
