@@ -296,13 +296,9 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGRect portrait;
     [self visualWidth:NULL height:NULL portrait:&portrait];
 
-    UIWindowScene *scene = [FloatingMenu preferredWindowScene];
-    if (scene) {
-        _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
-        _window.frame = portrait;
-    } else {
-        _window = [[FMPassthroughWindow alloc] initWithFrame:portrait];
-    }
+    // 不用 initWithWindowScene：scene 会强制把 frame 改成当前方向尺寸，
+    // 导致旋转轴心错位、悬浮窗飞出屏幕。直接 initWithFrame 保持竖屏固定坐标系。
+    _window = [[FMPassthroughWindow alloc] initWithFrame:portrait];
     _window.windowLevel = UIWindowLevelStatusBar + 2;
     _window.backgroundColor = [UIColor clearColor];
     _window.userInteractionEnabled = YES;
@@ -760,21 +756,7 @@ static void fmPersistKeys(NSDictionary *pairs)
                 [self buildWindow];
                 return;
             }
-            // 自愈 2：当前 scene 已断开/脱离时，才重新挂一个可用 scene
-            @try {
-                UIWindowScene *current = self->_window.windowScene;
-                BOOL healthy = current &&
-                    [[UIApplication sharedApplication].connectedScenes containsObject:current] &&
-                    current.activationState != UISceneActivationStateUnattached;
-                if (!healthy) {
-                    UIWindowScene *scene = [FloatingMenu preferredWindowScene];
-                    if (scene) {
-                        self->_window.windowScene = scene;
-                    }
-                }
-            } @catch (NSException *exception) {
-                ZXLogUIException(exception);
-            }
+            // 自愈 2：不再挂 windowScene（scene 会强制改 frame 破坏竖屏坐标系）
             // 自愈 3：被系统置 hidden 时恢复
             if (self->_window.hidden) {
                 self->_window.hidden = NO;
@@ -817,10 +799,6 @@ static void fmPersistKeys(NSDictionary *pairs)
                     [self buildWindow];
                 } else {
                     self->_window.hidden = NO;
-                    UIWindowScene *scene = [FloatingMenu preferredWindowScene];
-                    if (scene && self->_window.windowScene != scene) {
-                        self->_window.windowScene = scene;
-                    }
                     [self applyGeometry];
                 }
                 [self startWatchers];

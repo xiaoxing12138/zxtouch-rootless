@@ -360,8 +360,6 @@ static void registerScreenStateNotification(void)
 
 static void createNetSpeedWindow(void)
 {
-    UIWindowScene *scene = zxActiveWindowScene();
-
     CGRect screenBounds = [Screen getBounds];
     CGFloat canvasW = MIN(CGRectGetWidth(screenBounds), CGRectGetHeight(screenBounds));
     CGFloat canvasH = MAX(CGRectGetWidth(screenBounds), CGRectGetHeight(screenBounds));
@@ -371,12 +369,9 @@ static void createNetSpeedWindow(void)
     }
     CGRect frame = CGRectMake(0, 0, canvasW, canvasH);
 
-    if (scene) {
-        _netSpeedWindow = [[UIWindow alloc] initWithWindowScene:scene];
-        _netSpeedWindow.frame = frame;
-    } else {
-        _netSpeedWindow = [[UIWindow alloc] initWithFrame:frame];
-    }
+    // 不用 initWithWindowScene：scene 会强制把 frame 改成当前方向尺寸（横屏=1180x820），
+    // 导致旋转轴心错位、悬浮窗飞出屏幕。直接 initWithFrame 保持竖屏固定坐标系。
+    _netSpeedWindow = [[UIWindow alloc] initWithFrame:frame];
 
     _netSpeedWindow.windowLevel = UIWindowLevelStatusBar + 1;
     _netSpeedWindow.backgroundColor = [UIColor clearColor];
