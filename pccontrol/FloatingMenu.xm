@@ -60,14 +60,6 @@
 }
 @end
 
-// 关键：UIWindow 默认会在没有子视图命中时返回 self，从而拦截触摸。
-// 必须重写 hitTest 让 window 自身也透传，否则全屏 window 仍会挡住整个屏幕。
-// 额外：iOS 13+ 的 UIWindowScene 会强制把 window.frame 改成当前屏幕方向尺寸，
-// 破坏"竖屏固定坐标系 + content 旋转"模型。override setFrame 锁死 portrait 尺寸。
-@interface FMPassthroughWindow : UIWindow
-@property (nonatomic, assign) CGRect portraitFrame; // 运行时设置，默认 CGRectZero（不锁）
-@end
-
 @implementation FMPassthroughWindow {
     BOOL _portraitLockEnabled;
 }

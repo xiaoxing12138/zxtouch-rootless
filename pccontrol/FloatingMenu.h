@@ -3,6 +3,14 @@
 
 #import <UIKit/UIKit.h>
 
+// 全屏透传 UIWindow 子类：
+// 1) hitTest 返回 nil 让触摸穿透到下层；
+// 2) portraitFrame 属性 + override setFrame：拦截 UIWindowScene 强制改 frame，
+//    确保 window.frame 永远是竖屏固定坐标系（portrait 尺寸）。
+@interface FMPassthroughWindow : UIWindow
+@property (nonatomic, assign) CGRect portraitFrame;
+@end
+
 /*
  * 按键精灵式悬浮控制按钮（注入 SpringBoard，rootless）。
  *
