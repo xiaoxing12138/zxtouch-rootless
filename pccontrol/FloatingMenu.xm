@@ -270,14 +270,12 @@ static void fmPersistKeys(NSDictionary *pairs)
 // 视觉尺寸（宽始终沿视觉水平方向）
 - (void)visualWidth:(CGFloat *)visW height:(CGFloat *)visH portrait:(CGRect *)portrait
 {
-    CGFloat w, h;
-    [self canvasPortraitWidth:&w height:&h];
-    int o = [self currentOrientation];
-    BOOL landscape = (o == UIInterfaceOrientationLandscapeLeft ||
-                      o == UIInterfaceOrientationLandscapeRight);
-    if (visW) { *visW = landscape ? h : w; }
-    if (visH) { *visH = landscape ? w : h; }
-    if (portrait) { *portrait = CGRectMake(0, 0, w, h); }
+    // 2026-09-30 简化：直接用 window.bounds 像素坐标，不再交换。
+    // window 已经全屏（横屏 1180×820 / 竖屏 820×1180），直接用就行。
+    CGRect wb = _window ? _window.bounds : [Screen getBounds];
+    if (visW) { *visW = wb.size.width; }
+    if (visH) { *visH = wb.size.height; }
+    if (portrait) { *portrait = wb; }
 }
 
 // 圆点在视觉坐标系的中心
@@ -297,16 +295,8 @@ static void fmPersistKeys(NSDictionary *pairs)
 // LandscapeRight: 设备逆时针 90°（用户视角），rootView +x = 视觉 +y，rootView +y = 视觉 -x
 - (CGPoint)visualTranslationFromRootView:(CGPoint)t orientation:(int)orientation
 {
-    switch (orientation) {
-        case UIInterfaceOrientationLandscapeLeft:
-            return CGPointMake(t.y, -t.x);
-        case UIInterfaceOrientationLandscapeRight:
-            return CGPointMake(-t.y, t.x);
-        case UIInterfaceOrientationPortraitUpsideDown:
-            return CGPointMake(-t.x, -t.y);
-        default:
-            return t;
-    }
+    // 简化：rootView.frame = window.bounds，rootView 坐标即 window 坐标，无需方向转换
+    return t;
 }
 
 #pragma mark window 构建
@@ -335,28 +325,23 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)buildWindow
 {
-    CGRect portrait;
-    [self visualWidth:NULL height:NULL portrait:&portrait];
-
-    // 2026-09-30 架构：window.frame 让 scene 管（跟随方向变全屏），
-    // 内部 _content 保持 portrait 固定尺寸 + transform 旋转 + 居中。
+    // 简化架构：window.frame 让 scene 管（全屏），_content 直接填满 window.bounds，
+    // 所有控件位置直接用 window 像素坐标。不再用 portrait 容器 + transform。
     UIWindowScene *scene = [FloatingMenu preferredWindowScene];
     if (scene) {
         _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
     } else {
-        _window = [[FMPassthroughWindow alloc] initWithFrame:portrait];
+        _window = [[FMPassthroughWindow alloc] initWithFrame:CGRectZero];
     }
-    _window.portraitFrame = portrait;
     _window.windowLevel = UIWindowLevelStatusBar + 2;
 
     FMRootViewController *root = [[FMRootViewController alloc] init];
     _window.rootViewController = root;
-    // rootView 在 layoutSubviews 里由 FMPassthroughWindow 强制填满 window.bounds
-    // 这里设 autoresizingMask 让系统自动跟随方向
 
-    // _content：portrait 固定尺寸，transform 旋转 + 居中（applyGeometry 负责）
-    _content = [[FMPassthroughView alloc] initWithFrame:portrait];
+    // _content：FMPassthroughView 空白处穿透，跟随 window.bounds 变化
+    _content = [[FMPassthroughView alloc] init];
     _content.backgroundColor = [UIColor clearColor];
+    _content.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [root.view addSubview:_content];
 
     // 圆点
@@ -423,20 +408,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat visW, visH;
     [self visualWidth:&visW height:&visH portrait:&portrait];
     int orientation = [self currentOrientation];
-    BOOL landscape = (orientation == UIInterfaceOrientationLandscapeLeft ||
-                      orientation == UIInterfaceOrientationLandscapeRight);
     _lastOrientation = orientation;
 
-    // 不再强制 _window.frame = portrait —— 让 scene 管，跟随方向变全屏
-    if (!_window || !_content || !_dotButton) { return; }
-
-    // 1) content 归位：先重置 transform 和 frame（portrait 尺寸），然后用 window 中心点居中
+    // 简化：content 直接填满 window.bounds，不用 transform
+    _content.frame = _window.bounds;
     _content.transform = CGAffineTransformIdentity;
-    _content.frame = portrait;  // portrait 固定尺寸
-    CGRect wb = _window.bounds;
-    _content.center = CGPointMake(CGRectGetMidX(wb), CGRectGetMidY(wb));
-    // 最后加旋转 transform
-    _content.transform = fmTransformForOrientation(orientation);
 
     CGPoint dot = [self dotVisualPoint];
 
@@ -496,7 +472,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         }
     }
 
-    _content.transform = fmTransformForOrientation(orientation);
+    // 不再需要 content transform —— 所有位置直接用 window 像素坐标
 }
 
 #pragma mark 展开 / 收起
@@ -596,7 +572,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 
         _content.transform = CGAffineTransformIdentity;
         _dotButton.frame = CGRectMake(x - kFMDotRadius, y - kFMDotRadius, kFMDotSize, kFMDotSize);
-        _content.transform = fmTransformForOrientation(orientation);
+        // 不再需要 content transform —— 直接用 window 像素坐标
     } else if (pan.state == UIGestureRecognizerStateEnded ||
                pan.state == UIGestureRecognizerStateCancelled ||
                pan.state == UIGestureRecognizerStateFailed) {

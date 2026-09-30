@@ -195,21 +195,17 @@ static void updateNetSpeedWindowGeometry(void)
         return;
     }
 
-    // 不再强制 window.frame —— 让 scene 管，跟随方向变全屏
-    // _netSpeedContent 保持 portrait 固定尺寸，下面居中 + 旋转
+    // 简化：visW/visH 直接用 window.bounds（横屏 1180×820 / 竖屏 820×1180），
+    // 不需要方向交换，不需要 portrait 容器，不需要 transform。
+    CGRect wb = _netSpeedWindow.bounds;
+    CGFloat visW = wb.size.width;
+    CGFloat visH = wb.size.height;
 
     int orientation = zxCurrentOrientation();
-    BOOL landscape = (orientation == UIInterfaceOrientationLandscapeLeft ||
-                      orientation == UIInterfaceOrientationLandscapeRight);
-
     CGFloat winW = netSpeedWinWidth();
     CGFloat winH = netSpeedWinHeight();
 
-    // 视觉坐标系尺寸
-    CGFloat visW = landscape ? canvasH : canvasW;
-    CGFloat visH = landscape ? canvasW : canvasH;
-
-    // 视觉坐标系下的中心（按用户选的角点 + X/Y 边距）
+    // 按用户选的角点 + X/Y 边距计算 label 中心
     CGFloat vx = 0, vy = 0;
     switch (_cfgCorner) {
         case 1: // 左上
@@ -230,17 +226,14 @@ static void updateNetSpeedWindowGeometry(void)
             break;
     }
 
-    // 2026-09-30：content 保持 portrait 固定尺寸，用 window 当前 bounds 居中，最后旋转
+    // content 直接填满 window.bounds，不旋转
+    _netSpeedContent.frame = wb;
     _netSpeedContent.transform = CGAffineTransformIdentity;
-    _netSpeedContent.frame = CGRectMake(0, 0, canvasW, canvasH);
-    CGRect wb = _netSpeedWindow.bounds;
-    _netSpeedContent.center = CGPointMake(CGRectGetMidX(wb), CGRectGetMidY(wb));
 
+    // label 直接放在 window 像素坐标里，不旋转（水平文字横屏竖屏都正）
     _netSpeedLabel.frame = CGRectMake(vx - winW / 2.0f, vy - winH / 2.0f, winW, winH);
-    // label 自身额外旋转，让横屏文字方向变成正常横屏方向（标题朝上、从左到右读）
-    _netSpeedLabel.transform = zxLabelTransformForOrientation(orientation);
+    _netSpeedLabel.transform = CGAffineTransformIdentity;
 
-    _netSpeedContent.transform = zxTransformForOrientation(orientation);
     _lastAppliedOrientation = orientation;
 }
 
@@ -369,8 +362,6 @@ static void createNetSpeedWindow(void)
     } else {
         _netSpeedWindow = [[FMPassthroughWindow alloc] initWithFrame:portraitFrame];
     }
-    _netSpeedWindow.portraitFrame = portraitFrame;
-
     _netSpeedWindow.windowLevel = UIWindowLevelStatusBar + 1;
     _netSpeedWindow.userInteractionEnabled = NO;  // 关键：不拦截触摸，让事件穿透到下层
 
@@ -378,9 +369,11 @@ static void createNetSpeedWindow(void)
     root.view.backgroundColor = [UIColor clearColor];
     _netSpeedWindow.rootViewController = root;
 
-    _netSpeedContent = [[UIView alloc] initWithFrame:portraitFrame];
+    // content：跟随 window.bounds，在 updateNetSpeedWindowGeometry 里每次确认 frame
+    _netSpeedContent = [[UIView alloc] init];
     _netSpeedContent.backgroundColor = [UIColor clearColor];
     _netSpeedContent.userInteractionEnabled = NO;
+    _netSpeedContent.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [root.view addSubview:_netSpeedContent];
 
     CGFloat winW = netSpeedWinWidth();
