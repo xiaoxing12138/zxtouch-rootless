@@ -1,5 +1,6 @@
 #import "TapTestWindow.h"
 #import "Screen.h"
+#import "Common.h"
 #import "FloatingMenu.h"        // 复用 FMPassthroughWindow + preferredWindowScene
 
 static FMPassthroughWindow *_testWindow = nil;
@@ -58,7 +59,6 @@ static NSMutableArray<NSDictionary *> *_tapRecords = nil;
             UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
                                            initWithTarget:self action:@selector(_handleTap:)];
             tap.numberOfTapsRequired = 1;
-            tap.allowableMovement = 50;
             [_testRootView addGestureRecognizer:tap];
 
             _testWindow.hidden = NO;

@@ -223,9 +223,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         [self remoteManagementCells],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速指示器设置", @"secondary_title": @"位置 / 字号 / 边距 / 息屏暂停", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮控制按钮", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 边距", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"控制按钮悬浮窗", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))}
         ],
         @[
@@ -295,9 +294,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         [self remoteManagementCells],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速指示器设置", @"secondary_title": @"位置 / 字号 / 边距 / 息屏暂停", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮控制按钮", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 边距", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"控制按钮悬浮窗", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))}
         ],
         @[

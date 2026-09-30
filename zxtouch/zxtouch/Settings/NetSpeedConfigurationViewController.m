@@ -28,9 +28,10 @@ static const NSInteger kNetSpeedDefaultMarginY   = 10;     // 4 - 200 pt（避�
 static const BOOL      kNetSpeedDefaultPauseOff  = YES;
 
 typedef NS_ENUM(NSInteger, NetSpeedSection) {
-    NetSpeedSectionDisplay = 0,  // 显示
-    NetSpeedSectionPower   = 1,  // 省电
-    NetSpeedSectionAbout   = 2   // 关于
+    NetSpeedSectionSwitch = 0,   // 总开关
+    NetSpeedSectionDisplay = 1,  // 显示
+    NetSpeedSectionPower   = 2,  // 省电
+    NetSpeedSectionAbout   = 3   // 关于
 };
 
 typedef NS_ENUM(NSInteger, NetSpeedDisplayRow) {
@@ -41,7 +42,7 @@ typedef NS_ENUM(NSInteger, NetSpeedDisplayRow) {
 };
 
 static const NSInteger kAboutTextLabelTag = 9001;
-static NSString * const kAboutText = @"修改后立即生效。网速窗总开关在设置 → 控制 → 网速指示器。";
+static NSString * const kAboutText = @"修改后立即生效。关闭总开关后悬浮窗将隐藏。";
 
 @interface NetSpeedConfigurationViewController ()
 
@@ -50,6 +51,7 @@ static NSString * const kAboutText = @"修改后立即生效。网速窗总开�
 @implementation NetSpeedConfigurationViewController
 {
     ConfigManager *configManager;
+    BOOL enabled;
     NSInteger cornerPosition;
     float fontSize;
     NSInteger marginX;
@@ -61,7 +63,7 @@ static NSString * const kAboutText = @"修改后立即生效。网速窗总开�
 - (void)viewDidLoad {
     [super viewDidLoad];
 
-    self.title = @"网速指示器";
+    self.title = @"网速悬浮窗";
     self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
 
     cornerTitles = @[@"右上", @"左上", @"左下", @"右下"];
@@ -102,6 +104,9 @@ static NSString * const kAboutText = @"修改后立即生效。网速窗总开�
 
 - (void)loadConfig {
     configManager = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
+
+    NSNumber *enabledValue = [configManager getValueFromKey:@"net_speed_indicator_enabled"];
+    enabled = enabledValue ? [enabledValue boolValue] : NO;
 
     NSNumber *cornerValue = [configManager getValueFromKey:kNetSpeedCornerKey];
     cornerPosition = cornerValue ? [cornerValue integerValue] : kNetSpeedDefaultCorner;
@@ -150,6 +155,18 @@ static NSString * const kAboutText = @"修改后立即生效。网速窗总开�
 }
 
 #pragma mark - 控件事件
+
+- (void)enabledChanged:(UISwitch *)s {
+    enabled = [s isOn];
+    [self persistKey:@"net_speed_indicator_enabled" value:@(enabled)];
+    // 直接发送开关命令，不用 reload（31;;3 也能重新读配置，但开关命令更直接）
+    Socket *socket = [[Socket alloc] init];
+    if ([socket connect:@"127.0.0.1" byPort:6000] == 0) {
+        NSString *cmd = [NSString stringWithFormat:@"31;;%d\r\n", enabled ? 1 : 0];
+        [socket send:cmd];
+        [socket close];
+    }
+}
 
 - (void)pauseScreenOffChanged:(UISwitch *)s {
     pauseScreenOff = [s isOn];
@@ -201,10 +218,11 @@ static NSString * const kAboutText = @"修改后立即生效。网速窗总开�
 #pragma mark - Table view data source
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 3;  // 显示 / 省电 / 关于
+    return 4;  // 开关 / 显示 / 省电 / 关于
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (section == NetSpeedSectionSwitch)   return 1;  // 总开关
     if (section == NetSpeedSectionDisplay) return 4;  // 位置 / 字号 / 水平边距 / 垂直边距
     if (section == NetSpeedSectionPower)   return 1;  // 息屏时暂停刷新
     return 1;                                         // 关于说明行
@@ -233,6 +251,21 @@ static NSString * const kAboutText = @"修改后立即生效。网速窗总开�
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *result;
+
+    if (indexPath.section == NetSpeedSectionSwitch) {
+        // 总开关
+        TableViewCellWithSwitch *cell = [tableView dequeueReusableCellWithIdentifier:@"SwitchCell"];
+        if (cell == nil) {
+            cell = [[TableViewCellWithSwitch alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"SwitchCell"];
+        }
+        [cell setTitleText:@"网速悬浮窗"];
+        [cell.switchBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+        [cell.switchBtn addTarget:self action:@selector(enabledChanged:) forControlEvents:UIControlEventValueChanged];
+        [cell.switchBtn setOn:enabled];
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+        return cell;
+    }
 
     if (indexPath.section == NetSpeedSectionDisplay && indexPath.row == NetSpeedDisplayRowCorner) {
         // 位置：标准单元格，点按在 右上/左上/左下/右下 之间循环
@@ -352,7 +385,8 @@ static NSString * const kAboutText = @"修改后立即生效。网速窗总开�
     title.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
     title.textColor = [UIColor secondaryLabelColor];
 
-    if (section == NetSpeedSectionDisplay)      title.text = @"显示";
+    if (section == NetSpeedSectionSwitch)       title.text = @"开关";
+    else if (section == NetSpeedSectionDisplay) title.text = @"显示";
     else if (section == NetSpeedSectionPower)   title.text = @"省电";
     else                                        title.text = @"关于";
 

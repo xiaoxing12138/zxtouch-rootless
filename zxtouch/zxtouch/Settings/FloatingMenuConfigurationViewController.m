@@ -28,7 +28,7 @@ static NSString *kCfgYRatio  = @"floating_menu_y_ratio"; // 0..1
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"悬浮控制按钮";
+    self.title = @"控制按钮悬浮窗";
 
     UINib *switchNib = [UINib nibWithNibName:@"TableViewCellWithSwitch" bundle:nil];
     [_tableView registerNib:switchNib forCellReuseIdentifier:@"SwitchCell"];
@@ -118,7 +118,7 @@ static NSString *kCfgYRatio  = @"floating_menu_y_ratio"; // 0..1
     if (indexPath.section == 0) {
         // 开关
         TableViewCellWithSwitch *cell = [tableView dequeueReusableCellWithIdentifier:@"SwitchCell" forIndexPath:indexPath];
-        [cell setTitleText:@"悬浮控制按钮"];
+        [cell setTitleText:@"控制按钮悬浮窗"];
         [cell.switchBtn removeTarget:nil action:NULL forControlEvents:UIControlEventValueChanged];
         [cell.switchBtn addTarget:self action:@selector(switchEnabled:) forControlEvents:UIControlEventValueChanged];
         BOOL enabled = [_config[kCfgEnabled] boolValue];
