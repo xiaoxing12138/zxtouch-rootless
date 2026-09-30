@@ -161,7 +161,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 #pragma mark - FloatingMenu
 
 @interface FloatingMenu () {
-    UIWindow                 *_window;
+    FMPassthroughWindow      *_window;
     UIView                   *_content;
     UIButton                 *_dotButton;
     NSMutableArray<UIButton *> *_menuButtons; // 启动 / 设置 / 返回
