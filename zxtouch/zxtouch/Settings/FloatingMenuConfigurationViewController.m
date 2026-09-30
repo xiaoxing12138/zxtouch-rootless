@@ -17,6 +17,21 @@ static NSString *kCfgEdge    = @"floating_menu_edge";     // 1=右 0=左
 static NSString *kCfgYRatio  = @"floating_menu_y_ratio"; // 0..1
 static NSString *kCfgDotSize = @"floating_menu_dot_size"; // 32..80 pt
 static NSString *kCfgMenuBgAlpha = @"floating_menu_menu_bg_alpha"; // 0..1
+static NSString *kCfgDotIcon = @"floating_menu_dot_icon"; // 0=字母Z 1=App图标 2=自定义图片
+
+// 圆点图标来源（与 tweak 端 kFMDotIconMode* 保持一致）
+static const NSInteger kDotIconModeZ      = 0;
+static const NSInteger kDotIconModeApp    = 1;
+static const NSInteger kDotIconModeCustom = 2;
+
+// 图标 PNG 落盘到共享目录（与 tweak 读的路径同名），tweak 端不访问相册/私有接口
+static NSString * const kDotIconAppFile    = @"fm_dot_icon_app.png";
+static NSString * const kDotIconCustomFile = @"fm_dot_icon_custom.png";
+
+static NSString *FMDotIconDir(void)
+{
+    return [SPRINGBOARD_CONFIG_PATH stringByDeletingLastPathComponent];
+}
 
 // 圆点大小范围（与 tweak 端 kFMDotMinSize / kFMDotMaxSize 保持一致）
 static const float kDotSizeMin     = 32.0f;
@@ -30,7 +45,14 @@ typedef NS_ENUM(NSInteger, FMSection) {
     FMSectionSwitch         = 0,  // 开关
     FMSectionPosition       = 1,  // 吸附边 + 纵向位置
     FMSectionAppearance     = 2,  // 圆点大小 + 菜单黑底透明度
-    FMSectionMenuAppearance = 3   // 菜单按钮大小/间距/标签字号/图标留白/圆点-菜单间距
+    FMSectionMenuAppearance = 3,  // 菜单按钮大小/间距/标签字号/图标留白/圆点-菜单间距
+    FMSectionDotIcon        = 4   // 圆点图标来源
+};
+
+// 「圆点图标」分组行号
+typedef NS_ENUM(NSInteger, DotIconRow) {
+    DotIconRowSource = 0,  // 图标来源（点按循环）
+    DotIconRowRepick = 1   // 重新选择图片（仅自定义模式显示）
 };
 
 // 「外观」分组行号
@@ -59,7 +81,7 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
     return specs;
 }
 
-@interface FloatingMenuConfigurationViewController ()
+@interface FloatingMenuConfigurationViewController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 
 @end
 
@@ -224,10 +246,145 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
     [self reloadTweak];
 }
 
+#pragma mark - 圆点图标
+
+- (NSInteger)dotIconMode {
+    NSNumber *value = _config[kCfgDotIcon];
+    NSInteger mode = value ? [value integerValue] : kDotIconModeZ;
+    if (mode < kDotIconModeZ || mode > kDotIconModeCustom) mode = kDotIconModeZ;
+    return mode;
+}
+
+- (NSString *)dotIconModeTitle {
+    switch ([self dotIconMode]) {
+        case kDotIconModeApp:    return @"App 图标";
+        case kDotIconModeCustom: return @"自定义图片";
+        default:                 return @"字母 Z";
+    }
+}
+
+// 取 app 自身图标：Xcode 会把 AppIcon 资源导出成包根目录下的 PNG，
+// 文件名记在 Info.plist 的 CFBundleIcons 里；取不到再兜底扫包内 AppIcon*.png。
+- (UIImage *)zxtouchAppIconImage {
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    NSDictionary *info = [[NSBundle mainBundle] infoDictionary];
+    for (NSString *key in @[@"CFBundleIcons~ipad", @"CFBundleIcons"]) {
+        NSDictionary *icons = info[key];
+        if (![icons isKindOfClass:[NSDictionary class]]) continue;
+        NSArray *files = icons[@"CFBundlePrimaryIcon"][@"CFBundleIconFiles"];
+        if ([files isKindOfClass:[NSArray class]]) [names addObjectsFromArray:files];
+    }
+    for (NSString *name in [names reverseObjectEnumerator]) {
+        for (NSString *suffix in @[@"@3x", @"@2x", @""]) {
+            NSString *path = [[NSBundle mainBundle] pathForResource:[name stringByAppendingString:suffix] ofType:@"png"];
+            UIImage *image = path ? [UIImage imageWithContentsOfFile:path] : nil;
+            if (image) return image;
+        }
+    }
+    NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+    for (NSString *file in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:bundlePath error:NULL]) {
+        if ([file hasPrefix:@"AppIcon"] && [[file pathExtension] isEqualToString:@"png"]) {
+            UIImage *image = [UIImage imageWithContentsOfFile:[bundlePath stringByAppendingPathComponent:file]];
+            if (image) return image;
+        }
+    }
+    return nil;
+}
+
+// 圆点最大 80pt，先把图片缩到 240pt 以内再存，避免往共享目录塞原图
+- (NSData *)pngDataForDotIcon:(UIImage *)image {
+    if (!image) return nil;
+    CGSize src = image.size;
+    if (src.width <= 0 || src.height <= 0) return nil;
+    CGFloat scale = MIN(1.0f, 240.0f / MAX(src.width, src.height));
+    CGSize dst = CGSizeMake(floor(src.width * scale), floor(src.height * scale));
+    UIGraphicsBeginImageContextWithOptions(dst, NO, 1.0f);
+    [image drawInRect:CGRectMake(0, 0, dst.width, dst.height)];
+    UIImage *scaled = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return UIImagePNGRepresentation(scaled ?: image);
+}
+
+- (BOOL)writeDotIconData:(NSData *)data fileName:(NSString *)fileName {
+    if (!data) return NO;
+    return [data writeToFile:[FMDotIconDir() stringByAppendingPathComponent:fileName] atomically:YES];
+}
+
+- (void)presentDotIconPicker {
+    if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) {
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"照片图库不可用。" buttonString:@"确定"];
+        return;
+    }
+    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+    picker.delegate = self;
+    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    picker.modalPresentationStyle = UIModalPresentationFormSheet;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+// 「图标来源」点按循环：字母 Z → App 图标 → 自定义图片 → 字母 Z
+- (void)cycleDotIconMode {
+    NSInteger mode = [self dotIconMode];
+    if (mode == kDotIconModeZ) {
+        NSData *data = [self pngDataForDotIcon:[self zxtouchAppIconImage]];
+        if (![self writeDotIconData:data fileName:kDotIconAppFile]) {
+            [Util showAlertBoxWithOneOption:self title:@"错误"
+                                    message:@"无法读取 App 图标，已保持原设置。"
+                               buttonString:@"确定"];
+            return;
+        }
+        _config[kCfgDotIcon] = @(kDotIconModeApp);
+    } else if (mode == kDotIconModeApp) {
+        _config[kCfgDotIcon] = @(kDotIconModeCustom);
+    } else {
+        _config[kCfgDotIcon] = @(kDotIconModeZ);
+    }
+    [self saveConfig];
+    [_tableView reloadData];
+    if ([self dotIconMode] == kDotIconModeCustom) {
+        [self presentDotIconPicker];
+    } else {
+        [self reloadTweak];
+    }
+}
+
+#pragma mark - 选图回调
+
+- (void)imagePickerController:(UIImagePickerController *)picker
+didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+    NSData *data = [self pngDataForDotIcon:info[UIImagePickerControllerOriginalImage]];
+    BOOL saved = [self writeDotIconData:data fileName:kDotIconCustomFile];
+    _config[kCfgDotIcon] = @(saved ? kDotIconModeCustom : kDotIconModeZ);
+    [self saveConfig];
+    [picker dismissViewControllerAnimated:YES completion:^{
+        [self reloadTweak];
+        [self->_tableView reloadData];
+        if (!saved) {
+            [Util showAlertBoxWithOneOption:self title:@"错误"
+                                    message:@"无法保存所选图片，已恢复为字母 Z。"
+                               buttonString:@"确定"];
+        }
+    }];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    // 自定义图片还没落地就退出 → 回到字母 Z，避免出现「选了自定义但图标还是 Z」的状态
+    NSString *customPath = [FMDotIconDir() stringByAppendingPathComponent:kDotIconCustomFile];
+    if ([self dotIconMode] == kDotIconModeCustom &&
+        ![[NSFileManager defaultManager] fileExistsAtPath:customPath]) {
+        _config[kCfgDotIcon] = @(kDotIconModeZ);
+        [self saveConfig];
+    }
+    [self reloadTweak];   // 取消也要同步一次：上面可能刚从自定义回退成字母 Z
+    [picker dismissViewControllerAnimated:YES completion:^{
+        [self->_tableView reloadData];
+    }];
+}
+
 #pragma mark - UITableView
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 4;
+    return 5;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -235,6 +392,7 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
         case FMSectionSwitch:     return 1;  // 开关
         case FMSectionPosition:   return 2;  // 吸附边 + 纵向位置
         case FMSectionAppearance: return 2;  // 圆点大小 + 菜单黑底透明度
+        case FMSectionDotIcon:    return ([self dotIconMode] == kDotIconModeCustom) ? 2 : 1;
         default:                  return (NSInteger)FMMenuAppearanceSpecs().count;
     }
 }
@@ -244,6 +402,7 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
         case FMSectionSwitch:     return @"开关";
         case FMSectionPosition:   return @"位置";
         case FMSectionAppearance: return @"外观";
+        case FMSectionDotIcon:    return @"圆点图标";
         default:                  return @"菜单外观";
     }
 }
@@ -281,6 +440,24 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
             if ([v isKindOfClass:[UISegmentedControl class]]) [v removeFromSuperview];
         }
         [cell.contentView addSubview:seg];
+        return cell;
+    }
+
+    // 「圆点图标」：row 0 点按循环切换来源；自定义模式下多一行「重新选择图片」
+    if (indexPath.section == FMSectionDotIcon) {
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"DotIconCell"];
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"DotIconCell"];
+        }
+        if (indexPath.row == DotIconRowSource) {
+            cell.textLabel.text = @"图标来源";
+            cell.detailTextLabel.text = [self dotIconModeTitle];
+            cell.accessoryType = UITableViewCellAccessoryNone;
+        } else {
+            cell.textLabel.text = @"重新选择图片";
+            cell.detailTextLabel.text = @"";
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        }
         return cell;
     }
 
@@ -339,6 +516,18 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
     }
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.section != FMSectionDotIcon) {
+        return;
+    }
+    if (indexPath.row == DotIconRowSource) {
+        [self cycleDotIconMode];
+    } else {
+        [self presentDotIconPicker];
+    }
 }
 
 @end

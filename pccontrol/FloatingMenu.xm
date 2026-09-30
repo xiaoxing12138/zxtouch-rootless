@@ -62,7 +62,6 @@
 #define kFMCfgEdge        @"floating_menu_edge"       // 1=贴右 0=左
 #define kFMCfgYRatio      @"floating_menu_y_ratio"   // 纵向位置 0..1
 #define kFMCfgScript      @"floating_menu_script"
-#define kFMCfgIconPath    @"floating_menu_icon_path"  // 用户自定义图标文件路径（nil=用 app 图标）
 #define kFMCfgDotSize     @"floating_menu_dot_size"   // 圆点大小 32..80
 #define kFMCfgMenuBtnSize @"floating_menu_menu_size"  // 菜单按钮大小 32..72
 #define kFMCfgMenuBgAlpha @"floating_menu_menu_bg_alpha" // 菜单黑底透明度 0..1
@@ -70,6 +69,12 @@
 #define kFMCfgLabelFont   @"floating_menu_label_font_size" // 标签字号 9..18
 #define kFMCfgIconInset   @"floating_menu_icon_inset"     // 图标圆内留白 0..10
 #define kFMCfgPanelGap    @"floating_menu_panel_gap"      // 圆点到菜单间距 0..40
+#define kFMCfgDotIcon     @"floating_menu_dot_icon"       // 圆点图标 0=字母Z 1=App图标 2=自定义图片
+
+// 圆点图标来源
+#define kFMDotIconModeZ       0
+#define kFMDotIconModeApp     1
+#define kFMDotIconModeCustom  2
 
 // 菜单按钮/标签背景底色的不透明度默认值、可调范围
 #define kFMMenuDefaultBgAlpha 0.92f
@@ -189,6 +194,18 @@ static NSString *fmConfigPath(void)
     return getCommonConfigFilePath();
 }
 
+// 圆点图标选「App 图标 / 自定义图片」时，由 App 端把 PNG 导出到共享目录，
+// tweak 端只读取文件（不在 SpringBoard 里访问相册或私有图标接口）。
+static NSString *fmDotIconAppPath(void)
+{
+    return [[fmConfigPath() stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"fm_dot_icon_app.png"];
+}
+
+static NSString *fmDotIconCustomPath(void)
+{
+    return [[fmConfigPath() stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"fm_dot_icon_custom.png"];
+}
+
 // 小体量 plist 写入放后台队列，避免拖动结束时卡主线程
 static void fmPersistKeys(NSDictionary *pairs)
 {
@@ -218,6 +235,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     FMPassthroughWindow      *_window;
     UIView                   *_content;
     UIButton                 *_dotButton;
+    UIImageView              *_dotIconView;      // 圆点图标（字母Z 模式时隐藏）
     UIView                   *_menuPanel;        // 白色半透明面板（菜单容器）
     NSMutableArray<UIButton *> *_menuButtons; // 启动 / 设置 / 返回（圆形图标按钮）
     NSMutableArray<UILabel *>  *_menuLabels;  // 对应下方文字标签
@@ -238,6 +256,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat  _menuLabelFont;  // 菜单标签字号（9..18）
     CGFloat  _menuIconInset;  // 图标在按钮圆内的留白（0..10）
     CGFloat  _menuPanelGap;   // 圆点到菜单整体的间距（0..40）
+    NSInteger _dotIconMode;   // 圆点图标来源（0=字母Z 1=App图标 2=自定义图片）
     int      _lastOrientation;
 
     CGPoint  _dragStartVisual;
@@ -245,6 +264,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 }
 
 - (void)applyGeometry;
+- (void)applyDotIcon;
 - (void)expandMenu;
 - (void)collapseMenu;
 
@@ -263,6 +283,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         _menuLabelFont = kFMMenuLabelFontDefault;
         _menuIconInset = kFMMenuIconInsetDefault;
         _menuPanelGap = kFMMenuPanelGapDefault;
+        _dotIconMode = kFMDotIconModeZ;
     }
     return self;
 }
@@ -453,6 +474,19 @@ static void fmPersistKeys(NSDictionary *pairs)
     _dotButton.adjustsImageWhenHighlighted = NO;
     [_content addSubview:_dotButton];
 
+    // 圆点图标层：等比填满圆点并裁圆。注意不能给 _dotButton.layer 开 masksToBounds，
+    // 否则会把运行中的旋转光圈（挂在 dot 外侧的子 layer）一起裁掉。
+    _dotIconView = [[UIImageView alloc] initWithFrame:_dotButton.bounds];
+    _dotIconView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _dotIconView.contentMode = UIViewContentModeScaleAspectFill;
+    _dotIconView.clipsToBounds = YES;
+    _dotIconView.layer.cornerRadius = [self dotRadius];
+    _dotIconView.userInteractionEnabled = NO;
+    _dotIconView.hidden = YES;
+    [_dotButton addSubview:_dotIconView];
+
+    [self applyDotIcon];
+
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self
                                                                           action:@selector(handleDotPan:)];
     pan.maximumNumberOfTouches = 1;
@@ -520,6 +554,35 @@ static void fmPersistKeys(NSDictionary *pairs)
             ZXLogUIException(exception);
         }
     });
+}
+
+#pragma mark 圆点图标
+
+// 0=字母Z（默认） 1=App图标 2=自定义图片。
+// 后两种由 App 端导出 PNG 到共享目录；文件缺失/读取失败时回退成字母 Z。
+- (void)applyDotIcon
+{
+    if (!_dotButton) {
+        return;
+    }
+
+    UIImage *icon = nil;
+    if (_dotIconMode == kFMDotIconModeApp) {
+        icon = [UIImage imageWithContentsOfFile:fmDotIconAppPath()];
+    } else if (_dotIconMode == kFMDotIconModeCustom) {
+        icon = [UIImage imageWithContentsOfFile:fmDotIconCustomPath()];
+    }
+
+    if (icon) {
+        _dotIconView.image = icon;
+        _dotIconView.frame = _dotButton.bounds;
+        _dotIconView.hidden = NO;
+        [_dotButton setTitle:@"" forState:UIControlStateNormal];
+    } else {
+        _dotIconView.image = nil;
+        _dotIconView.hidden = YES;
+        [_dotButton setTitle:@"Z" forState:UIControlStateNormal];
+    }
 }
 
 #pragma mark 几何布局（主线程，视觉坐标）
@@ -1148,6 +1211,7 @@ static void fmPersistKeys(NSDictionary *pairs)
                     self->_window = nil;
                     self->_content = nil;
                     self->_dotButton = nil;
+                    self->_dotIconView = nil;
                     self->_menuButtons = nil;
                     self->_expanded = NO;
                 }
@@ -1174,6 +1238,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             CGFloat menuLabelFont = kFMMenuLabelFontDefault;
             CGFloat menuIconInset = kFMMenuIconInsetDefault;
             CGFloat menuPanelGap = kFMMenuPanelGapDefault;
+            NSInteger dotIconMode = kFMDotIconModeZ;
             NSString *script = @"";
 
             NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
@@ -1217,6 +1282,10 @@ static void fmPersistKeys(NSDictionary *pairs)
                 if ([menuPanelGapValue isKindOfClass:[NSNumber class]]) {
                     menuPanelGap = [menuPanelGapValue doubleValue];
                 }
+                NSNumber *dotIconValue = config[kFMCfgDotIcon];
+                if ([dotIconValue isKindOfClass:[NSNumber class]]) {
+                    dotIconMode = [dotIconValue integerValue];
+                }
                 if (!hasEdge) {
                     NSNumber *xValue = config[@"floating_menu_x"];
                     CGFloat pw, ph;
@@ -1240,6 +1309,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             self->_menuLabelFont = MIN(MAX(menuLabelFont, kFMMenuLabelFontMin), kFMMenuLabelFontMax);
             self->_menuIconInset = MIN(MAX(menuIconInset, kFMMenuIconInsetMin), kFMMenuIconInsetMax);
             self->_menuPanelGap = MIN(MAX(menuPanelGap, kFMMenuPanelGapMin), kFMMenuPanelGapMax);
+            self->_dotIconMode = MIN(MAX(dotIconMode, kFMDotIconModeZ), kFMDotIconModeCustom);
             self->_scriptPath = script;
 
             // 彻底照搬 NetSpeedIndicator.reloadAppearance 模式：
@@ -1267,6 +1337,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     _window = nil;
     _content = nil;
     _dotButton = nil;
+    _dotIconView = nil;
     _menuPanel = nil;
     [_menuButtons removeAllObjects];
     [_menuLabels removeAllObjects];
@@ -1294,6 +1365,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     info[@"menu_label_font"] = @(_menuLabelFont);
     info[@"menu_icon_inset"] = @(_menuIconInset);
     info[@"menu_panel_gap"] = @(_menuPanelGap);
+    info[@"dot_icon_mode"] = @(_dotIconMode);
     info[@"last_orientation"] = @(_lastOrientation);
 
     CGFloat visW, visH;
