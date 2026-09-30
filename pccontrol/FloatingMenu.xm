@@ -276,9 +276,14 @@ static void fmPersistKeys(NSDictionary *pairs)
 // 视觉尺寸（宽始终沿视觉水平方向）
 - (void)visualWidth:(CGFloat *)visW height:(CGFloat *)visH portrait:(CGRect *)portrait
 {
-    // 2026-09-30 简化：直接用 window.bounds 像素坐标，不再交换。
-    // window 已经全屏（横屏 1180×820 / 竖屏 820×1180），直接用就行。
-    CGRect wb = _window ? _window.bounds : [Screen getBounds];
+    // 优先用 window.bounds（已被 scene 管理，跟随方向），
+    // 但 window 刚创建时 bounds 可能还是 zero（scene 还没 layout），
+    // 此时 fallback 到 UIScreen.mainScreen.bounds（总是 portrait 尺寸，
+    // 竖屏正确；横屏时 buildWindow 延迟一帧会再次调 applyGeometry）。
+    CGRect wb = _window ? _window.bounds : CGRectZero;
+    if (wb.size.width == 0 || wb.size.height == 0) {
+        wb = [Screen getBounds];
+    }
     if (visW) { *visW = wb.size.width; }
     if (visH) { *visH = wb.size.height; }
     if (portrait) { *portrait = wb; }
@@ -427,9 +432,21 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
 
     _lastOrientation = [self currentOrientation];
+
+    // 先做一次初步定位（window.bounds 可能还是 zero，visualWidth 会 fallback）
     [self applyGeometry];
 
     _window.hidden = NO;
+
+    // 关键：dispatch 到下一个 runloop，让 scene 先把 window.bounds 设为
+    // 正确的全屏尺寸（横屏 1180×820 / 竖屏 820×1180），再用真实 bounds 重定位
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            [self applyGeometry];
+        } @catch (NSException *exception) {
+            ZXLogUIException(exception);
+        }
+    });
 }
 
 #pragma mark 几何布局（主线程，视觉坐标）
@@ -455,6 +472,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         dot = _dotButton.center;
     } else {
         dot = [self dotVisualPoint];
+        _dotButton.transform = CGAffineTransformIdentity;
         _dotButton.frame = CGRectMake(dot.x - kFMDotRadius, dot.y - kFMDotRadius,
                                       kFMDotSize, kFMDotSize);
     }
@@ -485,18 +503,31 @@ static void fmPersistKeys(NSDictionary *pairs)
             CGFloat ly = by + btnSize + btnLabelGap;
             if (i < _menuButtons.count) {
                 UIButton *b = _menuButtons[i];
+                // 先重置 transform（关键！transform 非 identity 时 frame 值不可靠）
+                b.transform = CGAffineTransformIdentity;
+                b.alpha = 1.0f;
                 b.frame = CGRectMake(bx, by, btnSize, btnSize);
                 b.hidden = NO;
             }
             if (i < _menuLabels.count) {
                 UILabel *l = _menuLabels[i];
+                l.transform = CGAffineTransformIdentity;
+                l.alpha = 1.0f;
                 l.frame = CGRectMake(bx, ly, btnSize, labelH);
                 l.hidden = NO;
             }
         }
     } else {
-        for (UIButton *b in _menuButtons) { b.hidden = YES; }
-        for (UILabel *l in _menuLabels) { l.hidden = YES; }
+        for (UIButton *b in _menuButtons) {
+            b.transform = CGAffineTransformIdentity;
+            b.alpha = 0.0f;
+            b.hidden = YES;
+        }
+        for (UILabel *l in _menuLabels) {
+            l.transform = CGAffineTransformIdentity;
+            l.alpha = 0.0f;
+            l.hidden = YES;
+        }
     }
 }
 
