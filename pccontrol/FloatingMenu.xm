@@ -386,6 +386,12 @@ static void fmPersistKeys(NSDictionary *pairs)
                       orientation == UIInterfaceOrientationLandscapeRight);
     _lastOrientation = orientation;
 
+    // 关键：iOS 13+ UIWindowScene 会把 window.frame 自动设成 scene 当前方向尺寸，
+    // 覆盖我们需要的竖屏固定坐标系。每次布局强制纠正。
+    if (!CGRectEqualToRect(_window.frame, portrait)) {
+        _window.frame = portrait;
+    }
+
     // 1) 容器归位 + 视觉尺寸 + 旋转
     _content.transform = CGAffineTransformIdentity;
     if (landscape) {

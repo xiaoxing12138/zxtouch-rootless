@@ -194,6 +194,15 @@ static void updateNetSpeedWindowGeometry(void)
         return;
     }
 
+    // 关键：iOS 13+ 用 initWithWindowScene 创建的 UIWindow，会被系统自动设成 scene 的当前方向
+    // 尺寸（横屏=1180x820），覆盖我们需要的竖屏固定坐标系尺寸（820x1180）。
+    // 这会导致 content.center 旋转轴心错位，整个悬浮窗飞出屏幕。
+    // 每次布局都强制纠正 window.frame。
+    CGRect portraitFrame = CGRectMake(0, 0, canvasW, canvasH);
+    if (!CGRectEqualToRect(_netSpeedWindow.frame, portraitFrame)) {
+        _netSpeedWindow.frame = portraitFrame;
+    }
+
     int orientation = zxCurrentOrientation();
     BOOL landscape = (orientation == UIInterfaceOrientationLandscapeLeft ||
                       orientation == UIInterfaceOrientationLandscapeRight);
