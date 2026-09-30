@@ -20,6 +20,7 @@
 #include "Screen.h"
 #include "NetSpeedIndicator.h"
 #include "FloatingMenu.h"
+#include "TapTestWindow.h"
 
 extern CFRunLoopRef recordRunLoop;
 
@@ -456,6 +457,45 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 NSMutableData *payload = [NSMutableData dataWithData:jsonData];
                 [payload appendBytes:"\r\n" length:2];
                 notifyClientData((UInt8 *)payload.bytes, (CFIndex)payload.length, writeStreamRef);
+            }
+        }
+    }
+    else if (taskType == TASK_TAP_TEST)
+    {
+        @autoreleasepool {
+            NSString *data = eventData ? [NSString stringWithUTF8String:(const char *)eventData] : @"";
+            NSArray *parts = [data componentsSeparatedByString:@";;"];
+            NSString *action = [parts count] > 1 ? parts[1] : @"1";
+
+            if ([action isEqualToString:@"1"]) {
+                [TapTestWindow show];
+                notifyClient((UInt8*)"0\r\n", writeStreamRef);
+            } else if ([action isEqualToString:@"0"]) {
+                [TapTestWindow hide];
+                notifyClient((UInt8*)"0\r\n", writeStreamRef);
+            } else if ([action isEqualToString:@"clear"]) {
+                [TapTestWindow clearRecords];
+                notifyClient((UInt8*)"0\r\n", writeStreamRef);
+            } else if ([action isEqualToString:@"get"]) {
+                NSDictionary *payload = @{
+                    @"visible": @([TapTestWindow isVisible]),
+                    @"orientation": @([Screen getScreenOrientation]),
+                    @"screen_bounds": NSStringFromCGRect([Screen getBounds]),
+                    @"taps": [TapTestWindow tapRecords],
+                };
+                NSError *jsonErr = nil;
+                NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payload
+                                                                   options:0
+                                                                     error:&jsonErr];
+                if (jsonErr) {
+                    notifyClient((UInt8*)"-1;;JSON 序列化失败\r\n", writeStreamRef);
+                } else {
+                    NSMutableData *buf = [NSMutableData dataWithData:jsonData];
+                    [buf appendBytes:"\r\n" length:2];
+                    notifyClientData((UInt8 *)buf.bytes, (CFIndex)buf.length, writeStreamRef);
+                }
+            } else {
+                notifyClient((UInt8*)"-1;;41;;1 打开 / 41;;0 关闭 / 41;;clear 清空 / 41;;get 记录\r\n", writeStreamRef);
             }
         }
     }

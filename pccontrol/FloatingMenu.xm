@@ -62,10 +62,37 @@
 
 // 关键：UIWindow 默认会在没有子视图命中时返回 self，从而拦截触摸。
 // 必须重写 hitTest 让 window 自身也透传，否则全屏 window 仍会挡住整个屏幕。
+// 额外：iOS 13+ 的 UIWindowScene 会强制把 window.frame 改成当前屏幕方向尺寸，
+// 破坏"竖屏固定坐标系 + content 旋转"模型。override setFrame 锁死 portrait 尺寸。
 @interface FMPassthroughWindow : UIWindow
+@property (nonatomic, assign) CGRect portraitFrame; // 运行时设置，默认 CGRectZero（不锁）
 @end
 
-@implementation FMPassthroughWindow
+@implementation FMPassthroughWindow {
+    BOOL _portraitLockEnabled;
+}
+
+- (void)setPortraitFrame:(CGRect)portraitFrame {
+    _portraitFrame = portraitFrame;
+    _portraitLockEnabled = !CGRectIsEmpty(portraitFrame);
+    if (_portraitLockEnabled && !CGRectEqualToRect(self.frame, portraitFrame)) {
+        [super setFrame:portraitFrame];
+    }
+}
+
+- (void)setFrame:(CGRect)frame {
+    if (_portraitLockEnabled && !CGRectEqualToRect(frame, _portraitFrame)) {
+        // 系统试图用 scene 当前方向尺寸覆盖我们的 portrait frame → 拦截
+        [super setFrame:_portraitFrame];
+        // 系统改 frame 时可能会重置 rootViewController.view 布局 → 同时纠正
+        if (self.rootViewController && !CGRectEqualToRect(self.rootViewController.view.frame, _portraitFrame)) {
+            self.rootViewController.view.frame = _portraitFrame;
+        }
+        return;
+    }
+    [super setFrame:frame];
+}
+
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
 {
     UIView *hit = [super hitTest:point withEvent:event];
@@ -296,9 +323,17 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGRect portrait;
     [self visualWidth:NULL height:NULL portrait:&portrait];
 
-    // 不用 initWithWindowScene：scene 会强制把 frame 改成当前方向尺寸，
-    // 导致旋转轴心错位、悬浮窗飞出屏幕。直接 initWithFrame 保持竖屏固定坐标系。
-    _window = [[FMPassthroughWindow alloc] initWithFrame:portrait];
+    // 必须用 initWithWindowScene（iOS 13+ 无 scene 的 window 不渲染）。
+    // 但 scene 会强制把 frame 改成当前方向尺寸（横屏=1180x820），
+    // 破坏"竖屏固定坐标系 + content 旋转"模型。
+    // FMPassthroughWindow override setFrame 拦住了，确保 frame 永远是 portrait。
+    UIWindowScene *scene = [FloatingMenu preferredWindowScene];
+    if (scene) {
+        _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
+    } else {
+        _window = [[FMPassthroughWindow alloc] initWithFrame:portrait];
+    }
+    _window.portraitFrame = portrait;
     _window.windowLevel = UIWindowLevelStatusBar + 2;
     _window.backgroundColor = [UIColor clearColor];
     _window.userInteractionEnabled = YES;

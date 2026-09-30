@@ -33,6 +33,7 @@
 // 40;;floating_menu → 返回悬浮按钮调试信息（JSON 字典字符串）
 // 40;;all → 返回两者合并后的字典
 #define TASK_DEBUG_INFO 40
+#define TASK_TAP_TEST 41
 
 #define TASK_UPDATE_CACHE 90
 
