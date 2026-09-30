@@ -5,6 +5,7 @@
 #import "Toast.h"
 #import "AlertBox.h"
 #import "Process.h"
+#import <QuartzCore/QuartzCore.h>
 #include <roothide.h>
 
 /*

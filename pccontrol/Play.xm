@@ -91,6 +91,7 @@ int playScriptWithSettings(UInt8* path, int repeatTime, float playSpeed, float s
 
 void stopScriptPlaying(NSError **error)
 {
+    ZXSafeMainAsync(^{ [FloatingMenu stopRunningSpinner]; });
     [scriptPlayer forceStop:error];
 }
 
