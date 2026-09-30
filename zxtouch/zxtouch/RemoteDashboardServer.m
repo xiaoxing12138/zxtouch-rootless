@@ -357,6 +357,26 @@ static NSString *ZXDashboardIPAddress(void)
         return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
     }];
 
+    [self.server addHandlerForMethod:@"GET" path:@"/api/floating-menu" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSString *result = [strongSelf sendSocketCommand:@"32;;2" expectsReply:YES];
+        NSString *payload = [strongSelf payloadFromSocketReply:result];
+        BOOL enabled = [payload isEqualToString:@"1"];
+        return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"enabled": @(enabled), @"result": result ?: @"" } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"POST" path:@"/api/floating-menu" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSDictionary *body = [request.jsonObject isKindOfClass:[NSDictionary class]] ? request.jsonObject : @{};
+        BOOL enabled = [body[@"enabled"] boolValue];
+        NSString *command = enabled ? @"32;;1" : @"32;;0";
+        NSString *result = [strongSelf sendSocketCommand:command expectsReply:YES];
+        if ([result hasPrefix:@"0"]) strongSelf.lastAction = enabled ? @"开启悬浮按钮" : @"关闭悬浮按钮";
+        return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
+    }];
+
     [self.server addHandlerForMethod:@"POST" path:@"/api/assets" requestClass:[GCDWebServerMultiPartFormRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerMultiPartFormRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];

@@ -52,6 +52,10 @@
     .topbar-btn:hover:not([disabled]) { border-color: #505a68; background: #303742; }
     .topbar-btn.danger { border-color: #9d454b; color: #fff; background: var(--red-bg); }
     .topbar-btn.danger:hover:not([disabled]) { border-color: #b6525a; background: #803740; }
+    .topbar-btn.toggle-on { border-color: #2e6e4f; color: #fff; background: #1f5e3f; }
+    .topbar-btn.toggle-on:hover:not([disabled]) { border-color: #39cb84; background: #267049; }
+    .topbar-btn.toggle-off { border-color: var(--line); color: var(--muted); background: #1c2128; }
+    .topbar-btn.toggle-off:hover:not([disabled]) { border-color: var(--line-strong); background: #252b33; }
     .topbar-btn[disabled] { cursor: not-allowed; opacity: .4; }
     .connection { height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted-strong); background: var(--panel); font-size: 12px; white-space: nowrap; }
     .status-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--red); }
@@ -282,6 +286,7 @@
       <button class="topbar-btn" id="recordStart" type="button" title="开始触摸录制">录制</button>
       <button class="topbar-btn" id="recordStop" type="button" title="停止并保存本次录制">保存</button>
       <button class="topbar-btn danger" id="stop" type="button" title="停止当前运行的脚本">停止</button>
+      <button class="topbar-btn toggle-off" id="floatingMenu" type="button" title="切换 iPad 上的悬浮控制按钮" disabled>悬浮按钮：—</button>
       <button class="icon-button" id="refresh" title="刷新控制台" aria-label="刷新控制台">&#8635;</button>
       <div class="connection"><span class="status-dot" id="serviceDot"></span><span class="connection-text" id="connectionText">连接中</span></div>
     </div>
@@ -365,7 +370,7 @@
     const token = new URLSearchParams(location.search).get('token') || '';
     const query = path => `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
     const elements = Object.fromEntries(Array.from(document.querySelectorAll('[id]')).map(element => [element.id, element]));
-    const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, prompting: null, collapsed: new Set(), editing: null };
+    const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, prompting: null, collapsed: new Set(), editing: null, floatingMenu: null };
     const orientationNames = { '1': '竖屏', '2': '竖屏（倒置）', '3': '横屏（右）', '4': '横屏（左）' };
     const viewNames = { scripts: '脚本', assets: '资源', logs: '日志', device: '设备' };
 
@@ -613,11 +618,49 @@
       elements.recStateWrap.title = `${activity} · ${status.lastAction || '就绪'}`;
       elements.stop.disabled = !online || !playing; elements.recordStart.disabled = !online || recording; elements.recordStop.disabled = !online || !recording;
       if (elements.runEditor.dataset.busy !== '1') elements.runEditor.disabled = !online || !state.editing;
+      if (elements.floatingMenu.dataset.busy !== '1') elements.floatingMenu.disabled = !online || state.floatingMenu === null;
     }
 
     async function loadStatus() { const payload = await api('/api/status'); renderStatus(payload.status); }
     function renderLogs() { const filter = elements.logFilter.value.trim().toLowerCase(); const lines = state.rawLogs ? state.rawLogs.split(/\r?\n/) : []; const visible = filter ? lines.filter(line => line.toLowerCase().includes(filter)) : lines; const stick = elements.autoFollow.checked || elements.logs.scrollTop + elements.logs.clientHeight >= elements.logs.scrollHeight - 16; elements.logs.textContent = visible.join('\n') || '暂无运行时日志输出。'; elements.logSummary.textContent = `${visible.length} 条可见日志`; if (stick) elements.logs.scrollTop = elements.logs.scrollHeight; }
     async function loadLogs() { const payload = await api('/api/logs'); state.rawLogs = payload.logs || ''; renderLogs(); }
+
+    function renderFloatingMenu() {
+      const btn = elements.floatingMenu;
+      const enabled = state.floatingMenu;
+      if (enabled === true) { btn.textContent = '悬浮按钮：开'; btn.className = 'topbar-btn toggle-on'; }
+      else if (enabled === false) { btn.textContent = '悬浮按钮：关'; btn.className = 'topbar-btn toggle-off'; }
+      else { btn.textContent = '悬浮按钮：—'; btn.className = 'topbar-btn toggle-off'; }
+    }
+    async function loadFloatingMenu() {
+      try { const payload = await api('/api/floating-menu'); state.floatingMenu = Boolean(payload.enabled); }
+      catch (_) { state.floatingMenu = null; }
+      renderFloatingMenu();
+      if (state.status) renderStatus(state.status);
+    }
+    async function toggleFloatingMenu() {
+      if (elements.floatingMenu.dataset.busy === '1' || state.floatingMenu === null) return;
+      const previous = state.floatingMenu;
+      const next = !previous;
+      const btn = elements.floatingMenu;
+      btn.dataset.busy = '1';
+      btn.disabled = true;
+      btn.textContent = '切换中…';
+      try {
+        await postJSON('/api/floating-menu', { enabled: next });
+        state.floatingMenu = next;
+        showToast(next ? '悬浮按钮已开启。' : '悬浮按钮已关闭。');
+        await loadStatus();
+      } catch (error) {
+        showToast(error.message, true);
+        try { const payload = await api('/api/floating-menu'); state.floatingMenu = Boolean(payload.enabled); }
+        catch (_) { state.floatingMenu = previous; }
+      } finally {
+        btn.dataset.busy = '0';
+        renderFloatingMenu();
+        if (state.status) renderStatus(state.status);
+      }
+    }
 
     async function stopScript() { if (!await ask('停止当前脚本？', '当前脚本将立即停止。', '停止脚本', true)) return; setButtonBusy(elements.stop, true, '停止中…'); try { await api('/api/stop', { method: 'POST' }); showToast('已请求停止。'); await loadStatus(); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.stop, false); if (state.status) renderStatus(state.status); } }
     async function changeRecording(start) { const title = start ? '开始触摸录制？' : '停止并保存录制？'; const message = start ? 'ZXTouch 将持续录制触摸输入，直到你停止。' : '当前录制内容将保存到脚本库。'; if (!await ask(title, message, start ? '开始录制' : '停止并保存', !start)) return; const button = start ? elements.recordStart : elements.recordStop; setButtonBusy(button, true, start ? '启动中…' : '保存中…'); try { await api(start ? '/api/record/start' : '/api/record/stop', { method: 'POST' }); showToast(start ? '录制已开始。' : '录制已保存。'); await Promise.all([loadStatus(), start ? Promise.resolve() : loadScripts()]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(button, false); if (state.status) renderStatus(state.status); } }
@@ -625,7 +668,7 @@
     async function uploadAsset(event) { event.preventDefault(); const file = elements.assetFile.files[0]; const scriptName = elements.assetScript.options[elements.assetScript.selectedIndex]?.textContent || '所选脚本'; if (!file) { showToast('请先选择资源文件。', true); return; } if (file.size > 25 * 1024 * 1024) { showToast('资源文件不能超过 25 MB。', true); return; } if (file.name.toLowerCase() === 'info.plist') { showToast('info.plist 不能被覆盖。', true); return; } if (!await ask('上传资源？', `${file.name} 将被添加到 ${scriptName}。`, '上传资源')) return; setButtonBusy(elements.uploadButton, true, '上传中…'); try { const payload = await api('/api/assets', { method: 'POST', body: new FormData(event.currentTarget) }); showToast(`${payload.file} 已上传。`); elements.assetFile.value = ''; elements.assetFileName.textContent = '选择资源文件'; await loadStatus(); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.uploadButton, false); } }
     function copyText(text) { if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text); const area = document.createElement('textarea'); area.value = text; area.style.position = 'fixed'; area.style.opacity = '0'; document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove(); return Promise.resolve(); }
     async function clearLogs() { if (!await ask('清空运行时日志？', '这将从设备上移除当前日志输出。', '清空日志', true)) return; try { await api('/api/logs/clear', { method: 'POST' }); state.rawLogs = ''; renderLogs(); showToast('运行时日志已清空。'); await loadStatus(); } catch (error) { showToast(error.message, true); } }
-    async function refreshAll() { setButtonBusy(elements.refresh, true, '&#8230;'); try { await Promise.all([loadScripts(), loadStatus(), loadLogs()]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.refresh, false); } }
+    async function refreshAll() { setButtonBusy(elements.refresh, true, '&#8230;'); try { await Promise.all([loadScripts(), loadStatus(), loadLogs(), loadFloatingMenu()]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.refresh, false); } }
 
     elements.confirmCancel.addEventListener('click', () => closeConfirmation(false)); elements.confirmAccept.addEventListener('click', () => closeConfirmation(true)); elements.confirmModal.addEventListener('click', event => { if (event.target === elements.confirmModal) closeConfirmation(false); });
     elements.inputCancel.addEventListener('click', () => closeInput(null)); elements.inputAccept.addEventListener('click', () => closeInput({ name: elements.inputName.value, folder: elements.inputFolder.value })); elements.inputModal.addEventListener('click', event => { if (event.target === elements.inputModal) closeInput(null); });
@@ -633,7 +676,7 @@
     elements.createScript.addEventListener('click', createScript); elements.createFolder.addEventListener('click', createFolder);
     elements.saveScript.addEventListener('click', saveEditor); elements.editorBack.addEventListener('click', closeEditor); elements.runEditor.addEventListener('click', runCurrentScript); elements.deleteEditor.addEventListener('click', deleteCurrentScript); elements.scriptEditor.addEventListener('input', syncEditorMeta);
     document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { if (state.editing && !elements.editorBody.hidden) { event.preventDefault(); saveEditor(); } return; } if (event.key === 'Escape') { if (elements.viewFab.classList.contains('open')) setViewMenu(false); else if (!elements.confirmModal.hidden) closeConfirmation(false); else if (!elements.inputModal.hidden) closeInput(null); } });
-    elements.refresh.addEventListener('click', refreshAll); elements.stop.addEventListener('click', stopScript); elements.recordStart.addEventListener('click', () => changeRecording(true)); elements.recordStop.addEventListener('click', () => changeRecording(false)); elements.assetForm.addEventListener('submit', uploadAsset); elements.assetFile.addEventListener('change', () => { elements.assetFileName.textContent = elements.assetFile.files[0]?.name || '选择资源文件'; }); elements.scriptSearch.addEventListener('input', renderScripts); elements.logFilter.addEventListener('input', renderLogs);
+    elements.refresh.addEventListener('click', refreshAll); elements.stop.addEventListener('click', stopScript); elements.floatingMenu.addEventListener('click', toggleFloatingMenu); elements.recordStart.addEventListener('click', () => changeRecording(true)); elements.recordStop.addEventListener('click', () => changeRecording(false)); elements.assetForm.addEventListener('submit', uploadAsset); elements.assetFile.addEventListener('change', () => { elements.assetFileName.textContent = elements.assetFile.files[0]?.name || '选择资源文件'; }); elements.scriptSearch.addEventListener('input', renderScripts); elements.logFilter.addEventListener('input', renderLogs);
     elements.viewSwitcher.addEventListener('click', () => setViewMenu());
     document.querySelectorAll('.view-menu-item').forEach(item => item.addEventListener('click', () => { selectView(item.dataset.view); setViewMenu(false); }));
     document.addEventListener('click', event => { if (elements.viewFab.classList.contains('open') && !elements.viewFab.contains(event.target)) setViewMenu(false); });
