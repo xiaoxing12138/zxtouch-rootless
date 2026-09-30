@@ -29,6 +29,22 @@ static NSString *kCfgYRatio  = @"floating_menu_y_ratio"; // 0..1
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"控制按钮悬浮窗";
+    self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
+
+    _tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleGrouped];
+    _tableView.translatesAutoresizingMaskIntoConstraints = NO;
+    _tableView.delegate = self;
+    _tableView.dataSource = self;
+    _tableView.backgroundColor = [UIColor systemGroupedBackgroundColor];
+    _tableView.tableFooterView = [[UIView alloc] init];
+    [self.view addSubview:_tableView];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [_tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
+    ]];
 
     UINib *switchNib = [UINib nibWithNibName:@"TableViewCellWithSwitch" bundle:nil];
     [_tableView registerNib:switchNib forCellReuseIdentifier:@"SwitchCell"];

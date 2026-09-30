@@ -9,6 +9,6 @@
 
 @interface FloatingMenuConfigurationViewController : UIViewController
 
-@property (weak, nonatomic) IBOutlet UITableView *tableView;
+@property (nonatomic, strong) UITableView *tableView;
 
 @end
