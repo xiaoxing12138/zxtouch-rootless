@@ -892,6 +892,84 @@ static void fmPersistKeys(NSDictionary *pairs)
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
+// 实例方法：收集 self 的调试状态
+- (NSDictionary *)debugInfoInstance
+{
+    NSMutableDictionary *info = [NSMutableDictionary dictionary];
+    info[@"enabled"] = @(_enabled);
+    info[@"expanded"] = @(_expanded);
+    info[@"edge"] = @(_edge);          // 1=右 0=左
+    info[@"edge_name"] = (_edge == 0) ? @"左" : @"右";
+    info[@"y_ratio"] = @(_yRatio);
+    info[@"last_orientation"] = @(_lastOrientation);
+
+    CGFloat visW, visH;
+    [self visualWidth:&visW height:&visH portrait:NULL];
+    info[@"visual_w"] = @(visW);
+    info[@"visual_h"] = @(visH);
+    CGPoint dot = [self dotVisualPoint];
+    info[@"dot_visual_x"] = @(dot.x);
+    info[@"dot_visual_y"] = @(dot.y);
+
+    if (!_window) {
+        info[@"window_exists"] = @(NO);
+        info[@"note"] = @"window 尚未创建";
+        return [info copy];
+    }
+
+    info[@"window_exists"] = @(YES);
+    info[@"window_hidden"] = @(_window.hidden);
+    CGRect wf = _window.frame;
+    info[@"window_frame_x"] = @(wf.origin.x);
+    info[@"window_frame_y"] = @(wf.origin.y);
+    info[@"window_frame_w"] = @(wf.size.width);
+    info[@"window_frame_h"] = @(wf.size.height);
+
+    if (_content) {
+        CGAffineTransform ct = _content.transform;
+        info[@"content_transform_a"] = @(ct.a);
+        info[@"content_transform_b"] = @(ct.b);
+        info[@"content_transform_c"] = @(ct.c);
+        info[@"content_transform_d"] = @(ct.d);
+        info[@"content_bounds_w"] = @(_content.bounds.size.width);
+        info[@"content_bounds_h"] = @(_content.bounds.size.height);
+    }
+
+    if (_dotButton) {
+        CGRect df = _dotButton.frame;
+        CGPoint centerInRoot = [_dotButton convertPoint:CGPointMake(kFMDotSize/2, kFMDotSize/2) toView:_window.rootViewController.view];
+        CGPoint centerInWindow = [_dotButton convertPoint:CGPointMake(kFMDotSize/2, kFMDotSize/2) toView:nil];
+        info[@"dot_frame_x"] = @(df.origin.x);
+        info[@"dot_frame_y"] = @(df.origin.y);
+        info[@"dot_frame_w"] = @(df.size.width);
+        info[@"dot_frame_h"] = @(df.size.height);
+        info[@"dot_center_in_root_x"] = @(centerInRoot.x);
+        info[@"dot_center_in_root_y"] = @(centerInRoot.y);
+        info[@"dot_center_in_window_x"] = @(centerInWindow.x);
+        info[@"dot_center_in_window_y"] = @(centerInWindow.y);
+    }
+
+    return [info copy];
+}
+
++ (NSDictionary *)debugInfo
+{
+    __block NSDictionary *result = nil;
+    void (^gather)(void) = ^{
+        @try {
+            result = [[FloatingMenu shared] debugInfoInstance];
+        } @catch (NSException *exception) {
+            result = @{ @"error": [exception reason] ?: @"unknown exception" };
+        }
+    };
+    if ([NSThread isMainThread]) {
+        gather();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), gather);
+    }
+    return result;
+}
+
 @end
 
 #pragma mark - socket 任务 32

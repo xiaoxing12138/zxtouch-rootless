@@ -9,6 +9,7 @@
 #import "ScriptListTableCell.h"
 #import "TouchIndicatorConfigurationViewController.h"
 #import "NetSpeedConfigurationViewController.h"
+#import "DebugFloatWindowViewController.h"
 #import "Util.h"
 #import "Socket.h"
 
@@ -152,6 +153,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([title containsString:@"示例"]) return @"folder";
     if ([title containsString:@"注册表"]) return @"list.bullet.rectangle";
     if ([title containsString:@"深色"]) return @"moon";
+    if ([title containsString:@"调试"]) return @"wrench.and.screwdriver";
     if ([title containsString:@"ZXTouch"]) return @"info.circle";
     return @"gearshape";
 }
@@ -223,7 +225,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"双击下音量键打开控制面板", @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速指示器设置", @"secondary_title": @"位置 / 字号 / 边距 / 息屏暂停", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"悬浮控制按钮", @"switch_click_handler": NSStringFromSelector(@selector(handleFloatingMenuToggle:)), @"switch_init_status": @(floatingMenu)}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"悬浮控制按钮", @"switch_click_handler": NSStringFromSelector(@selector(handleFloatingMenuToggle:)), @"switch_init_status": @(floatingMenu)},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))}
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
@@ -295,7 +298,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"双击下音量键打开控制面板", @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速指示器设置", @"secondary_title": @"位置 / 字号 / 边距 / 息屏暂停", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"悬浮控制按钮", @"switch_click_handler": NSStringFromSelector(@selector(handleFloatingMenuToggle:)), @"switch_init_status": @(floatingMenu)}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"悬浮控制按钮", @"switch_click_handler": NSStringFromSelector(@selector(handleFloatingMenuToggle:)), @"switch_init_status": @(floatingMenu)},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))}
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
@@ -592,6 +596,11 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         [socket send:cmd];
         [socket close];
     }
+}
+
+- (void)handleDebugFloatWindowTap:(TableViewCellWithEntry *)cell {
+    DebugFloatWindowViewController *vc = [[DebugFloatWindowViewController alloc] init];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)handleDarkModeToggle:(UISwitch*)s {

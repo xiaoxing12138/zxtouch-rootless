@@ -425,6 +425,40 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             }
         }
     }
+    else if (taskType == TASK_DEBUG_INFO)
+    {
+        @autoreleasepool {
+            NSString *data = eventData ? [NSString stringWithUTF8String:(const char *)eventData] : @"";
+            NSArray *parts = [data componentsSeparatedByString:@";;"];
+            NSString *target = [parts count] > 1 ? parts[1] : @"all";
+
+            NSMutableDictionary *root = [NSMutableDictionary dictionary];
+            if ([target isEqualToString:@"net_speed"]) {
+                NSDictionary *info = [NetSpeedIndicator debugInfo];
+                if (info) root[@"net_speed"] = info;
+            } else if ([target isEqualToString:@"floating_menu"]) {
+                NSDictionary *info = [FloatingMenu debugInfo];
+                if (info) root[@"floating_menu"] = info;
+            } else {
+                NSDictionary *nsInfo = [NetSpeedIndicator debugInfo];
+                if (nsInfo) root[@"net_speed"] = nsInfo;
+                NSDictionary *fmInfo = [FloatingMenu debugInfo];
+                if (fmInfo) root[@"floating_menu"] = fmInfo;
+            }
+
+            NSError *jsonErr = nil;
+            NSData *jsonData = [NSJSONSerialization dataWithJSONObject:root
+                                                               options:0
+                                                                 error:&jsonErr];
+            if (jsonErr) {
+                notifyClient((UInt8*)[["-1;;JSON 序列化失败: " stringByAppendingString:[jsonErr localizedDescription]] UTF8String], writeStreamRef);
+            } else {
+                NSMutableData *payload = [NSMutableData dataWithData:jsonData];
+                [payload appendBytes:"\r\n" length:2];
+                notifyClientData((UInt8 *)payload.bytes, (CFIndex)payload.length, writeStreamRef);
+            }
+        }
+    }
     else if (taskType == TASK_UPDATE_CACHE)
     {
         @autoreleasepool{

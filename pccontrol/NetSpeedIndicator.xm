@@ -512,6 +512,93 @@ static void reloadAppearance(void)
     });
 }
 
++ (NSDictionary *)debugInfo
+{
+    __block NSDictionary *result = nil;
+    void (^gather)(void) = ^{
+        @try {
+            int orientation = zxCurrentOrientation();
+            NSString *oriName = @"Portrait";
+            switch (orientation) {
+                case UIInterfaceOrientationLandscapeLeft:  oriName = @"LandscapeLeft";  break;
+                case UIInterfaceOrientationLandscapeRight: oriName = @"LandscapeRight"; break;
+                case UIInterfaceOrientationPortraitUpsideDown: oriName = @"PortraitUpsideDown"; break;
+                default: oriName = @"Portrait"; break;
+            }
+
+            CGRect screenBounds = [Screen getBounds];
+            CGFloat canvasW = MIN(CGRectGetWidth(screenBounds), CGRectGetHeight(screenBounds));
+            CGFloat canvasH = MAX(CGRectGetWidth(screenBounds), CGRectGetHeight(screenBounds));
+
+            NSMutableDictionary *info = [NSMutableDictionary dictionary];
+            info[@"enabled"] = @(_netSpeedEnabled);
+            info[@"orientation"] = @(orientation);
+            info[@"orientation_name"] = oriName;
+            info[@"screen_bounds_w"] = @(CGRectGetWidth(screenBounds));
+            info[@"screen_bounds_h"] = @(CGRectGetHeight(screenBounds));
+            info[@"canvas_w"] = @(canvasW);
+            info[@"canvas_h"] = @(canvasH);
+            info[@"cfg_corner"] = @(_cfgCorner);
+            info[@"cfg_margin_x"] = @(_cfgMarginX);
+            info[@"cfg_margin_y"] = @(_cfgMarginY);
+            info[@"cfg_font_size"] = @(_cfgFontSize);
+
+            if (!_netSpeedWindow) {
+                info[@"window_exists"] = @(NO);
+                info[@"note"] = @"window 尚未创建";
+                result = [info copy];
+                return;
+            }
+
+            CGRect winFrame = _netSpeedWindow.frame;
+            BOOL winHidden = _netSpeedWindow.hidden;
+            info[@"window_exists"] = @(YES);
+            info[@"window_hidden"] = @(winHidden);
+            info[@"window_frame_x"] = @(winFrame.origin.x);
+            info[@"window_frame_y"] = @(winFrame.origin.y);
+            info[@"window_frame_w"] = @(winFrame.size.width);
+            info[@"window_frame_h"] = @(winFrame.size.height);
+
+            if (_netSpeedContent) {
+                CGAffineTransform ct = _netSpeedContent.transform;
+                info[@"content_transform_a"] = @(ct.a);
+                info[@"content_transform_b"] = @(ct.b);
+                info[@"content_transform_c"] = @(ct.c);
+                info[@"content_transform_d"] = @(ct.d);
+                info[@"content_bounds_w"] = @(_netSpeedContent.bounds.size.width);
+                info[@"content_bounds_h"] = @(_netSpeedContent.bounds.size.height);
+            }
+
+            if (_netSpeedLabel) {
+                CGRect lf = _netSpeedLabel.frame;
+                CGAffineTransform lt = _netSpeedLabel.transform;
+                CGPoint labelCenter = [_netSpeedLabel convertPoint:CGPointMake(lf.size.width/2, lf.size.height/2) toView:nil];
+                info[@"label_frame_x"] = @(lf.origin.x);
+                info[@"label_frame_y"] = @(lf.origin.y);
+                info[@"label_frame_w"] = @(lf.size.width);
+                info[@"label_frame_h"] = @(lf.size.height);
+                info[@"label_center_x_in_window"] = @(labelCenter.x);
+                info[@"label_center_y_in_window"] = @(labelCenter.y);
+                info[@"label_transform_a"] = @(lt.a);
+                info[@"label_transform_b"] = @(lt.b);
+                info[@"label_transform_c"] = @(lt.c);
+                info[@"label_transform_d"] = @(lt.d);
+                info[@"label_text"] = _netSpeedLabel.text ?: @"";
+            }
+
+            result = [info copy];
+        } @catch (NSException *exception) {
+            result = @{ @"error": [exception reason] ?: @"unknown exception" };
+        }
+    };
+    if ([NSThread isMainThread]) {
+        gather();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), gather);
+    }
+    return result;
+}
+
 @end
 
 NSString *handleNetSpeedIndicatorTaskWithRawData(UInt8 *eventData, NSError **error)

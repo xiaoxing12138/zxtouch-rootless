@@ -47,6 +47,7 @@
 		9684FF7525B58A3700549FC8 /* SettingsPageViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 9684FF7425B58A3700549FC8 /* SettingsPageViewController.m */; };
 		9684FFB425B67DC000549FC8 /* TouchIndicatorConfigurationViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 9684FFB225B67DC000549FC8 /* TouchIndicatorConfigurationViewController.m */; };
 		A17E5701260000000000A103 /* NetSpeedConfigurationViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A17E5701260000000000A102 /* NetSpeedConfigurationViewController.m */; };
+		A17E5701260000000000A203 /* DebugFloatWindowViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A17E5701260000000000A202 /* DebugFloatWindowViewController.m */; };
 		9684FFC825B6894B00549FC8 /* SettingPages.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 9684FFC725B6894B00549FC8 /* SettingPages.storyboard */; };
 		9684FFE025B84AE200549FC8 /* TableViewCellWithSwitch.m in Sources */ = {isa = PBXBuildFile; fileRef = 9684FFDE25B84AE200549FC8 /* TableViewCellWithSwitch.m */; };
 		9684FFE125B84AE200549FC8 /* TableViewCellWithSwitch.xib in Resources */ = {isa = PBXBuildFile; fileRef = 9684FFDF25B84AE200549FC8 /* TableViewCellWithSwitch.xib */; };
@@ -226,6 +227,8 @@
 		9684FFB225B67DC000549FC8 /* TouchIndicatorConfigurationViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TouchIndicatorConfigurationViewController.m; sourceTree = "<group>"; };
 		A17E5701260000000000A101 /* NetSpeedConfigurationViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NetSpeedConfigurationViewController.h; sourceTree = "<group>"; };
 		A17E5701260000000000A102 /* NetSpeedConfigurationViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NetSpeedConfigurationViewController.m; sourceTree = "<group>"; };
+		A17E5701260000000000A201 /* DebugFloatWindowViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DebugFloatWindowViewController.h; sourceTree = "<group>"; };
+		A17E5701260000000000A202 /* DebugFloatWindowViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DebugFloatWindowViewController.m; sourceTree = "<group>"; };
 		9684FFC725B6894B00549FC8 /* SettingPages.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = SettingPages.storyboard; sourceTree = "<group>"; };
 		9684FFDD25B84AE200549FC8 /* TableViewCellWithSwitch.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TableViewCellWithSwitch.h; sourceTree = "<group>"; };
 		9684FFDE25B84AE200549FC8 /* TableViewCellWithSwitch.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TableViewCellWithSwitch.m; sourceTree = "<group>"; };
@@ -508,6 +511,8 @@
 				9684FFB225B67DC000549FC8 /* TouchIndicatorConfigurationViewController.m */,
 				A17E5701260000000000A101 /* NetSpeedConfigurationViewController.h */,
 				A17E5701260000000000A102 /* NetSpeedConfigurationViewController.m */,
+				A17E5701260000000000A201 /* DebugFloatWindowViewController.h */,
+				A17E5701260000000000A202 /* DebugFloatWindowViewController.m */,
 				9684FFC725B6894B00549FC8 /* SettingPages.storyboard */,
 			);
 			path = Settings;
@@ -895,6 +900,7 @@
 				96D7E5A32581F99900B39A81 /* AppDelegate.m in Sources */,
 				9684FFB425B67DC000549FC8 /* TouchIndicatorConfigurationViewController.m in Sources */,
 				A17E5701260000000000A103 /* NetSpeedConfigurationViewController.m in Sources */,
+						A17E5701260000000000A203 /* DebugFloatWindowViewController.m in Sources */,
 				965E8C9525B31DD100FDD35C /* Util.m in Sources */,
 				964DF10A25B9D87E006061B4 /* GCDWebServerFunctions.m in Sources */,
 				964DF11425B9D87E006061B4 /* GCDWebServerFileRequest.m in Sources */,

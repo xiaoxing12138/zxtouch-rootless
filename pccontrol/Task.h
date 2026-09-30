@@ -29,6 +29,10 @@
 #define TASK_NET_SPEED_INDICATOR 31
 #define TASK_FLOATING_MENU 32
 
+// 40;;net_speed → 返回网速窗调试信息（JSON 字典字符串）
+// 40;;floating_menu → 返回悬浮按钮调试信息（JSON 字典字符串）
+// 40;;all → 返回两者合并后的字典
+#define TASK_DEBUG_INFO 40
 
 #define TASK_UPDATE_CACHE 90
 

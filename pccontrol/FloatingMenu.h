@@ -17,12 +17,17 @@
  */
 @interface FloatingMenu : NSObject
 
++ (instancetype)shared;
+
 // 开关悬浮按钮；同时持久化 floating_menu_enabled
 + (void)setEnabled:(BOOL)enabled;
 + (BOOL)isEnabled;
 
 // 重新读取 plist 并应用全部配置（enabled、位置、脚本）
 + (void)reloadConfig;
+
+// 返回当前悬浮按钮的调试信息字典；若 window 尚未创建则返回 nil
++ (NSDictionary *)debugInfo;
 
 @end
 
