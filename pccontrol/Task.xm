@@ -451,7 +451,7 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                                                                options:0
                                                                  error:&jsonErr];
             if (jsonErr) {
-                notifyClient((UInt8*)[["-1;;JSON 序列化失败: " stringByAppendingString:[jsonErr localizedDescription]] UTF8String], writeStreamRef);
+                notifyClient((UInt8*)[[NSString stringWithFormat:@"-1;;JSON 序列化失败: %@", [jsonErr localizedDescription]] UTF8String], writeStreamRef);
             } else {
                 NSMutableData *payload = [NSMutableData dataWithData:jsonData];
                 [payload appendBytes:"\r\n" length:2];
