@@ -70,6 +70,17 @@
 #define kFMCfgIconInset   @"floating_menu_icon_inset"     // 图标圆内留白 0..10
 #define kFMCfgPanelGap    @"floating_menu_panel_gap"      // 圆点到菜单间距 0..40
 #define kFMCfgDotIcon     @"floating_menu_dot_icon"       // 圆点图标 0=字母Z 1=App图标 2=自定义图片
+#define kFMCfgDotBgColor   @"floating_menu_dot_bg_color"   // 圆点背景色 #RRGGBB
+#define kFMCfgMenuBtnColor @"floating_menu_menu_btn_color" // 菜单按钮背景色 #RRGGBB
+#define kFMCfgIconColor    @"floating_menu_icon_color"     // 图标颜色 #RRGGBB（圆点字母 + 菜单图标）
+#define kFMCfgLabelColor   @"floating_menu_label_color"    // 菜单标签文字色 #RRGGBB
+
+// 颜色默认值：圆点沿用旧硬编码色 (20,20,28)，菜单底沿用 white 0.12 (≈#1F1F1F)
+#define kFMDotBgColorDefault   @"#14141C"
+#define kFMMenuBtnColorDefault @"#1F1F1F"
+#define kFMIconColorDefault    @"#FFFFFF"
+#define kFMLabelColorDefault   @"#FFFFFF"
+#define kFMDotBgAlpha          0.82f   // 圆点底色不透明度（未开放配置）
 
 // 圆点图标来源
 #define kFMDotIconModeZ       0
@@ -184,6 +195,36 @@ static CGAffineTransform fmTransformForOrientation(int orientation)
     }
 }
 
+// "#RRGGBB" / "#RGB" → UIColor，非法输入返回 nil（调用方决定兜底色）
+static UIColor *fmColorFromHex(NSString *hex, CGFloat alpha)
+{
+    if (![hex isKindOfClass:[NSString class]]) {
+        return nil;
+    }
+    NSString *value = [hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    if ([value hasPrefix:@"#"]) {
+        value = [value substringFromIndex:1];
+    }
+    if (value.length == 3) {
+        NSString *r = [value substringWithRange:NSMakeRange(0, 1)];
+        NSString *g = [value substringWithRange:NSMakeRange(1, 1)];
+        NSString *b = [value substringWithRange:NSMakeRange(2, 1)];
+        value = [NSString stringWithFormat:@"%@%@%@%@%@%@", r, r, g, g, b, b];
+    }
+    if (value.length != 6) {
+        return nil;
+    }
+    unsigned int rgb = 0;
+    NSScanner *scanner = [NSScanner scannerWithString:value];
+    if (![scanner scanHexInt:&rgb]) {
+        return nil;
+    }
+    return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0f
+                           green:((rgb >> 8) & 0xFF) / 255.0f
+                            blue:(rgb & 0xFF) / 255.0f
+                           alpha:alpha];
+}
+
 static void fmToast(NSString *content, int type)
 {
     [Toast showToastWithContent:content type:type duration:1.8f position:1 fontSize:14];
@@ -257,6 +298,10 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat  _menuIconInset;  // 图标在按钮圆内的留白（0..10）
     CGFloat  _menuPanelGap;   // 圆点到菜单整体的间距（0..40）
     NSInteger _dotIconMode;   // 圆点图标来源（0=字母Z 1=App图标 2=自定义图片）
+    NSString *_dotBgColorHex;   // 圆点背景色
+    NSString *_menuBtnColorHex; // 菜单按钮背景色
+    NSString *_iconColorHex;    // 图标颜色（圆点字母 + 菜单图标）
+    NSString *_labelColorHex;   // 菜单标签文字色
     int      _lastOrientation;
 
     CGPoint  _dragStartVisual;
@@ -284,6 +329,10 @@ static void fmPersistKeys(NSDictionary *pairs)
         _menuIconInset = kFMMenuIconInsetDefault;
         _menuPanelGap = kFMMenuPanelGapDefault;
         _dotIconMode = kFMDotIconModeZ;
+        _dotBgColorHex = kFMDotBgColorDefault;
+        _menuBtnColorHex = kFMMenuBtnColorDefault;
+        _iconColorHex = kFMIconColorDefault;
+        _labelColorHex = kFMLabelColorDefault;
     }
     return self;
 }
@@ -331,10 +380,22 @@ static void fmPersistKeys(NSDictionary *pairs)
     return roundf(_dotSize * (22.0f / kFMDotDefaultSize));
 }
 
-// 菜单按钮与标签共用的黑底（不透明度可配置）
+// 菜单按钮与标签共用的底色（颜色 + 不透明度均可配置）
 - (UIColor *)menuBackgroundColor
 {
-    return [UIColor colorWithWhite:0.12f alpha:_menuBgAlpha];
+    return fmColorFromHex(_menuBtnColorHex, _menuBgAlpha) ?: [UIColor colorWithWhite:0.12f alpha:_menuBgAlpha];
+}
+
+// 图标颜色（圆点字母 + 菜单 SF Symbol），非法值回退白色
+- (UIColor *)iconColor
+{
+    return fmColorFromHex(_iconColorHex, 1.0f) ?: [UIColor whiteColor];
+}
+
+// 菜单标签文字色，非法值回退白色
+- (UIColor *)labelColor
+{
+    return fmColorFromHex(_labelColorHex, 1.0f) ?: [UIColor whiteColor];
 }
 
 // 标签高度随字号推导。原代码 buildWindow 写死 14、applyGeometry 写死 12，
@@ -463,14 +524,12 @@ static void fmPersistKeys(NSDictionary *pairs)
     // 圆点
     _dotButton = [UIButton buttonWithType:UIButtonTypeCustom];
     _dotButton.frame = CGRectMake(0, 0, _dotSize, _dotSize);
-    _dotButton.backgroundColor = [UIColor colorWithRed:20.0f / 255.0f
-                                                green:20.0f / 255.0f
-                                                 blue:28.0f / 255.0f
-                                                alpha:0.82f];
+    _dotButton.backgroundColor = fmColorFromHex(_dotBgColorHex, kFMDotBgAlpha)
+                                 ?: [UIColor colorWithRed:20.0f / 255.0f green:20.0f / 255.0f blue:28.0f / 255.0f alpha:kFMDotBgAlpha];
     _dotButton.layer.cornerRadius = [self dotRadius];
     _dotButton.titleLabel.font = [UIFont systemFontOfSize:[self dotTitleFontSize] weight:UIFontWeightBold];
     [_dotButton setTitle:@"Z" forState:UIControlStateNormal];
-    [_dotButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    [_dotButton setTitleColor:[self iconColor] forState:UIControlStateNormal];
     _dotButton.adjustsImageWhenHighlighted = NO;
     [_content addSubview:_dotButton];
 
@@ -516,7 +575,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         iconBtn.alpha = 0.0f;
         if (@available(iOS 13.0, *)) {
             [iconBtn setImage:[UIImage systemImageNamed:symbolNames[i]] forState:UIControlStateNormal];
-            iconBtn.tintColor = [UIColor whiteColor];  // 白色图标
+            iconBtn.tintColor = [self iconColor];
             iconBtn.imageEdgeInsets = UIEdgeInsetsMake(_menuIconInset, _menuIconInset, _menuIconInset, _menuIconInset);
         }
         [iconBtn addTarget:self action:@selector(handleMenuIconTap:) forControlEvents:UIControlEventTouchUpInside];
@@ -526,7 +585,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         UILabel *lbl = [[UILabel alloc] init];
         lbl.text = titles[i];
         lbl.font = [UIFont systemFontOfSize:_menuLabelFont];
-        lbl.textColor = [UIColor whiteColor];          // 白色文字
+        lbl.textColor = [self labelColor];
         lbl.textAlignment = NSTextAlignmentCenter;
         lbl.frame = CGRectMake(0, 0, btnSize, labelH);
         lbl.backgroundColor = [self menuBackgroundColor];  // 黑底（透明度可配置）
@@ -1239,6 +1298,10 @@ static void fmPersistKeys(NSDictionary *pairs)
             CGFloat menuIconInset = kFMMenuIconInsetDefault;
             CGFloat menuPanelGap = kFMMenuPanelGapDefault;
             NSInteger dotIconMode = kFMDotIconModeZ;
+            NSString *dotBgColorHex = kFMDotBgColorDefault;
+            NSString *menuBtnColorHex = kFMMenuBtnColorDefault;
+            NSString *iconColorHex = kFMIconColorDefault;
+            NSString *labelColorHex = kFMLabelColorDefault;
             NSString *script = @"";
 
             NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
@@ -1286,6 +1349,18 @@ static void fmPersistKeys(NSDictionary *pairs)
                 if ([dotIconValue isKindOfClass:[NSNumber class]]) {
                     dotIconMode = [dotIconValue integerValue];
                 }
+                if ([config[kFMCfgDotBgColor] isKindOfClass:[NSString class]]) {
+                    dotBgColorHex = config[kFMCfgDotBgColor];
+                }
+                if ([config[kFMCfgMenuBtnColor] isKindOfClass:[NSString class]]) {
+                    menuBtnColorHex = config[kFMCfgMenuBtnColor];
+                }
+                if ([config[kFMCfgIconColor] isKindOfClass:[NSString class]]) {
+                    iconColorHex = config[kFMCfgIconColor];
+                }
+                if ([config[kFMCfgLabelColor] isKindOfClass:[NSString class]]) {
+                    labelColorHex = config[kFMCfgLabelColor];
+                }
                 if (!hasEdge) {
                     NSNumber *xValue = config[@"floating_menu_x"];
                     CGFloat pw, ph;
@@ -1310,6 +1385,10 @@ static void fmPersistKeys(NSDictionary *pairs)
             self->_menuIconInset = MIN(MAX(menuIconInset, kFMMenuIconInsetMin), kFMMenuIconInsetMax);
             self->_menuPanelGap = MIN(MAX(menuPanelGap, kFMMenuPanelGapMin), kFMMenuPanelGapMax);
             self->_dotIconMode = MIN(MAX(dotIconMode, kFMDotIconModeZ), kFMDotIconModeCustom);
+            self->_dotBgColorHex = dotBgColorHex;
+            self->_menuBtnColorHex = menuBtnColorHex;
+            self->_iconColorHex = iconColorHex;
+            self->_labelColorHex = labelColorHex;
             self->_scriptPath = script;
 
             // 彻底照搬 NetSpeedIndicator.reloadAppearance 模式：
@@ -1366,6 +1445,10 @@ static void fmPersistKeys(NSDictionary *pairs)
     info[@"menu_icon_inset"] = @(_menuIconInset);
     info[@"menu_panel_gap"] = @(_menuPanelGap);
     info[@"dot_icon_mode"] = @(_dotIconMode);
+    info[@"dot_bg_color"] = _dotBgColorHex ?: @"";
+    info[@"menu_btn_color"] = _menuBtnColorHex ?: @"";
+    info[@"icon_color"] = _iconColorHex ?: @"";
+    info[@"label_color"] = _labelColorHex ?: @"";
     info[@"last_orientation"] = @(_lastOrientation);
 
     CGFloat visW, visH;

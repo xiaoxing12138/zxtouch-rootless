@@ -46,7 +46,8 @@ typedef NS_ENUM(NSInteger, FMSection) {
     FMSectionPosition       = 1,  // 吸附边 + 纵向位置
     FMSectionAppearance     = 2,  // 圆点大小 + 菜单黑底透明度
     FMSectionMenuAppearance = 3,  // 菜单按钮大小/间距/标签字号/图标留白/圆点-菜单间距
-    FMSectionDotIcon        = 4   // 圆点图标来源
+    FMSectionDotIcon        = 4,  // 圆点图标来源
+    FMSectionColors         = 5   // 颜色（圆点/按钮背景、图标、标签文字）
 };
 
 // 「圆点图标」分组行号
@@ -54,6 +55,32 @@ typedef NS_ENUM(NSInteger, DotIconRow) {
     DotIconRowSource = 0,  // 图标来源（点按循环）
     DotIconRowRepick = 1   // 重新选择图片（仅自定义模式显示）
 };
+
+/*
+ * 颜色项定义表（配置键 / 标题 / 默认色）。
+ * 默认值必须与 tweak 端 kFM*ColorDefault 保持一致。
+ */
+static NSArray<NSDictionary *> *FMColorSpecs(void) {
+    static NSArray<NSDictionary *> *specs = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        specs = @[
+            @{@"key": @"floating_menu_dot_bg_color",   @"title": @"圆点背景色",   @"default": @"#14141C"},
+            @{@"key": @"floating_menu_menu_btn_color", @"title": @"按钮背景色",   @"default": @"#1F1F1F"},
+            @{@"key": @"floating_menu_icon_color",     @"title": @"图标颜色",     @"default": @"#FFFFFF"},
+            @{@"key": @"floating_menu_label_color",    @"title": @"标签文字颜色", @"default": @"#FFFFFF"}
+        ];
+    });
+    return specs;
+}
+
+// 颜色候选（另有「手动输入十六进制」可选任意颜色）
+static NSArray<NSArray<NSString *> *> *FMColorPresets(void) {
+    return @[
+        @[@"白色", @"#FFFFFF"], @[@"黑色", @"#000000"], @[@"红色", @"#FF3B30"],
+        @[@"绿色", @"#34C759"], @[@"蓝色", @"#007AFF"], @[@"橙色", @"#FF9500"]
+    ];
+}
 
 // 「外观」分组行号
 typedef NS_ENUM(NSInteger, AppearanceRow) {
@@ -381,10 +408,91 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     }];
 }
 
+#pragma mark - 颜色
+
+- (NSString *)colorHexForKey:(NSString *)key defaultHex:(NSString *)defaultHex {
+    NSString *hex = _config[key];
+    return [hex isKindOfClass:[NSString class]] ? hex : defaultHex;
+}
+
+- (BOOL)isValidHexColor:(NSString *)value {
+    if (![value isKindOfClass:[NSString class]]) return NO;
+    NSString *trimmed = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    if ([trimmed hasPrefix:@"#"]) trimmed = [trimmed substringFromIndex:1];
+    if (trimmed.length != 6 && trimmed.length != 3) return NO;
+    NSCharacterSet *hexSet = [NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"];
+    return [trimmed rangeOfCharacterFromSet:[hexSet invertedSet]].location == NSNotFound;
+}
+
+// 预设色候选 + 手动输入十六进制（与「触摸坐标悬浮窗」页的取色方式保持一致）
+- (void)presentColorPickerForTitle:(NSString *)title
+                           current:(NSString *)current
+                          presets:(NSArray<NSArray<NSString *> *> *)presets
+                         onPicked:(void (^)(NSString *))onPicked {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:title
+        message:[NSString stringWithFormat:@"当前：%@", current]
+        preferredStyle:UIAlertControllerStyleActionSheet];
+
+    for (NSArray<NSString *> *pair in presets) {
+        NSString *name = pair.firstObject;
+        NSString *hex = pair.lastObject;
+        [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%@  %@", name, hex]
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(UIAlertAction *action) {
+            onPicked(hex);
+        }]];
+    }
+
+    [sheet addAction:[UIAlertAction actionWithTitle:@"手动输入十六进制..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+            message:@"请输入十六进制颜色，例如 #FF0000"
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+            textField.placeholder = @"#RRGGBB";
+            textField.text = current;
+            textField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+            textField.clearButtonMode = UITextFieldViewModeWhileEditing;
+        }];
+        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            NSString *input = alert.textFields.firstObject.text ?: @"";
+            if (![self isValidHexColor:input]) {
+                return;
+            }
+            onPicked([input uppercaseString]);
+        }]];
+        [self presentViewController:alert animated:YES completion:nil];
+    }]];
+
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *pop = sheet.popoverPresentationController;
+    if (pop) {
+        pop.sourceView = self.tableView;
+        pop.sourceRect = self.tableView.bounds;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)pickColorAtIndexPath:(NSIndexPath *)indexPath {
+    NSDictionary *spec = FMColorSpecs()[indexPath.row];
+    NSString *current = [self colorHexForKey:spec[@"key"] defaultHex:spec[@"default"]];
+    __weak FloatingMenuConfigurationViewController *weakSelf = self;
+    [self presentColorPickerForTitle:spec[@"title"] current:current presets:FMColorPresets()
+                            onPicked:^(NSString *hex) {
+        FloatingMenuConfigurationViewController *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_config[spec[@"key"]] = hex;
+        [strongSelf saveConfig];
+        [strongSelf reloadTweak];
+        [strongSelf->_tableView reloadData];
+    }];
+}
+
 #pragma mark - UITableView
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 5;
+    return 6;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -393,6 +501,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         case FMSectionPosition:   return 2;  // 吸附边 + 纵向位置
         case FMSectionAppearance: return 2;  // 圆点大小 + 菜单黑底透明度
         case FMSectionDotIcon:    return ([self dotIconMode] == kDotIconModeCustom) ? 2 : 1;
+        case FMSectionColors:     return (NSInteger)FMColorSpecs().count;
         default:                  return (NSInteger)FMMenuAppearanceSpecs().count;
     }
 }
@@ -403,6 +512,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         case FMSectionPosition:   return @"位置";
         case FMSectionAppearance: return @"外观";
         case FMSectionDotIcon:    return @"圆点图标";
+        case FMSectionColors:     return @"颜色";
         default:                  return @"菜单外观";
     }
 }
@@ -458,6 +568,19 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             cell.detailTextLabel.text = @"";
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         }
+        return cell;
+    }
+
+    // 「颜色」：四行颜色，点按弹出取色（预设 + 手动十六进制）
+    if (indexPath.section == FMSectionColors) {
+        NSDictionary *spec = FMColorSpecs()[indexPath.row];
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"ColorCell"];
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"ColorCell"];
+        }
+        cell.textLabel.text = spec[@"title"];
+        cell.detailTextLabel.text = [self colorHexForKey:spec[@"key"] defaultHex:spec[@"default"]];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         return cell;
     }
 
@@ -520,13 +643,14 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (indexPath.section != FMSectionDotIcon) {
-        return;
-    }
-    if (indexPath.row == DotIconRowSource) {
-        [self cycleDotIconMode];
-    } else {
-        [self presentDotIconPicker];
+    if (indexPath.section == FMSectionDotIcon) {
+        if (indexPath.row == DotIconRowSource) {
+            [self cycleDotIconMode];
+        } else {
+            [self presentDotIconPicker];
+        }
+    } else if (indexPath.section == FMSectionColors) {
+        [self pickColorAtIndexPath:indexPath];
     }
 }
 
