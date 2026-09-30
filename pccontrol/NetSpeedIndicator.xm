@@ -426,7 +426,7 @@ static void applyConfigParams(NSDictionary *config)
     _cfgMarginX = config[kCfgMarginX] ? [config[kCfgMarginX] doubleValue] : legacy;
     _cfgMarginY = config[kCfgMarginY] ? [config[kCfgMarginY] doubleValue] : legacy;
     if (_cfgMarginX < 4) _cfgMarginX = 4;
-    if (_cfgMarginX > 80) _cfgMarginX = 80;
+    if (_cfgMarginX > 500) _cfgMarginX = 500;
     if (_cfgMarginY < 4) _cfgMarginY = 4;
     if (_cfgMarginY > 200) _cfgMarginY = 200;
 

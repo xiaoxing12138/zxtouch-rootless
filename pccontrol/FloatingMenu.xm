@@ -32,7 +32,7 @@
 
 #define kFMDotSize        48.0f
 #define kFMDotRadius      (kFMDotSize / 2.0f)
-#define kFMDotReveal      0.0f    // 完全贴边全部显示
+#define kFMDotReveal      24.0f   // = kFMDotRadius，完全贴边全显示
 #define kFMMenuBtnSize    44.0f   // 菜单圆形图标按钮尺寸
 #define kFMMenuPanelGap   8.0f    // 圆点到菜单面板间距
 #define kFMMenuBtnGap     4.0f    // 菜单圆形按钮之间的间距
@@ -371,69 +371,54 @@ static void fmPersistKeys(NSDictionary *pairs)
     [_dotButton addGestureRecognizer:pan];
     [_dotButton addGestureRecognizer:tap];
 
-    // 菜单：白色半透明面板 + 圆形图标按钮 + 下方标签（仿按键精灵风格）
-    _menuButtons = [NSMutableArray arrayWithCapacity:3];
+    // 菜单面板：白色圆角框 + 三个纯文字标签横排（仿按键精灵）
+    _menuButtons = [NSMutableArray array];  // 保留（空数组，兼容旧代码遍历）
     _menuLabels  = [NSMutableArray arrayWithCapacity:3];
 
-    CGFloat btnSize = kFMMenuBtnSize;
-    CGFloat btnGap  = kFMMenuBtnGap;
-    CGFloat labelH  = 14;
-    CGFloat labelGap = kFMMenuLabelGap;
-    CGFloat panelPadding = 10;
+    CGFloat panelPadding = 12;
+    CGFloat labelGap = 16;
+    CGFloat fontSize = 14;
+    CGFloat labelH = 20;
 
-    // 三个菜单项（水平排列在面板内）
-    NSArray *symbolNames = @[@"play.fill", @"gearshape.fill", @"arrow.uturn.backward.fill"];
-    NSArray *titles      = @[@"启动", @"设置", @"返回"];
-    CGFloat totalBtnsW = btnSize * 3 + btnGap * 2;
-    CGFloat panelW = totalBtnsW + panelPadding * 2;
-    CGFloat panelH = btnSize + labelH + labelGap + panelPadding * 2;
+    NSArray *titles = @[@"启动", @"设置", @"返回"];
+    // 估算宽度
+    CGFloat totalLabelsW = 0;
+    for (NSString *t in titles) {
+        CGSize s = [t sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:fontSize]}];
+        totalLabelsW += s.width;
+    }
+    CGFloat panelW = totalLabelsW + panelPadding * 2 + labelGap * 2;
+    CGFloat panelH = labelH + panelPadding * 2;
 
     _menuPanel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelW, panelH)];
-    _menuPanel.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.92f];
-    _menuPanel.layer.cornerRadius = 14;
-    _menuPanel.layer.shadowColor = [UIColor blackColor].CGColor;
-    _menuPanel.layer.shadowOpacity = 0.2f;
-    _menuPanel.layer.shadowOffset = CGSizeMake(0, 2);
-    _menuPanel.layer.shadowRadius = 6;
+    _menuPanel.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.95f];
+    _menuPanel.layer.cornerRadius = 12;
+    _menuPanel.layer.borderWidth = 0;
     _menuPanel.hidden = YES;
     _menuPanel.alpha = 0.0f;
     [_content addSubview:_menuPanel];
 
-    for (NSUInteger i = 0; i < 3; i++) {
-        // 圆形图标按钮
-        UIButton *item = [UIButton buttonWithType:UIButtonTypeCustom];
-        item.frame = CGRectMake(panelPadding + i * (btnSize + btnGap), panelPadding,
-                                btnSize, btnSize);
-        item.backgroundColor = [UIColor colorWithWhite:0.92f alpha:1.0f];
-        item.layer.cornerRadius = btnSize / 2.0f;
-        item.layer.borderWidth = 1;
-        item.layer.borderColor = [[UIColor colorWithWhite:0.8f alpha:1.0f] CGColor];
-
-        // SF Symbol 图标
-        if (@available(iOS 13.0, *)) {
-            UIImage *img = [UIImage systemImageNamed:symbolNames[i]];
-            [item setImage:img forState:UIControlStateNormal];
-            item.tintColor = [UIColor colorWithWhite:0.2f alpha:1.0f];
-        }
-
-        [_menuPanel addSubview:item];
-        [_menuButtons addObject:item];
-
-        // 下方文字标签
+    CGFloat curX = panelPadding;
+    for (NSString *title in titles) {
         UILabel *lbl = [[UILabel alloc] init];
-        lbl.text = titles[i];
-        lbl.font = [UIFont systemFontOfSize:11.0f weight:UIFontWeightMedium];
-        lbl.textColor = [UIColor colorWithWhite:0.35f alpha:1.0f];
+        lbl.text = title;
+        lbl.font = [UIFont systemFontOfSize:fontSize];
+        lbl.textColor = [UIColor colorWithWhite:0.15f alpha:1.0f];
         lbl.textAlignment = NSTextAlignmentCenter;
-        lbl.frame = CGRectMake(panelPadding + i * (btnSize + btnGap),
-                               panelPadding + btnSize + labelGap,
-                               btnSize, labelH);
+        CGSize s = [title sizeWithAttributes:@{NSFontAttributeName: lbl.font}];
+        lbl.frame = CGRectMake(curX, panelPadding, s.width, labelH);
+        lbl.userInteractionEnabled = YES;
+
+        // 加点击手势
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                              action:@selector(handleMenuLabelTap:)];
+        [lbl addGestureRecognizer:tap];
+
         [_menuPanel addSubview:lbl];
         [_menuLabels addObject:lbl];
+        curX += s.width + labelGap;
     }
-    [_menuButtons[0] addTarget:self action:@selector(actionStart) forControlEvents:UIControlEventTouchUpInside];
-    [_menuButtons[1] addTarget:self action:@selector(actionSettings) forControlEvents:UIControlEventTouchUpInside];
-    [_menuButtons[2] addTarget:self action:@selector(actionBack) forControlEvents:UIControlEventTouchUpInside];
+    // 三个 tap 手势各自对应 action（通过 label 在数组里的 index 区分）
 
     _lastOrientation = [self currentOrientation];
     [self applyGeometry];
@@ -603,7 +588,19 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
 }
 
-#pragma mark 菜单动作
+#pragma mark - 菜单 label 点击
+
+- (void)handleMenuLabelTap:(UITapGestureRecognizer *)tap
+{
+    NSUInteger idx = [_menuLabels indexOfObject:(UILabel *)tap.view];
+    if (idx == NSNotFound) return;
+    [self collapseMenu];
+    if (idx == 0) [self actionStart];
+    else if (idx == 1) [self actionSettings];
+    else if (idx == 2) [self actionBack];
+}
+
+#pragma mark - 菜单动作
 
 - (void)actionStart
 {
