@@ -64,29 +64,52 @@
     BOOL _portraitLockEnabled;
 }
 
+// ----------- 架构说明（2026-09-30 修正） -----------
+// 旧版 setFrame 强制锁 portrait 尺寸 (820×1180) 导致横屏 window.width 只有 820，
+// iPad 横屏屏幕 1180×820，右侧 360pt 没有被 window 覆盖，触摸事件丢失。
+//
+// 新版：让 scene 管 self.frame（跟随方向自动变），不拦截。
+// portraitFrame 只作为内部 portrait 容器的尺寸信息，供调用方用 transform 旋转 + 居中。
+// ---------------------------------------------------
+
+- (instancetype)initWithWindowScene:(UIWindowScene *)windowScene {
+    self = [super initWithWindowScene:windowScene];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.userInteractionEnabled = YES;
+        self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    }
+    return self;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.userInteractionEnabled = YES;
+        self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    }
+    return self;
+}
+
 - (void)setPortraitFrame:(CGRect)portraitFrame {
     _portraitFrame = portraitFrame;
     _portraitLockEnabled = !CGRectIsEmpty(portraitFrame);
-    if (_portraitLockEnabled && !CGRectEqualToRect(self.frame, portraitFrame)) {
-        [super setFrame:portraitFrame];
+    [self setNeedsLayout];
+}
+
+// 不再拦截 setFrame —— 让 scene 管，window.frame 跟随方向变化
+// 横屏 window.frame 自动变成 (0,0,1180,820)，覆盖整个屏幕
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    // 确保 rootViewController.view 填满 window（系统可能会 reset）
+    if (self.rootViewController && !CGRectEqualToRect(self.rootViewController.view.frame, self.bounds)) {
+        self.rootViewController.view.frame = self.bounds;
     }
 }
 
-- (void)setFrame:(CGRect)frame {
-    if (_portraitLockEnabled && !CGRectEqualToRect(frame, _portraitFrame)) {
-        // 系统试图用 scene 当前方向尺寸覆盖我们的 portrait frame → 拦截
-        [super setFrame:_portraitFrame];
-        // 系统改 frame 时可能会重置 rootViewController.view 布局 → 同时纠正
-        if (self.rootViewController && !CGRectEqualToRect(self.rootViewController.view.frame, _portraitFrame)) {
-            self.rootViewController.view.frame = _portraitFrame;
-        }
-        return;
-    }
-    [super setFrame:frame];
-}
-
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
-{
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
     return (hit == self) ? nil : hit;
 }
@@ -315,10 +338,8 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGRect portrait;
     [self visualWidth:NULL height:NULL portrait:&portrait];
 
-    // 必须用 initWithWindowScene（iOS 13+ 无 scene 的 window 不渲染）。
-    // 但 scene 会强制把 frame 改成当前方向尺寸（横屏=1180x820），
-    // 破坏"竖屏固定坐标系 + content 旋转"模型。
-    // FMPassthroughWindow override setFrame 拦住了，确保 frame 永远是 portrait。
+    // 2026-09-30 架构：window.frame 让 scene 管（跟随方向变全屏），
+    // 内部 _content 保持 portrait 固定尺寸 + transform 旋转 + 居中。
     UIWindowScene *scene = [FloatingMenu preferredWindowScene];
     if (scene) {
         _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
@@ -327,19 +348,16 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
     _window.portraitFrame = portrait;
     _window.windowLevel = UIWindowLevelStatusBar + 2;
-    _window.backgroundColor = [UIColor clearColor];
-    _window.userInteractionEnabled = YES;
-    _window.autoresizingMask = UIViewAutoresizingNone;
 
     FMRootViewController *root = [[FMRootViewController alloc] init];
-    UIView *rootView = root.view; // 触发 loadView，得到全屏透传视图
-    rootView.frame = portrait;
     _window.rootViewController = root;
+    // rootView 在 layoutSubviews 里由 FMPassthroughWindow 强制填满 window.bounds
+    // 这里设 autoresizingMask 让系统自动跟随方向
 
-    // _content 也必须是透传视图：它占满全屏，若用普通 UIView，所有触摸都会命中它而无法落到下层 app
+    // _content：portrait 固定尺寸，transform 旋转 + 居中（applyGeometry 负责）
     _content = [[FMPassthroughView alloc] initWithFrame:portrait];
     _content.backgroundColor = [UIColor clearColor];
-    [rootView addSubview:_content];
+    [root.view addSubview:_content];
 
     // 圆点
     _dotButton = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -409,20 +427,16 @@ static void fmPersistKeys(NSDictionary *pairs)
                       orientation == UIInterfaceOrientationLandscapeRight);
     _lastOrientation = orientation;
 
-    // 关键：iOS 13+ UIWindowScene 会把 window.frame 自动设成 scene 当前方向尺寸，
-    // 覆盖我们需要的竖屏固定坐标系。每次布局强制纠正。
-    if (!CGRectEqualToRect(_window.frame, portrait)) {
-        _window.frame = portrait;
-    }
+    // 不再强制 _window.frame = portrait —— 让 scene 管，跟随方向变全屏
+    if (!_window || !_content || !_dotButton) { return; }
 
-    // 1) 容器归位 + 视觉尺寸 + 旋转
+    // 1) content 归位：先重置 transform 和 frame（portrait 尺寸），然后用 window 中心点居中
     _content.transform = CGAffineTransformIdentity;
-    if (landscape) {
-        _content.bounds = CGRectMake(0, 0, portrait.size.height, portrait.size.width);
-    } else {
-        _content.bounds = CGRectMake(0, 0, portrait.size.width, portrait.size.height);
-    }
-    _content.center = CGPointMake(portrait.size.width / 2.0f, portrait.size.height / 2.0f);
+    _content.frame = portrait;  // portrait 固定尺寸
+    CGRect wb = _window.bounds;
+    _content.center = CGPointMake(CGRectGetMidX(wb), CGRectGetMidY(wb));
+    // 最后加旋转 transform
+    _content.transform = fmTransformForOrientation(orientation);
 
     CGPoint dot = [self dotVisualPoint];
 

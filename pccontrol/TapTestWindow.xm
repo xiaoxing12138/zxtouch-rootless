@@ -5,6 +5,7 @@
 
 static FMPassthroughWindow *_testWindow = nil;
 static UIView *_testRootView = nil;
+static UIView *_testInnerView = nil;   // portrait 固定尺寸 + transform 旋转
 static UILabel *_infoLabel = nil;
 static UIButton *_closeButton = nil;
 static UIButton *_exportButton = nil;
@@ -58,19 +59,24 @@ static NSString *kCornerNames[4] = { @"左上", @"右上", @"左下", @"右下" 
                 ? [[FMPassthroughWindow alloc] initWithWindowScene:scene]
                 : [[FMPassthroughWindow alloc] initWithFrame:portraitFrame];
             _testWindow.portraitFrame = portraitFrame;
-            _testWindow.frame = portraitFrame;
             _testWindow.windowLevel = UIWindowLevelAlert + 3;
             _testWindow.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.05f];
             _testWindow.userInteractionEnabled = YES;
-            _testWindow.autoresizingMask = UIViewAutoresizingNone;
+            // 不再硬锁 autoresizingMask，FMPassthroughWindow initWith* 里已设置灵活缩放
 
             UIViewController *root = [[UIViewController alloc] init];
-            _testRootView = [[UIView alloc] initWithFrame:portraitFrame];
+            // outerView 填满 window.bounds（接收触摸）
+            _testRootView = [[UIView alloc] init];
             _testRootView.backgroundColor = [UIColor clearColor];
             root.view = _testRootView;
             _testWindow.rootViewController = root;
 
-            // 四个角 marker（离边缘 15pt，靠近屏幕四角）
+            // innerContent：portrait 固定尺寸 + transform 旋转 + 居中
+            _testInnerView = [[UIView alloc] initWithFrame:portraitFrame];
+            _testInnerView.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.08f];
+            [_testRootView addSubview:_testInnerView];
+
+            // 四个角 marker（portrait 固定坐标系定位）
             CGSize mSize = CGSizeMake(40, 40);
             CGPoint mPos[4] = {
                 CGPointMake(15, 15),                                      // 左上
@@ -85,11 +91,11 @@ static NSString *kCornerNames[4] = { @"左上", @"右上", @"左下", @"右下" 
                 m.layer.borderWidth = 2;
                 m.layer.borderColor = [[UIColor whiteColor] colorWithAlphaComponent:0.8f].CGColor;
                 m.userInteractionEnabled = NO;
-                [_testRootView addSubview:m];
+                [_testInnerView addSubview:m];
                 _cornerMarkers[i] = m;
             }
 
-            // 顶部信息 label（左上 10,10）
+            // 顶部信息 label（portrait 坐标 10,10）
             _infoLabel = [[UILabel alloc] init];
             _infoLabel.numberOfLines = 0;
             _infoLabel.font = [UIFont systemFontOfSize:13];
@@ -98,9 +104,9 @@ static NSString *kCornerNames[4] = { @"左上", @"右上", @"左下", @"右下" 
             _infoLabel.layer.cornerRadius = 8;
             _infoLabel.layer.masksToBounds = YES;
             _infoLabel.textAlignment = NSTextAlignmentLeft;
-            [_testRootView addSubview:_infoLabel];
+            [_testInnerView addSubview:_infoLabel];
 
-            // 右下角：关闭按钮（x=canvasW-305 到 canvasW-155, 居中偏上）
+            // 右下角：关闭按钮（portrait 坐标 canvasW - btnW - 15, canvasH - btnH - 15）
             CGFloat btnW = 140, btnH = 44;
             _closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
             _closeButton.frame = CGRectMake(canvasW - btnW - 15, canvasH - btnH - 15, btnW, btnH);
@@ -109,7 +115,7 @@ static NSString *kCornerNames[4] = { @"左上", @"右上", @"左下", @"右下" 
             _closeButton.backgroundColor = [UIColor colorWithRed:0.85f green:0.25f blue:0.25f alpha:0.95f];
             _closeButton.layer.cornerRadius = 8;
             [_closeButton addTarget:self action:@selector(_onCloseTapped) forControlEvents:UIControlEventTouchUpInside];
-            [_testRootView addSubview:_closeButton];
+            [_testInnerView addSubview:_closeButton];
 
             // 关闭左边：获取结果按钮
             _exportButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -119,7 +125,7 @@ static NSString *kCornerNames[4] = { @"左上", @"右上", @"左下", @"右下" 
             _exportButton.backgroundColor = [UIColor colorWithRed:0.25f green:0.65f blue:0.3f alpha:0.95f];
             _exportButton.layer.cornerRadius = 8;
             [_exportButton addTarget:self action:@selector(_onExportTapped) forControlEvents:UIControlEventTouchUpInside];
-            [_testRootView addSubview:_exportButton];
+            [_testInnerView addSubview:_exportButton];
 
             UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
                                            initWithTarget:self action:@selector(_handleTap:)];
@@ -270,6 +276,29 @@ static NSString *kCornerNames[4] = { @"左上", @"右上", @"左下", @"右下" 
 + (void)_refreshInfo
 {
     if (!_testWindow || !_infoLabel) return;
+
+    // 每次刷新时自动：rootView 填满 window + innerView 居中 + 旋转
+    CGRect wb = _testWindow.bounds;
+    if (!CGRectEqualToRect(_testRootView.frame, wb)) {
+        _testRootView.frame = wb;
+    }
+    if (_testInnerView) {
+        CGRect pf = _testWindow.portraitFrame;
+        if (!CGRectIsEmpty(pf)) {
+            _testInnerView.transform = CGAffineTransformIdentity;
+            _testInnerView.frame = pf;
+            _testInnerView.center = CGPointMake(CGRectGetMidX(wb), CGRectGetMidY(wb));
+            int orientation = [Screen getScreenOrientation];
+            CGAffineTransform t;
+            switch (orientation) {
+                case UIInterfaceOrientationLandscapeLeft:  t = CGAffineTransformMakeRotation(-M_PI_2); break;
+                case UIInterfaceOrientationLandscapeRight: t = CGAffineTransformMakeRotation(M_PI_2); break;
+                case UIInterfaceOrientationPortraitUpsideDown: t = CGAffineTransformMakeRotation(M_PI); break;
+                default: t = CGAffineTransformIdentity; break;
+            }
+            _testInnerView.transform = t;
+        }
+    }
 
     int orientation = [Screen getScreenOrientation];
     CGRect sb = [Screen getBounds];

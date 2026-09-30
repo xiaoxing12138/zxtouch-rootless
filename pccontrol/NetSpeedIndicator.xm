@@ -195,14 +195,8 @@ static void updateNetSpeedWindowGeometry(void)
         return;
     }
 
-    // 关键：iOS 13+ 用 initWithWindowScene 创建的 UIWindow，会被系统自动设成 scene 的当前方向
-    // 尺寸（横屏=1180x820），覆盖我们需要的竖屏固定坐标系尺寸（820x1180）。
-    // 这会导致 content.center 旋转轴心错位，整个悬浮窗飞出屏幕。
-    // 每次布局都强制纠正 window.frame。
-    CGRect portraitFrame = CGRectMake(0, 0, canvasW, canvasH);
-    if (!CGRectEqualToRect(_netSpeedWindow.frame, portraitFrame)) {
-        _netSpeedWindow.frame = portraitFrame;
-    }
+    // 不再强制 window.frame —— 让 scene 管，跟随方向变全屏
+    // _netSpeedContent 保持 portrait 固定尺寸，下面居中 + 旋转
 
     int orientation = zxCurrentOrientation();
     BOOL landscape = (orientation == UIInterfaceOrientationLandscapeLeft ||
@@ -236,14 +230,11 @@ static void updateNetSpeedWindowGeometry(void)
             break;
     }
 
-    // 容器先归位，按方向设置视觉尺寸，再摆 label，最后旋转
+    // 2026-09-30：content 保持 portrait 固定尺寸，用 window 当前 bounds 居中，最后旋转
     _netSpeedContent.transform = CGAffineTransformIdentity;
-    if (landscape) {
-        _netSpeedContent.bounds = CGRectMake(0, 0, canvasH, canvasW);
-    } else {
-        _netSpeedContent.bounds = CGRectMake(0, 0, canvasW, canvasH);
-    }
-    _netSpeedContent.center = CGPointMake(canvasW / 2.0f, canvasH / 2.0f);
+    _netSpeedContent.frame = CGRectMake(0, 0, canvasW, canvasH);
+    CGRect wb = _netSpeedWindow.bounds;
+    _netSpeedContent.center = CGPointMake(CGRectGetMidX(wb), CGRectGetMidY(wb));
 
     _netSpeedLabel.frame = CGRectMake(vx - winW / 2.0f, vy - winH / 2.0f, winW, winH);
     // label 自身额外旋转，让横屏文字方向变成正常横屏方向（标题朝上、从左到右读）
@@ -370,10 +361,8 @@ static void createNetSpeedWindow(void)
     }
     CGRect portraitFrame = CGRectMake(0, 0, canvasW, canvasH);
 
-    // 必须用 initWithWindowScene（iOS 13+ 无 scene 的 window 不渲染）。
-    // 但 scene 会强制把 frame 改成当前方向尺寸（横屏=1180x820），
-    // 破坏"竖屏固定坐标系 + content 旋转"模型。
-    // FMPassthroughWindow override setFrame 拦住了，确保 frame 永远是 portrait。
+    // 2026-09-30 架构：window.frame 让 scene 管（跟随方向变全屏），
+    // _netSpeedContent 保持 portrait 固定尺寸 + transform 旋转 + 居中。
     UIWindowScene *scene = [FloatingMenu preferredWindowScene];
     if (scene) {
         _netSpeedWindow = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
@@ -381,19 +370,14 @@ static void createNetSpeedWindow(void)
         _netSpeedWindow = [[FMPassthroughWindow alloc] initWithFrame:portraitFrame];
     }
     _netSpeedWindow.portraitFrame = portraitFrame;
-    _netSpeedWindow.frame = portraitFrame;
 
     _netSpeedWindow.windowLevel = UIWindowLevelStatusBar + 1;
-    _netSpeedWindow.backgroundColor = [UIColor clearColor];
-    _netSpeedWindow.userInteractionEnabled = NO;
-    _netSpeedWindow.autoresizingMask = UIViewAutoresizingNone;
 
     UIViewController *root = [[UIViewController alloc] init];
     root.view.backgroundColor = [UIColor clearColor];
-    root.view.frame = portraitFrame;
     _netSpeedWindow.rootViewController = root;
 
-    _netSpeedContent = [[UIView alloc] initWithFrame:root.view.bounds];
+    _netSpeedContent = [[UIView alloc] initWithFrame:portraitFrame];
     _netSpeedContent.backgroundColor = [UIColor clearColor];
     _netSpeedContent.userInteractionEnabled = NO;
     [root.view addSubview:_netSpeedContent];
