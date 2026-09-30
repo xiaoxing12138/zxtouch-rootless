@@ -372,6 +372,7 @@ static void createNetSpeedWindow(void)
     _netSpeedWindow.portraitFrame = portraitFrame;
 
     _netSpeedWindow.windowLevel = UIWindowLevelStatusBar + 1;
+    _netSpeedWindow.userInteractionEnabled = NO;  // 关键：不拦截触摸，让事件穿透到下层
 
     UIViewController *root = [[UIViewController alloc] init];
     root.view.backgroundColor = [UIColor clearColor];

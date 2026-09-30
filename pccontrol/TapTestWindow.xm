@@ -3,6 +3,16 @@
 #import "Common.h"
 #import "FloatingMenu.h"
 
+// 本地 FMPassthroughView（空白处穿透，marker/按钮可交互）
+@interface TTPassthroughView : UIView
+@end
+@implementation TTPassthroughView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hit = [super hitTest:point withEvent:event];
+    return (hit == self) ? nil : hit;
+}
+@end
+
 static FMPassthroughWindow *_testWindow = nil;
 static UIView *_testRootView = nil;
 static UIView *_testInnerView = nil;   // portrait 固定尺寸 + transform 旋转
@@ -71,8 +81,8 @@ static NSString *kCornerNames[4] = { @"左上", @"右上", @"左下", @"右下" 
             root.view = _testRootView;
             _testWindow.rootViewController = root;
 
-            // innerContent：portrait 固定尺寸 + transform 旋转 + 居中
-            _testInnerView = [[UIView alloc] initWithFrame:portraitFrame];
+            // innerContent：TTPassthroughView —— marker/按钮可交互，空白处穿透到 rootView（触发 tap 手势）
+            _testInnerView = [[TTPassthroughView alloc] initWithFrame:portraitFrame];
             _testInnerView.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.08f];
             [_testRootView addSubview:_testInnerView];
 
