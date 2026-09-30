@@ -377,9 +377,9 @@ static void fmPersistKeys(NSDictionary *pairs)
     _menuLabels  = [NSMutableArray array];
     _menuPanel = nil;  // 不再需要白色容器面板
 
-    CGFloat btnSize  = 32;
-    CGFloat btnGap   = 10;
-    CGFloat labelH   = 12;
+    CGFloat btnSize  = 36;   // 图标放大
+    CGFloat btnGap   = 6;    // 间距缩小
+    CGFloat labelH   = 14;
     CGFloat btnLabelGap = 2;
     CGFloat rowH     = btnSize + btnLabelGap + labelH;
 
@@ -388,19 +388,15 @@ static void fmPersistKeys(NSDictionary *pairs)
 
     for (NSUInteger i = 0; i < 3; i++) {
         UIButton *iconBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        iconBtn.frame = CGRectMake(0, 0, btnSize, btnSize);  // applyGeometry 里定位
-        iconBtn.backgroundColor = [UIColor colorWithWhite:1.0f alpha:0.85f];
+        iconBtn.frame = CGRectMake(0, 0, btnSize, btnSize);
+        iconBtn.backgroundColor = [UIColor colorWithWhite:0.12f alpha:0.92f];  // 黑底
         iconBtn.layer.cornerRadius = btnSize / 2.0f;
-        iconBtn.layer.shadowColor = [UIColor blackColor].CGColor;
-        iconBtn.layer.shadowOpacity = 0.15f;
-        iconBtn.layer.shadowRadius = 2;
-        iconBtn.layer.shadowOffset = CGSizeMake(0, 1);
         iconBtn.hidden = YES;
         iconBtn.alpha = 0.0f;
         if (@available(iOS 13.0, *)) {
             [iconBtn setImage:[UIImage systemImageNamed:symbolNames[i]] forState:UIControlStateNormal];
-            iconBtn.tintColor = [UIColor colorWithWhite:0.2f alpha:1.0f];
-            iconBtn.imageEdgeInsets = UIEdgeInsetsMake(6, 6, 6, 6);
+            iconBtn.tintColor = [UIColor whiteColor];  // 白色图标
+            iconBtn.imageEdgeInsets = UIEdgeInsetsMake(5, 5, 5, 5);
         }
         [iconBtn addTarget:self action:@selector(handleMenuIconTap:) forControlEvents:UIControlEventTouchUpInside];
         [_content addSubview:iconBtn];
@@ -408,13 +404,15 @@ static void fmPersistKeys(NSDictionary *pairs)
 
         UILabel *lbl = [[UILabel alloc] init];
         lbl.text = titles[i];
-        lbl.font = [UIFont systemFontOfSize:10.0f];
-        lbl.textColor = [UIColor colorWithWhite:0.35f alpha:1.0f];
+        lbl.font = [UIFont systemFontOfSize:12.0f];   // 字号放大
+        lbl.textColor = [UIColor whiteColor];          // 白色文字
         lbl.textAlignment = NSTextAlignmentCenter;
-        lbl.frame = CGRectMake(0, 0, btnSize, labelH);  // applyGeometry 里定位
-        lbl.backgroundColor = [UIColor clearColor];
+        lbl.frame = CGRectMake(0, 0, btnSize, labelH);
+        lbl.backgroundColor = [UIColor colorWithWhite:0.12f alpha:0.92f];  // 黑底
         lbl.hidden = YES;
         lbl.alpha = 0.0f;
+        lbl.layer.cornerRadius = 4;
+        lbl.layer.masksToBounds = YES;
         [_content addSubview:lbl];
         [_menuLabels addObject:lbl];
     }
@@ -591,7 +589,15 @@ static void fmPersistKeys(NSDictionary *pairs)
             kFMCfgYRatio: @(_yRatio)
         });
 
-        [self applyGeometry];
+        // 平滑吸附动画（0.2s ease-out）
+        [UIView animateWithDuration:0.20f
+                              delay:0
+             usingSpringWithDamping:0.8f
+              initialSpringVelocity:0.5f
+                            options:UIViewAnimationOptionCurveEaseOut
+                         animations:^{
+            [self applyGeometry];
+        } completion:nil];
     }
 }
 
@@ -715,15 +721,15 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)actionBack
 {
-    // 同步隐藏（不要动画，立即消失），避免 UIView 动画 block 阻塞后续 launch
+    // 同步隐藏 UI（立即消失）
     _expanded = NO;
     for (UIButton *b in _menuButtons) { b.hidden = YES; b.alpha = 0.0f; }
     for (UILabel *l in _menuLabels)  { l.hidden = YES; l.alpha = 0.0f; }
     [self applyGeometry];
 
-    // 延迟 50ms 让主线程先处理完隐藏动画的 final state，再 launch app
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05f * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
+    // 放到后台线程 launch——SBSLaunchApplicationWithIdentifier 是同步阻塞调用，
+    // 在主线程调会卡 SpringBoard 几秒钟
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         [self launchZXTouchApp];
     });
 }
@@ -909,53 +915,50 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)reloadConfig
 {
-    BOOL enabled = NO;
-    BOOL hasEdge = NO;
-    int edge = 1;
-    BOOL hasRatio = NO;
-    CGFloat ratio = 0.5f;
-    NSString *script = @"";
+    ZXSafeMainAsync(^{
+        @try {
+            BOOL enabled = NO;
+            BOOL hasEdge = NO;
+            int edge = 1;
+            BOOL hasRatio = NO;
+            CGFloat ratio = 0.5f;
+            NSString *script = @"";
 
-    @try {
-        NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
-        if ([config isKindOfClass:[NSDictionary class]]) {
-            enabled = [config[kFMCfgEnabled] boolValue];
-
-            NSNumber *edgeValue = config[kFMCfgEdge];
-            if ([edgeValue isKindOfClass:[NSNumber class]]) {
-                edge = [edgeValue intValue];
-                hasEdge = YES;
-            }
-            NSNumber *ratioValue = config[kFMCfgYRatio];
-            if ([ratioValue isKindOfClass:[NSNumber class]]) {
-                ratio = [ratioValue doubleValue];
-                hasRatio = YES;
-            }
-
-            // 兼容旧版 floating_menu_x/y：存在且没有新键时，按 x 推断贴边
-            if (!hasEdge) {
-                NSNumber *xValue = config[@"floating_menu_x"];
-                CGFloat pw, ph;
-                [self visualWidth:&pw height:&ph portrait:NULL];
-                if ([xValue isKindOfClass:[NSNumber class]]) {
-                    edge = ([xValue doubleValue] < pw / 2.0f) ? 0 : 1;
+            NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
+            if ([config isKindOfClass:[NSDictionary class]]) {
+                enabled = [config[kFMCfgEnabled] boolValue];
+                NSNumber *edgeValue = config[kFMCfgEdge];
+                if ([edgeValue isKindOfClass:[NSNumber class]]) {
+                    edge = [edgeValue intValue];
+                    hasEdge = YES;
+                }
+                NSNumber *ratioValue = config[kFMCfgYRatio];
+                if ([ratioValue isKindOfClass:[NSNumber class]]) {
+                    ratio = [ratioValue doubleValue];
+                    hasRatio = YES;
+                }
+                if (!hasEdge) {
+                    NSNumber *xValue = config[@"floating_menu_x"];
+                    CGFloat pw, ph;
+                    [self visualWidth:&pw height:&ph portrait:NULL];
+                    if ([xValue isKindOfClass:[NSNumber class]]) {
+                        edge = ([xValue doubleValue] < pw / 2.0f) ? 0 : 1;
+                    }
+                }
+                NSString *savedScript = config[kFMCfgScript];
+                if ([savedScript isKindOfClass:[NSString class]]) {
+                    script = savedScript;
                 }
             }
 
-            NSString *savedScript = config[kFMCfgScript];
-            if ([savedScript isKindOfClass:[NSString class]]) {
-                script = savedScript;
-            }
+            self->_edge = (edge == 0) ? 0 : 1;
+            self->_yRatio = MIN(MAX(hasRatio ? ratio : 0.5f, 0.02f), 0.98f);
+            self->_scriptPath = script;
+            [self setEnabled:enabled persist:NO];
+        } @catch (NSException *exception) {
+            ZXLogUIException(exception);
         }
-    } @catch (NSException *exception) {
-        ZXLogUIException(exception);
-    }
-
-    _edge = (edge == 0) ? 0 : 1;
-    _yRatio = MIN(MAX(hasRatio ? ratio : 0.5f, 0.02f), 0.98f);
-    _scriptPath = script;
-
-    [self setEnabled:enabled persist:NO];
+    });
 }
 
 - (void)dealloc
