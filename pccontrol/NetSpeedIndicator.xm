@@ -1,4 +1,5 @@
 #import "NetSpeedIndicator.h"
+#import "FloatingMenu.h"    // FMPassthroughWindow + preferredWindowScene
 #import "Screen.h"
 #import "Common.h"
 
@@ -367,11 +368,20 @@ static void createNetSpeedWindow(void)
         canvasW = 375.0f;
         canvasH = 667.0f;
     }
-    CGRect frame = CGRectMake(0, 0, canvasW, canvasH);
+    CGRect portraitFrame = CGRectMake(0, 0, canvasW, canvasH);
 
-    // 不用 initWithWindowScene：scene 会强制把 frame 改成当前方向尺寸（横屏=1180x820），
-    // 导致旋转轴心错位、悬浮窗飞出屏幕。直接 initWithFrame 保持竖屏固定坐标系。
-    _netSpeedWindow = [[UIWindow alloc] initWithFrame:frame];
+    // 必须用 initWithWindowScene（iOS 13+ 无 scene 的 window 不渲染）。
+    // 但 scene 会强制把 frame 改成当前方向尺寸（横屏=1180x820），
+    // 破坏"竖屏固定坐标系 + content 旋转"模型。
+    // FMPassthroughWindow override setFrame 拦住了，确保 frame 永远是 portrait。
+    UIWindowScene *scene = [FloatingMenu preferredWindowScene];
+    if (scene) {
+        _netSpeedWindow = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
+    } else {
+        _netSpeedWindow = [[FMPassthroughWindow alloc] initWithFrame:portraitFrame];
+    }
+    _netSpeedWindow.portraitFrame = portraitFrame;
+    _netSpeedWindow.frame = portraitFrame;
 
     _netSpeedWindow.windowLevel = UIWindowLevelStatusBar + 1;
     _netSpeedWindow.backgroundColor = [UIColor clearColor];
