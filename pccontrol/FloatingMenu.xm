@@ -4,7 +4,7 @@
 #import "Play.h"
 #import "Toast.h"
 #import "AlertBox.h"
-#import <objc/message.h>
+#import "Process.h"
 #include <roothide.h>
 
 /*
@@ -280,7 +280,8 @@ static void fmPersistKeys(NSDictionary *pairs)
     rootView.frame = portrait;
     _window.rootViewController = root;
 
-    _content = [[UIView alloc] initWithFrame:portrait];
+    // _content 也必须是透传视图：它占满全屏，若用普通 UIView，所有触摸都会命中它而无法落到下层 app
+    _content = [[FMPassthroughView alloc] initWithFrame:portrait];
     _content.backgroundColor = [UIColor clearColor];
     [rootView addSubview:_content];
 
@@ -650,66 +651,23 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 #pragma mark 返回 ZXTouch app
 
-// 优先走 SpringBoard 私有接口 SBApplicationController（与 Process.xm 的切 app 思路同源，
-// 但这里直接在 SpringBoard 进程内调用自己的单例，不需要 SpringBoardServices）
-- (BOOL)tryPrivateOpenApp:(NSString *)bundleID
-{
-    __block BOOL succeeded = NO;
-    void (^attempt)(void) = ^{
-        @try {
-            Class cls = NSClassFromString(@"SBApplicationController");
-            if (cls) {
-                id controller = ((id (*)(id, SEL))objc_msgSend)(cls, @selector(sharedInstance));
-                SEL openSEL = @selector(openApplicationWithBundleID:);
-                if (controller && [controller respondsToSelector:openSEL]) {
-                    ((void (*)(id, SEL, id))objc_msgSend)(controller, openSEL, bundleID);
-                    succeeded = YES;
-                }
-            }
-        } @catch (NSException *exception) {
-            succeeded = NO;
-            ZXLogUIException(exception);
-        }
-    };
-
-    if ([NSThread isMainThread]) {
-        attempt();
-    } else {
-        dispatch_sync(dispatch_get_main_queue(), attempt);
-    }
-    return succeeded;
-}
-
+// 使用 SpringBoard Services 私有函数 SBSLaunchApplicationWithIdentifier
+// （与 Process.xm / ScriptPlayer.xm 的 bringAppForeground 同源，已在项目中验证可靠）
 - (void)launchZXTouchApp
 {
     NSString *bundleID = kFMZXTouchBID;
-
-    if ([self tryPrivateOpenApp:bundleID]) {
-        return;
-    }
-
-    // fallback：rootless uiopen，再退到 rootless 的 open 命令（经 system2 的 /bin/sh -c 执行）
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        @autoreleasepool {
-            @try {
-                NSString *command = nil;
-                NSString *uiopen = jbroot(@"/usr/bin/uiopen");
-                if (uiopen.length > 0 && [[NSFileManager defaultManager] isExecutableFileAtPath:uiopen]) {
-                    command = [NSString stringWithFormat:@"\"%@\" %@", uiopen, bundleID];
-                } else {
-                    command = [NSString stringWithFormat:@"open %@", bundleID];
-                }
-                pid_t pid = system2([command UTF8String], NULL, NULL);
-                if (pid < 0) {
-                    ZXSafeMainAsync(^{
-                        fmToast([NSString stringWithFormat:@"无法返回 ZXTouch（%@）", bundleID], 1);
-                    });
-                }
-            } @catch (NSException *exception) {
-                ZXLogUIException(exception);
-            }
+    void (^tryForeground)(void) = ^{
+        @try {
+            bringAppForeground(bundleID);
+        } @catch (NSException *exception) {
+            ZXLogUIException(exception);
         }
-    });
+    };
+    if ([NSThread isMainThread]) {
+        tryForeground();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), tryForeground);
+    }
 }
 
 #pragma mark 轮询 / 自愈
