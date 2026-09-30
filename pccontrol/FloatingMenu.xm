@@ -448,9 +448,15 @@ static void fmPersistKeys(NSDictionary *pairs)
     _content.frame = _window.bounds;
     _content.transform = CGAffineTransformIdentity;
 
-    CGPoint dot = [self dotVisualPoint];
-    _dotButton.frame = CGRectMake(dot.x - kFMDotRadius, dot.y - kFMDotRadius,
-                                  kFMDotSize, kFMDotSize);
+    CGPoint dot;
+    if (_dragging && _dotButton.superview) {
+        // 拖动中用当前位置，不要覆盖 pan.Changed 里设的值
+        dot = _dotButton.center;
+    } else {
+        dot = [self dotVisualPoint];
+        _dotButton.frame = CGRectMake(dot.x - kFMDotRadius, dot.y - kFMDotRadius,
+                                      kFMDotSize, kFMDotSize);
+    }
 
     if (_expanded) {
         // 三个按钮+标签的整体尺寸
@@ -503,16 +509,48 @@ static void fmPersistKeys(NSDictionary *pairs)
     _expanded = YES;
     [self applyGeometry];
 
-    for (UIButton *b in _menuButtons) { b.alpha = 0.0f; }
-    for (UILabel *l in _menuLabels)  { l.alpha = 0.0f; }
+    CGPoint dotCenter = _dotButton.center;
 
-    [UIView animateWithDuration:kFMAnim
-                          delay:0
-                        options:UIViewAnimationOptionCurveEaseOut
-                     animations:^{
-        for (UIButton *b in self->_menuButtons) { b.alpha = 1.0f; }
-        for (UILabel *l in self->_menuLabels)  { l.alpha = 1.0f; }
-    } completion:nil];
+    // 瀑布流：每个按钮/标签从 dot 位置缩放淡入，逐个 delay 0.05s
+    for (NSUInteger i = 0; i < _menuButtons.count; i++) {
+        UIButton *b = _menuButtons[i];
+        UILabel *l = _menuLabels[i];
+
+        // 先把它们放到 dot 位置、缩小、透明
+        CGSize origBSize = b.frame.size;
+        CGSize origLSize = l.frame.size;
+        b.frame = CGRectMake(dotCenter.x - origBSize.width/2,
+                             dotCenter.y - origBSize.height/2,
+                             origBSize.width, origBSize.height);
+        b.transform = CGAffineTransformMakeScale(0.1f, 0.1f);
+        b.alpha = 0.0f;
+        b.hidden = NO;
+
+        l.frame = CGRectMake(dotCenter.x - origLSize.width/2,
+                             dotCenter.y - origLSize.height/2,
+                             origLSize.width, origLSize.height);
+        l.transform = CGAffineTransformMakeScale(0.1f, 0.1f);
+        l.alpha = 0.0f;
+        l.hidden = NO;
+
+        CGPoint targetB = b.center;
+        CGPoint targetL = l.center;
+
+        double delay = i * 0.05f;
+        [UIView animateWithDuration:0.30f
+                              delay:delay
+             usingSpringWithDamping:0.85f
+              initialSpringVelocity:0.6f
+                            options:UIViewAnimationOptionCurveEaseOut
+                         animations:^{
+            b.center = targetB;
+            b.transform = CGAffineTransformIdentity;
+            b.alpha = 1.0f;
+            l.center = targetL;
+            l.transform = CGAffineTransformIdentity;
+            l.alpha = 1.0f;
+        } completion:nil];
+    }
 }
 
 - (void)collapseMenu
@@ -520,14 +558,40 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (!_expanded || !_window) {
         return;
     }
-    [UIView animateWithDuration:kFMAnim
-                     animations:^{
-        for (UIButton *b in self->_menuButtons) { b.alpha = 0.0f; }
-        for (UILabel *l in self->_menuLabels)  { l.alpha = 0.0f; }
-    } completion:^(BOOL finished) {
-        self->_expanded = NO;
-        [self applyGeometry];
-    }];
+    CGPoint dotCenter = _dotButton.center;
+
+    // 反向瀑布流：每个按钮/标签向 dot 位置缩小淡出
+    for (NSUInteger i = 0; i < _menuButtons.count; i++) {
+        UIButton *b = _menuButtons[i];
+        UILabel *l = _menuLabels[i];
+        CGSize origBSize = b.frame.size;
+        CGSize origLSize = l.frame.size;
+        CGRect bTarget = CGRectMake(dotCenter.x - origBSize.width/2,
+                                    dotCenter.y - origBSize.height/2,
+                                    origBSize.width, origBSize.height);
+        CGRect lTarget = CGRectMake(dotCenter.x - origLSize.width/2,
+                                    dotCenter.y - origLSize.height/2,
+                                    origLSize.width, origLSize.height);
+
+        // 反向：最后一个先收
+        double delay = (_menuButtons.count - 1 - i) * 0.04f;
+        [UIView animateWithDuration:0.25f
+                              delay:delay
+                            options:UIViewAnimationOptionCurveEaseIn
+                         animations:^{
+            b.frame = bTarget;
+            b.transform = CGAffineTransformMakeScale(0.1f, 0.1f);
+            b.alpha = 0.0f;
+            l.frame = lTarget;
+            l.transform = CGAffineTransformMakeScale(0.1f, 0.1f);
+            l.alpha = 0.0f;
+        } completion:^(BOOL finished) {
+            if (i == 0) {
+                self->_expanded = NO;
+                [self applyGeometry];
+            }
+        }];
+    }
 }
 
 - (void)toggleMenu
@@ -847,39 +911,54 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (!_dotButton) return;
     if ([_dotButton.layer animationForKey:@"fmSpinning"]) return;
 
-    CGFloat s = kFMDotSize + 6;
-    CAShapeLayer *ring = [CAShapeLayer layer];
-    ring.frame = CGRectMake(-3, -3, s, s);
-    UIBezierPath *path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(2, 2, s - 4, s - 4)];
-    ring.path = path.CGPath;
-    ring.fillColor = [UIColor clearColor].CGColor;
-    ring.strokeColor = [UIColor colorWithRed:0.2f green:0.6f blue:1.0f alpha:0.9f].CGColor;
-    ring.lineWidth = 2.0f;
-    ring.lineCap = kCALineCapRound;
-    ring.strokeStart = 0.0f;
-    ring.strokeEnd = 0.7f;
-    ring.name = @"fmSpinnerRing";
-    ring.zPosition = -1;
-    [_dotButton.layer addSublayer:ring];
+    CGFloat s = kFMDotSize + 10;  // 比 dot 大 5pt（更明显）
 
-    CABasicAnimation *rot = [CABasicAnimation animationWithKeyPath:@"transform.rotation"];
-    rot.fromValue = @(0);
-    rot.toValue = @(2 * M_PI);
-    rot.duration = 0.8f;
-    rot.repeatCount = INFINITY;
-    rot.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
-    [ring addAnimation:rot forKey:@"fmSpinning"];
+    // 绿蛇：3 段渐变圆弧，每段粗细不同，前深后浅
+    NSArray *segments = @[
+        @{@"end": @(0.30f), @"width": @(3.5f), @"color": [UIColor colorWithRed:0.2f green:0.95f blue:0.3f alpha:1.0f]},
+        @{@"end": @(0.20f), @"width": @(2.5f), @"color": [UIColor colorWithRed:0.3f green:0.8f  blue:0.3f alpha:0.8f]},
+        @{@"end": @(0.10f), @"width": @(1.5f), @"color": [UIColor colorWithRed:0.4f green:0.65f blue:0.3f alpha:0.5f]},
+    ];
+
+    for (NSUInteger i = 0; i < segments.count; i++) {
+        NSDictionary *seg = segments[i];
+        CAShapeLayer *ring = [CAShapeLayer layer];
+        ring.frame = CGRectMake(-5, -5, s, s);
+        UIBezierPath *path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(3, 3, s - 6, s - 6)];
+        ring.path = path.CGPath;
+        ring.fillColor = [UIColor clearColor].CGColor;
+        ring.strokeColor = ((UIColor *)seg[@"color"]).CGColor;
+        ring.lineWidth = [seg[@"width"] floatValue];
+        ring.lineCap = kCALineCapRound;
+        ring.strokeStart = 0.0f;
+        ring.strokeEnd = [seg[@"end"] floatValue];
+        ring.name = [NSString stringWithFormat:@"fmSpinnerRing_%lu", (unsigned long)i];
+        ring.zPosition = -1;
+        [_dotButton.layer addSublayer:ring];
+
+        CABasicAnimation *rot = [CABasicAnimation animationWithKeyPath:@"transform.rotation"];
+        rot.fromValue = @(0);
+        rot.toValue = @(2 * M_PI);
+        rot.duration = 1.0f;
+        rot.repeatCount = INFINITY;
+        rot.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+        [ring addAnimation:rot forKey:@"fmSpinning"];
+    }
 }
 
 - (void)stopRunningSpinner
 {
     if (!_dotButton) return;
+    // 遍历所有子 layer，移除所有 fmSpinnerRing 开头的
+    NSMutableArray *toRemove = [NSMutableArray array];
     for (CALayer *sub in _dotButton.layer.sublayers) {
-        if ([sub.name isEqualToString:@"fmSpinnerRing"]) {
-            [sub removeAllAnimations];
-            [sub removeFromSuperlayer];
-            break;
+        if ([sub.name hasPrefix:@"fmSpinnerRing_"]) {
+            [toRemove addObject:sub];
         }
+    }
+    for (CALayer *s in toRemove) {
+        [s removeAllAnimations];
+        [s removeFromSuperlayer];
     }
 }
 
@@ -964,11 +1043,36 @@ static void fmPersistKeys(NSDictionary *pairs)
             self->_edge = (edge == 0) ? 0 : 1;
             self->_yRatio = MIN(MAX(hasRatio ? ratio : 0.5f, 0.02f), 0.98f);
             self->_scriptPath = script;
-            [self setEnabled:enabled persist:NO];
+
+            // 彻底照搬 NetSpeedIndicator.reloadAppearance 模式：
+            // 先 destroy 再 create——确保 SpringBoard 重启后 window 一定能显示
+            if (enabled) {
+                [self destroyWindow];
+                [self buildWindow];
+                self->_enabled = YES;
+                [self startWatchers];
+            } else {
+                [self destroyWindow];
+                self->_enabled = NO;
+                [self stopWatchers];
+            }
         } @catch (NSException *exception) {
             ZXLogUIException(exception);
         }
     });
+}
+
+- (void)destroyWindow
+{
+    _window.hidden = YES;
+    _window.rootViewController = nil;
+    _window = nil;
+    _content = nil;
+    _dotButton = nil;
+    _menuPanel = nil;
+    [_menuButtons removeAllObjects];
+    [_menuLabels removeAllObjects];
+    _expanded = NO;
 }
 
 - (void)dealloc
