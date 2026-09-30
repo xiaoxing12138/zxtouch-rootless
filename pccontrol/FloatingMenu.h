@@ -37,6 +37,9 @@
 // 返回当前悬浮按钮的调试信息字典；若 window 尚未创建则返回 nil
 + (NSDictionary *)debugInfo;
 
+// 获取当前前台可用的 UIWindowScene（iOS 13+ 创建可渲染 window 必需）
++ (UIWindowScene *)preferredWindowScene;
+
 @end
 
 // socket 任务 32：32;;1 开启 / 32;;0 关闭 / 32;;2 查询（"0;;1\r\n" 或 "0;;0\r\n"）

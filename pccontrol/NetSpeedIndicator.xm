@@ -21,7 +21,7 @@ static NSString *const kCfgMarginLegacy = @"net_speed_margin";       // 旧版�
 static NSString *const kCfgFontSize    = @"net_speed_font_size";
 static NSString *const kCfgPauseOff    = @"net_speed_pause_screen_off";
 
-static UIWindow *_netSpeedWindow = nil;
+static FMPassthroughWindow *_netSpeedWindow = nil;
 static UIView   *_netSpeedContent = nil;  // 视觉坐标容器（跟随方向旋转）
 static UILabel  *_netSpeedLabel = nil;
 static NSTimer  *_netSpeedTimer = nil;
@@ -390,7 +390,7 @@ static void createNetSpeedWindow(void)
 
     UIViewController *root = [[UIViewController alloc] init];
     root.view.backgroundColor = [UIColor clearColor];
-    root.view.frame = frame;
+    root.view.frame = portraitFrame;
     _netSpeedWindow.rootViewController = root;
 
     _netSpeedContent = [[UIView alloc] initWithFrame:root.view.bounds];
