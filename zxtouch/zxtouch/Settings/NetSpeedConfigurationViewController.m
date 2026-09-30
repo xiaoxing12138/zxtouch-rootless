@@ -126,7 +126,7 @@ static NSString * const kAboutText = @"修改后立即生效。关闭总开关�
 
     NSNumber *marginXValue = [configManager getValueFromKey:kNetSpeedMarginXKey];
     marginX = marginXValue ? [marginXValue integerValue] : legacyMargin;
-    if (marginX < 4 || marginX > 80) {
+    if (marginX < 4 || marginX > 500) {
         marginX = kNetSpeedDefaultMarginX;
     }
 
@@ -296,7 +296,7 @@ static NSString * const kAboutText = @"修改后立即生效。关闭总开关�
         if (cell == nil) {
             cell = [[TableViewCellWithSlider alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"SliderCell"];
         }
-        [self configureSliderCell:cell title:@"水平边距" min:4.0f max:80.0f value:(float)marginX
+        [self configureSliderCell:cell title:@"水平边距" min:4.0f max:500.0f value:(float)marginX
                         valueText:[NSString stringWithFormat:@"%ld pt", (long)marginX]
                           changed:@selector(marginXChanged:)];
         result = cell;
