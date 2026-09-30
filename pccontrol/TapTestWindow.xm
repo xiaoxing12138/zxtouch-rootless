@@ -73,14 +73,15 @@ static NSString *kCornerNames[4] = { @"左上", @"右上", @"左下", @"右下" 
             root.view = _testRootView;
             _testWindow.rootViewController = root;
 
-            // 四个角的标记（淡灰色小圆，引导用户点那里）
+            // 四个角的标记（往里挪 80pt，避开右下角的关闭/重置按钮区域）
             CGSize markerSize = CGSizeMake(40, 40);
+            CGFloat inset = 95;  // 离屏幕边缘 95pt
             CGPoint markerPos[4] = {
-                CGPointMake(15, 15),                                        // 左上
-                CGPointMake(canvasW - 15 - markerSize.width, 15),           // 右上
-                CGPointMake(15, canvasH - 15 - markerSize.height),          // 左下
-                CGPointMake(canvasW - 15 - markerSize.width,
-                            canvasH - 15 - markerSize.height)                     // 右下
+                CGPointMake(inset, inset),                                        // 左上
+                CGPointMake(canvasW - inset - markerSize.width, inset),          // 右上
+                CGPointMake(inset, canvasH - inset - markerSize.height),         // 左下
+                CGPointMake(canvasW - inset - markerSize.width,
+                            canvasH - inset - markerSize.height)                     // 右下
             };
             for (int i = 0; i < 4; i++) {
                 UIView *m = [[UIView alloc] initWithFrame:CGRectMake(markerPos[i].x, markerPos[i].y, markerSize.width, markerSize.height)];
