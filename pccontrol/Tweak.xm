@@ -37,6 +37,7 @@
 #include "Play.h"
 #include "TouchIndicator/TouchIndicatorWindow.h"
 #include "NetSpeedIndicator.h"
+#include "TouchCoordinateIndicator.h"
 #include "FloatingMenu.h"
 #include <roothide.h>
 
@@ -369,6 +370,7 @@ Boolean init()
     initScriptPlayer();
     initConfig();
     [NetSpeedIndicator reloadConfig];
+    [TouchCoordinateIndicator reloadConfig];
     [FloatingMenu reloadConfig];
 
     return true;

@@ -1,4 +1,4 @@
-﻿// !$*UTF8*$!
+// !$*UTF8*$!
 {
 	archiveVersion = 1;
 	classes = {
@@ -47,6 +47,7 @@
 		9684FF7525B58A3700549FC8 /* SettingsPageViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 9684FF7425B58A3700549FC8 /* SettingsPageViewController.m */; };
 		9684FFB425B67DC000549FC8 /* TouchIndicatorConfigurationViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 9684FFB225B67DC000549FC8 /* TouchIndicatorConfigurationViewController.m */; };
 		A17E5701260000000000A103 /* NetSpeedConfigurationViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A17E5701260000000000A102 /* NetSpeedConfigurationViewController.m */; };
+		A17E5701260000000000A403 /* TouchCoordinateConfigurationViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A17E5701260000000000A402 /* TouchCoordinateConfigurationViewController.m */; };
 		A17E5701260000000000A203 /* DebugFloatWindowViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A17E5701260000000000A202 /* DebugFloatWindowViewController.m */; };
 		17C0E471-08C4-4DF0-B20A- /* FloatingMenuConfigurationViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 7C47BAF4-1052-48CC-91A3- /* FloatingMenuConfigurationViewController.m */; };
 		9684FFC825B6894B00549FC8 /* SettingPages.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 9684FFC725B6894B00549FC8 /* SettingPages.storyboard */; };
@@ -228,6 +229,8 @@
 		9684FFB225B67DC000549FC8 /* TouchIndicatorConfigurationViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TouchIndicatorConfigurationViewController.m; sourceTree = "<group>"; };
 		A17E5701260000000000A101 /* NetSpeedConfigurationViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NetSpeedConfigurationViewController.h; sourceTree = "<group>"; };
 		A17E5701260000000000A102 /* NetSpeedConfigurationViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NetSpeedConfigurationViewController.m; sourceTree = "<group>"; };
+		A17E5701260000000000A401 /* TouchCoordinateConfigurationViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TouchCoordinateConfigurationViewController.h; sourceTree = "<group>"; };
+		A17E5701260000000000A402 /* TouchCoordinateConfigurationViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TouchCoordinateConfigurationViewController.m; sourceTree = "<group>"; };
 		618AE91B-E99E-4059-AD59- /* FloatingMenuConfigurationViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FloatingMenuConfigurationViewController.h; sourceTree = "<group>"; };
 		7C47BAF4-1052-48CC-91A3- /* FloatingMenuConfigurationViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FloatingMenuConfigurationViewController.m; sourceTree = "<group>"; };
 		A17E5701260000000000A201 /* DebugFloatWindowViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DebugFloatWindowViewController.h; sourceTree = "<group>"; };
@@ -514,6 +517,8 @@
 				9684FFB225B67DC000549FC8 /* TouchIndicatorConfigurationViewController.m */,
 				A17E5701260000000000A101 /* NetSpeedConfigurationViewController.h */,
 				A17E5701260000000000A102 /* NetSpeedConfigurationViewController.m */,
+				A17E5701260000000000A401 /* TouchCoordinateConfigurationViewController.h */,
+				A17E5701260000000000A402 /* TouchCoordinateConfigurationViewController.m */,
 				A17E5701260000000000A201 /* DebugFloatWindowViewController.h */,
 				618AE91B-E99E-4059-AD59- /* FloatingMenuConfigurationViewController.h */,
 				7C47BAF4-1052-48CC-91A3- /* FloatingMenuConfigurationViewController.m */,
@@ -905,6 +910,7 @@
 				96D7E5A32581F99900B39A81 /* AppDelegate.m in Sources */,
 				9684FFB425B67DC000549FC8 /* TouchIndicatorConfigurationViewController.m in Sources */,
 				A17E5701260000000000A103 /* NetSpeedConfigurationViewController.m in Sources */,
+				A17E5701260000000000A403 /* TouchCoordinateConfigurationViewController.m in Sources */,
 						A17E5701260000000000A203 /* DebugFloatWindowViewController.m in Sources */,
 				17C0E471-08C4-4DF0-B20A- /* FloatingMenuConfigurationViewController.m in Sources */,
 				965E8C9525B31DD100FDD35C /* Util.m in Sources */,
@@ -1185,7 +1191,7 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/zxtouch/lib";
-				MARKETING_VERSION = 3.0.24;
+				MARKETING_VERSION = 3.0.25;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zjx.zxtouchasdfas;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1209,7 +1215,7 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/zxtouch/lib";
-				MARKETING_VERSION = 3.0.24;
+				MARKETING_VERSION = 3.0.25;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zjx.zxtouchasdfas;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1304,7 +1310,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.0.24;
+				MARKETING_VERSION = 3.0.25;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zjx.zxtouchasdfas.shortcutext;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1327,7 +1333,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.0.24;
+				MARKETING_VERSION = 3.0.25;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zjx.zxtouchasdfas.shortcutext;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

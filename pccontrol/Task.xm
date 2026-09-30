@@ -19,6 +19,7 @@
 #include "UpdateCache.h"
 #include "Screen.h"
 #include "NetSpeedIndicator.h"
+#include "TouchCoordinateIndicator.h"
 #include "FloatingMenu.h"
 #include "TapTestWindow.h"
 
@@ -426,6 +427,25 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             }
         }
     }
+    else if (taskType == TASK_TOUCH_COORDINATE_INDICATOR)
+    {
+        @autoreleasepool {
+            NSError *err = nil;
+            NSString *result = handleTouchCoordinateTaskWithRawData(eventData, &err);
+            if (err)
+            {
+                notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);
+            }
+            else if (result)
+            {
+                notifyClient((UInt8*)[result UTF8String], writeStreamRef);
+            }
+            else
+            {
+                notifyClient((UInt8*)"0\r\n", writeStreamRef);
+            }
+        }
+    }
     else if (taskType == TASK_DEBUG_INFO)
     {
         @autoreleasepool {
@@ -440,11 +460,16 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             } else if ([target isEqualToString:@"floating_menu"]) {
                 NSDictionary *info = [FloatingMenu debugInfo];
                 if (info) root[@"floating_menu"] = info;
+            } else if ([target isEqualToString:@"touch_coord"]) {
+                NSDictionary *info = [TouchCoordinateIndicator debugInfo];
+                if (info) root[@"touch_coord"] = info;
             } else {
                 NSDictionary *nsInfo = [NetSpeedIndicator debugInfo];
                 if (nsInfo) root[@"net_speed"] = nsInfo;
                 NSDictionary *fmInfo = [FloatingMenu debugInfo];
                 if (fmInfo) root[@"floating_menu"] = fmInfo;
+                NSDictionary *tcInfo = [TouchCoordinateIndicator debugInfo];
+                if (tcInfo) root[@"touch_coord"] = tcInfo;
             }
 
             NSError *jsonErr = nil;

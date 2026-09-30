@@ -3,6 +3,8 @@
 #include "../Screen.h"
 #include "../AlertBox.h"
 #include "../Common.h"
+#include "../TouchCoordinateIndicator.h"
+#include "../FloatingMenu.h"    // preferredWindowScene（选择前台活跃 scene）
 
 #import "TouchIndicatorView.h"
 #import "TouchIndicatorCoordinateView.h"
@@ -598,13 +600,20 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
                                      x, y, xOnScreen, yOnScreen, W, H, (long)ori];
                 appendTouchIndicatorDebugLog(message);
                 [touchIndicatorWindow showIndicator:index withX:xOnScreen andY:yOnScreen majorRadius:majorRadius];
+                // 坐标悬浮窗复用同一份坐标（像素），与红点右侧小标签数值完全一致
+                [TouchCoordinateIndicator touchBeganWithIndex:index xPx:xOnScreen * scale yPx:yOnScreen * scale];
             }
             else if ( touch == 1 && eventMask & 4 )
+            {
                 [touchIndicatorWindow moveIndicator:index x:xOnScreen y:yOnScreen majorRadius:majorRadius];
+                [TouchCoordinateIndicator touchMovedWithIndex:index xPx:xOnScreen * scale yPx:yOnScreen * scale];
+            }
 
             else if (!touch && (eventMask & 2) )
+            {
                 // touch up
                 [touchIndicatorWindow hideIndicator:index];
+                [TouchCoordinateIndicator touchEndedWithIndex:index];
             }
         }
     }
@@ -621,6 +630,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
     UIColor* indicatorColor;
     CGFloat indicatorDotSize;
     NSTimer* orientationRefreshTimer;
+    NSTimer* visibilityWatchdogTimer;
 }
 
 - (void)rebuildOverlayWindow {
@@ -637,7 +647,9 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
         coordinateView[i] = nil;
     }
 
-    UIWindowScene *scene = (UIWindowScene *)[[UIApplication sharedApplication].connectedScenes anyObject];
+    // 必须绑定「前台活跃」的 scene：connectedScenes.anyObject 可能拿到非前台的
+    // scene，挂在它下面的 window 不会显示（表现为指示器「莫名消失」）。
+    UIWindowScene *scene = [FloatingMenu preferredWindowScene];
     if (scene) {
         _window = [[UIWindow alloc] initWithWindowScene:scene];
     } else {
@@ -692,10 +704,40 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
     refreshCachedIndicatorOrientation();
 }
 
+/*
+ * 可见性看门狗（1s）。
+ * 现象：指示器偶尔「自己掉了」，什么都不显示，必须关掉再打开才恢复。
+ * 原因：window 只会在「方向/旋转策略发生变化」时才被 refreshRotationPolicy 重新
+ * 显示，一旦被别的原因置为 hidden、或创建时挂到了非前台 scene 上，就没有任何路径
+ * 把它救回来。这里每秒做一次自愈：纠正 scene 绑定 + 强制 hidden = NO。
+ */
+- (void)visibilityWatchdogTick {
+    if (!isShowing || !_window) {
+        return;
+    }
+
+    UIWindowScene *scene = [FloatingMenu preferredWindowScene];
+    if (scene && _window.windowScene != scene) {
+        [self rebuildOverlayWindow];
+        [self updateWindowFrameForOrientation:cachedOrientation];
+        _window.hidden = NO;
+        appendTouchIndicatorDebugLog([NSString stringWithFormat:@"watchdog: rebuilt, scene rebound to %@\n", scene]);
+        return;
+    }
+
+    if (_window.hidden) {
+        [self updateWindowFrameForOrientation:cachedOrientation];
+        _window.hidden = NO;
+        appendTouchIndicatorDebugLog(@"watchdog: window was hidden, re-shown\n");
+    }
+}
+
 - (void)stopOrientationTracking {
     ZXSafeMainAsync(^{
         [orientationRefreshTimer invalidate];
         orientationRefreshTimer = nil;
+        [visibilityWatchdogTimer invalidate];
+        visibilityWatchdogTimer = nil;
     });
 }
 
@@ -715,6 +757,12 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
                                                                         repeats:YES
                                                                           block:^(NSTimer *timer) {
                 [weakSelf refreshOrientationState];
+            }];
+
+            visibilityWatchdogTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+                                                                      repeats:YES
+                                                                        block:^(NSTimer *timer) {
+                [weakSelf visibilityWatchdogTick];
             }];
 
             indicatorColor = [UIColor colorWithRed:255 green:0 blue:0 alpha:0.5];

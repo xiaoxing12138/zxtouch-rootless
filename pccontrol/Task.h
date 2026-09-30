@@ -34,6 +34,7 @@
 // 40;;all → 返回两者合并后的字典
 #define TASK_DEBUG_INFO 40
 #define TASK_TAP_TEST 41
+#define TASK_TOUCH_COORDINATE_INDICATOR 42
 
 #define TASK_UPDATE_CACHE 90
 
