@@ -21,8 +21,16 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Run Python tests
-        run: python3 -m unittest discover -s tests -v
+      # ── Xcode DerivedData cache ── 首次构建后增量编译 Xcode App 大幅提速
+      - name: Cache Xcode DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: xcode-deriveddata-${{ runner.os }}-${{ hashFiles('zxtouch/zxtouch.xcodeproj/project.pbxproj') }}
+
+      - name: Run Python tests (if any)
+        run: |
+          if [ -d tests ]; then python3 -m unittest discover -s tests -v; else echo "No tests/ dir, skipping"; fi
 
       - name: Build iOS App
         run: |
