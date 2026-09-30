@@ -49,6 +49,12 @@
 #define kFMCfgIconPath    @"floating_menu_icon_path"  // 用户自定义图标文件路径（nil=用 app 图标）
 #define kFMCfgDotSize     @"floating_menu_dot_size"   // 圆点大小 32..80
 #define kFMCfgMenuBtnSize @"floating_menu_menu_size"  // 菜单按钮大小 32..72
+#define kFMCfgMenuBgAlpha @"floating_menu_menu_bg_alpha" // 菜单黑底透明度 0..1
+
+// 菜单按钮/标签背景底色的不透明度默认值、可调范围
+#define kFMMenuDefaultBgAlpha 0.92f
+#define kFMMenuMinBgAlpha     0.0f
+#define kFMMenuMaxBgAlpha     1.0f
 #define kFMZXTouchBID     @"com.zjx.zxtouch"
 
 #pragma mark - 透传视图 / 透传窗口 / 根控制器
@@ -206,6 +212,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     int      _edge;           // 1 右 / 0 左
     CGFloat  _yRatio;         // 圆点纵向位置比例
     CGFloat  _dotSize;        // 圆点直径 pt（32..80，配置驱动）
+    CGFloat  _menuBgAlpha;    // 菜单按钮/标签黑底不透明度（0..1，配置驱动）
     int      _lastOrientation;
 
     CGPoint  _dragStartVisual;
@@ -225,6 +232,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     self = [super init];
     if (self) {
         _dotSize = kFMDotDefaultSize;
+        _menuBgAlpha = kFMMenuDefaultBgAlpha;
     }
     return self;
 }
@@ -270,6 +278,12 @@ static void fmPersistKeys(NSDictionary *pairs)
 - (CGFloat)dotTitleFontSize
 {
     return roundf(_dotSize * (22.0f / kFMDotDefaultSize));
+}
+
+// 菜单按钮与标签共用的黑底（不透明度可配置）
+- (UIColor *)menuBackgroundColor
+{
+    return [UIColor colorWithWhite:0.12f alpha:_menuBgAlpha];
 }
 
 - (void)canvasPortraitWidth:(CGFloat *)width height:(CGFloat *)height
@@ -428,7 +442,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     for (NSUInteger i = 0; i < 3; i++) {
         UIButton *iconBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         iconBtn.frame = CGRectMake(0, 0, btnSize, btnSize);
-        iconBtn.backgroundColor = [UIColor colorWithWhite:0.12f alpha:0.92f];  // 黑底
+        iconBtn.backgroundColor = [self menuBackgroundColor];  // 黑底（透明度可配置）
         iconBtn.layer.cornerRadius = btnSize / 2.0f;
         iconBtn.hidden = YES;
         iconBtn.alpha = 0.0f;
@@ -447,7 +461,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         lbl.textColor = [UIColor whiteColor];          // 白色文字
         lbl.textAlignment = NSTextAlignmentCenter;
         lbl.frame = CGRectMake(0, 0, btnSize, labelH);
-        lbl.backgroundColor = [UIColor colorWithWhite:0.12f alpha:0.92f];  // 黑底
+        lbl.backgroundColor = [self menuBackgroundColor];  // 黑底（透明度可配置）
         lbl.hidden = YES;
         lbl.alpha = 0.0f;
         lbl.layer.cornerRadius = 4;
@@ -1120,6 +1134,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             BOOL hasRatio = NO;
             CGFloat ratio = 0.5f;
             CGFloat dotSize = kFMDotDefaultSize;
+            CGFloat menuBgAlpha = kFMMenuDefaultBgAlpha;
             NSString *script = @"";
 
             NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
@@ -1139,6 +1154,10 @@ static void fmPersistKeys(NSDictionary *pairs)
                 if ([dotSizeValue isKindOfClass:[NSNumber class]]) {
                     dotSize = [dotSizeValue doubleValue];
                 }
+                NSNumber *menuBgAlphaValue = config[kFMCfgMenuBgAlpha];
+                if ([menuBgAlphaValue isKindOfClass:[NSNumber class]]) {
+                    menuBgAlpha = [menuBgAlphaValue doubleValue];
+                }
                 if (!hasEdge) {
                     NSNumber *xValue = config[@"floating_menu_x"];
                     CGFloat pw, ph;
@@ -1156,6 +1175,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             self->_edge = (edge == 0) ? 0 : 1;
             self->_yRatio = MIN(MAX(hasRatio ? ratio : 0.5f, 0.02f), 0.98f);
             self->_dotSize = MIN(MAX(dotSize, kFMDotMinSize), kFMDotMaxSize);
+            self->_menuBgAlpha = MIN(MAX(menuBgAlpha, kFMMenuMinBgAlpha), kFMMenuMaxBgAlpha);
             self->_scriptPath = script;
 
             // 彻底照搬 NetSpeedIndicator.reloadAppearance 模式：
@@ -1204,6 +1224,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     info[@"edge_name"] = (_edge == 0) ? @"左" : @"右";
     info[@"y_ratio"] = @(_yRatio);
     info[@"dot_size"] = @(_dotSize);
+    info[@"menu_bg_alpha"] = @(_menuBgAlpha);
     info[@"last_orientation"] = @(_lastOrientation);
 
     CGFloat visW, visH;

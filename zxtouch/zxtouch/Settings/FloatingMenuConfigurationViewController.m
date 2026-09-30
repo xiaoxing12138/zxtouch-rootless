@@ -16,11 +16,21 @@ static NSString *kCfgEnabled = @"floating_menu_enabled";
 static NSString *kCfgEdge    = @"floating_menu_edge";     // 1=右 0=左
 static NSString *kCfgYRatio  = @"floating_menu_y_ratio"; // 0..1
 static NSString *kCfgDotSize = @"floating_menu_dot_size"; // 32..80 pt
+static NSString *kCfgMenuBgAlpha = @"floating_menu_menu_bg_alpha"; // 0..1
 
 // 圆点大小范围（与 tweak 端 kFMDotMinSize / kFMDotMaxSize 保持一致）
 static const float kDotSizeMin     = 32.0f;
 static const float kDotSizeMax     = 80.0f;
 static const float kDotSizeDefault = 48.0f;
+
+// 菜单黑底透明度（与 tweak 端 kFMMenuDefaultBgAlpha 保持一致）
+static const float kMenuBgAlphaDefault = 0.92f;
+
+// 「外观」分组行号
+typedef NS_ENUM(NSInteger, AppearanceRow) {
+    AppearanceRowDotSize     = 0,
+    AppearanceRowMenuBgAlpha = 1
+};
 
 @interface FloatingMenuConfigurationViewController ()
 
@@ -136,6 +146,25 @@ static const float kDotSizeDefault = 48.0f;
     [self saveConfig];
 }
 
+#pragma mark - 菜单黑底透明度
+
+- (void)menuBgAlphaValueChanged:(id)sender {
+    UISlider *slider = (UISlider *)sender;
+    float stepped = roundf(slider.value * 100.0f) / 100.0f;
+    [slider setValue:stepped animated:NO];
+    // 显示实时数值
+    UIView *view = slider;
+    while (view && ![view isKindOfClass:[TableViewCellWithSlider class]]) {
+        view = view.superview;
+    }
+    if ([view isKindOfClass:[TableViewCellWithSlider class]]) {
+        ((TableViewCellWithSlider *)view).value.text = [NSString stringWithFormat:@"%.2f", stepped];
+    }
+    // 拖动过程中只写 plist，松手才 reload
+    _config[kCfgMenuBgAlpha] = @(stepped);
+    [self saveConfig];
+}
+
 // 任意滑块松手后统一通知 tweak 重载配置
 - (void)sliderTouchUp:(id)sender {
     [self reloadTweak];
@@ -150,7 +179,7 @@ static const float kDotSizeDefault = 48.0f;
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 1; // 开关
     if (section == 1) return 2; // 吸附边 + 纵向比例
-    return 1;                   // 外观：圆点大小
+    return 2;                   // 外观：圆点大小 + 菜单黑底透明度
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -195,17 +224,21 @@ static const float kDotSizeDefault = 48.0f;
         return cell;
     }
 
-    // 滑块（section 1 = 纵向位置；section 2 = 圆点大小）
+    // 滑块（section 1 row 1 = 纵向位置；section 2 = 外观：圆点大小 / 菜单黑底透明度）
     TableViewCellWithSlider *cell = [tableView dequeueReusableCellWithIdentifier:@"SliderCell" forIndexPath:indexPath];
     cell.slideBar.continuous = YES;
     [cell.slideBar removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
-    [cell.slideBar addTarget:self
-                      action:(indexPath.section == 2 ? @selector(dotSizeValueChanged:) : @selector(yRatioValueChanged:))
-            forControlEvents:UIControlEventValueChanged];
+
+    SEL changedSelector = @selector(yRatioValueChanged:);
+    if (indexPath.section == 2) {
+        changedSelector = (indexPath.row == AppearanceRowDotSize) ? @selector(dotSizeValueChanged:)
+                                                                  : @selector(menuBgAlphaValueChanged:);
+    }
+    [cell.slideBar addTarget:self action:changedSelector forControlEvents:UIControlEventValueChanged];
     [cell.slideBar addTarget:self action:@selector(sliderTouchUp:)
             forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
 
-    if (indexPath.section == 2) {
+    if (indexPath.section == 2 && indexPath.row == AppearanceRowDotSize) {
         float dotSize = _config[kCfgDotSize] ? [_config[kCfgDotSize] floatValue] : kDotSizeDefault;
         if (dotSize < kDotSizeMin || dotSize > kDotSizeMax) dotSize = kDotSizeDefault;
         cell.title.text = @"圆点大小";
@@ -213,6 +246,14 @@ static const float kDotSizeDefault = 48.0f;
         cell.slideBar.maximumValue = kDotSizeMax;
         cell.slideBar.value = dotSize;
         cell.value.text = [NSString stringWithFormat:@"%.0f pt", dotSize];
+    } else if (indexPath.section == 2) {
+        float bgAlpha = _config[kCfgMenuBgAlpha] ? [_config[kCfgMenuBgAlpha] floatValue] : kMenuBgAlphaDefault;
+        if (bgAlpha < 0.0f || bgAlpha > 1.0f) bgAlpha = kMenuBgAlphaDefault;
+        cell.title.text = @"菜单黑底透明度";
+        cell.slideBar.minimumValue = 0.0f;
+        cell.slideBar.maximumValue = 1.0f;
+        cell.slideBar.value = bgAlpha;
+        cell.value.text = [NSString stringWithFormat:@"%.2f", bgAlpha];
     } else {
         float ratio = [_config[kCfgYRatio] floatValue];
         cell.title.text = @"纵向位置";
