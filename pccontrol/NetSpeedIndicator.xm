@@ -275,7 +275,7 @@ static void startNetSpeedTimer(void)
         } @catch (NSException *exception) {
             ZXLogUIException(exception);
         }
-    }]);
+    }];
 }
 
 static BOOL timerShouldRun(void)
