@@ -217,10 +217,15 @@ static NSString *kCornerNames[4] = { @"左上", @"右上", @"左下", @"右下" 
 
 + (void)_handleTap:(UITapGestureRecognizer *)tap
 {
-    CGPoint screenPt = [tap locationInView:nil];
-    CGPoint winPt = [tap locationInView:_testWindow];
-    CGPoint rootPt = [tap locationInView:_testRootView];
+    // 先确保 rootView.frame = window.bounds（方向变化后可能没及时更新）
+    CGRect wb = _testWindow.bounds;
+    if (!CGRectEqualToRect(_testRootView.frame, wb)) {
+        _testRootView.frame = wb;
+    }
 
+    CGPoint screenPt = [tap locationInView:nil];         // 设备屏幕坐标
+    CGPoint rootPt = [tap locationInView:_testRootView]; // rootView 坐标（= window 坐标，因为 rootView 填满 window.bounds）
+    CGPoint winPt = rootPt;                              // 直接用 rootPt 作为 window 坐标
     CGRect wf = _testWindow.frame;
     int orientation = [Screen getScreenOrientation];
 
