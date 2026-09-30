@@ -306,7 +306,7 @@ static NSString * const kAboutText = @"修改后立即生效。关闭总开关�
         if (cell == nil) {
             cell = [[TableViewCellWithSlider alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"SliderCell"];
         }
-        [self configureSliderCell:cell title:@"垂直边距" min:4.0f max:200.0f value:(float)marginY
+        [self configureSliderCell:cell title:@"垂直边距" min:0.0f max:200.0f value:(float)marginY
                         valueText:[NSString stringWithFormat:@"%ld pt", (long)marginY]
                           changed:@selector(marginYChanged:)];
         result = cell;

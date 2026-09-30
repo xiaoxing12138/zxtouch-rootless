@@ -371,16 +371,16 @@ static void fmPersistKeys(NSDictionary *pairs)
     [_dotButton addGestureRecognizer:pan];
     [_dotButton addGestureRecognizer:tap];
 
-    // 菜单面板：白色圆角框，内三列，每列圆形图标按钮 + 下方文字标签（仿按键精灵）
+    // 菜单面板：紧凑白色圆角框（仿按键精灵）
     _menuButtons = [NSMutableArray array];
     _menuLabels  = [NSMutableArray array];
 
-    CGFloat btnSize  = 44;   // 圆形图标按钮尺寸
-    CGFloat btnGap   = 16;   // 圆形按钮之间的水平间距
-    CGFloat labelH   = 16;
-    CGFloat labelGap = 4;    // 按钮到标签间距
-    CGFloat padding  = 12;
-    CGFloat rowGap   = 8;    // 两行之间间距
+    CGFloat btnSize  = 32;   // 圆形图标按钮（紧凑）
+    CGFloat btnGap   = 8;    // 按钮间距
+    CGFloat labelH   = 12;
+    CGFloat labelGap = 2;    // 按钮到标签
+    CGFloat padding  = 8;    // 面板内边距
+    CGFloat rowGap   = 4;    // 按钮行到标签行
 
     NSArray *symbolNames = @[@"play.fill", @"gearshape.fill", @"arrow.uturn.backward.circle.fill"];
     NSArray *titles      = @[@"启动", @"设置", @"返回"];
@@ -390,31 +390,32 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat panelH = btnSize + rowGap + labelH + padding * 2;
 
     _menuPanel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelW, panelH)];
-    _menuPanel.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.97f];
-    _menuPanel.layer.cornerRadius = 14;
+    _menuPanel.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.92f];
+    _menuPanel.layer.cornerRadius = 10;
+    _menuPanel.layer.borderWidth = 0.5f;
+    _menuPanel.layer.borderColor = [UIColor colorWithWhite:0.85f alpha:1.0f].CGColor;
     _menuPanel.hidden = YES;
     _menuPanel.alpha = 0.0f;
     [_content addSubview:_menuPanel];
 
     for (NSUInteger i = 0; i < 3; i++) {
-        // 圆形图标按钮（灰底）
         UIButton *iconBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         iconBtn.frame = CGRectMake(padding + i * (btnSize + btnGap), padding, btnSize, btnSize);
-        iconBtn.backgroundColor = [UIColor colorWithWhite:0.88f alpha:1.0f];
+        iconBtn.backgroundColor = [UIColor colorWithWhite:0.90f alpha:1.0f];
         iconBtn.layer.cornerRadius = btnSize / 2.0f;
         if (@available(iOS 13.0, *)) {
             [iconBtn setImage:[UIImage systemImageNamed:symbolNames[i]] forState:UIControlStateNormal];
-            iconBtn.tintColor = [UIColor colorWithWhite:0.15f alpha:1.0f];
+            iconBtn.tintColor = [UIColor colorWithWhite:0.2f alpha:1.0f];
+            iconBtn.imageEdgeInsets = UIEdgeInsetsMake(6, 6, 6, 6);
         }
         [iconBtn addTarget:self action:@selector(handleMenuIconTap:) forControlEvents:UIControlEventTouchUpInside];
         [_menuPanel addSubview:iconBtn];
         [_menuButtons addObject:iconBtn];
 
-        // 下方文字标签
         UILabel *lbl = [[UILabel alloc] init];
         lbl.text = titles[i];
-        lbl.font = [UIFont systemFontOfSize:12.0f];
-        lbl.textColor = [UIColor colorWithWhite:0.25f alpha:1.0f];
+        lbl.font = [UIFont systemFontOfSize:11.0f];
+        lbl.textColor = [UIColor colorWithWhite:0.3f alpha:1.0f];
         lbl.textAlignment = NSTextAlignmentCenter;
         lbl.frame = CGRectMake(padding + i * (btnSize + btnGap),
                                padding + btnSize + rowGap,
@@ -550,16 +551,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (pan.state == UIGestureRecognizerStateBegan) {
         _dragging = YES;
         _dragStartVisual = [self dotVisualPoint];
-        // 拖动开始即把菜单收起，避免视觉干扰
+        // 拖动开始收起菜单（用动画），避免视觉干扰
         if (_expanded) {
-            for (UIButton *item in _menuButtons) {
-                item.hidden = YES;
-                item.alpha = 0.0f;
-            }
-            _expanded = NO;
+            [self collapseMenu];
         }
     } else if (pan.state == UIGestureRecognizerStateChanged) {
-        // 把 rootView 坐标系位移按方向旋转成视觉坐标系位移
         CGPoint t = [pan translationInView:rootView];
         CGPoint vt = [self visualTranslationFromRootView:t orientation:orientation];
         CGFloat x = MIN(MAX(_dragStartVisual.x + vt.x, kFMDotRadius), visW - kFMDotRadius);
@@ -567,7 +563,11 @@ static void fmPersistKeys(NSDictionary *pairs)
 
         _content.transform = CGAffineTransformIdentity;
         _dotButton.frame = CGRectMake(x - kFMDotRadius, y - kFMDotRadius, kFMDotSize, kFMDotSize);
-        // 不再需要 content transform —— 直接用 window 像素坐标
+        // 实时更新 dot 位置对应的 edge（拖动跨过半屏时切换）
+        int curEdge = (x < visW / 2.0f) ? 0 : 1;
+        if (curEdge != _edge) {
+            _edge = curEdge;
+        }
     } else if (pan.state == UIGestureRecognizerStateEnded ||
                pan.state == UIGestureRecognizerStateCancelled ||
                pan.state == UIGestureRecognizerStateFailed) {
@@ -772,16 +772,20 @@ static void fmPersistKeys(NSDictionary *pairs)
 {
     ZXSafeMainAsync(^{
         @try {
+            // 自愈 0：enabled 但 window 不存在或 hidden → 重建（SpringBoard 重启后 scene 延迟就绪）
+            if (self->_enabled && (!self->_window || self->_window.hidden)) {
+                [self setEnabled:YES persist:NO];
+                return;
+            }
             if (!self->_enabled) {
                 return;
             }
-            // 自愈 1：window 丢了就重建（覆盖 scene 被系统拆除等极端情况）
+            // 自愈 1：window 丢了就重建
             if (!self->_window) {
                 [self buildWindow];
                 return;
             }
-            // 自愈 2：不再挂 windowScene（scene 会强制改 frame 破坏竖屏坐标系）
-            // 自愈 3：被系统置 hidden 时恢复
+            // 自愈 2：被系统置 hidden 时恢复
             if (self->_window.hidden) {
                 self->_window.hidden = NO;
             }
