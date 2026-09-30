@@ -330,13 +330,21 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)buildWindow
 {
-    // 简化架构：window.frame 让 scene 管（全屏），_content 直接填满 window.bounds，
-    // 所有控件位置直接用 window 像素坐标。不再用 portrait 容器 + transform。
+    // SpringBoard 启动早期 scene 可能还没 ready（所有 scene 都是 inactive），
+    // 此时 initWithFrame 创建的 window 在 iOS 13+ 上不会显示。
+    // 延迟 0.5s 重试，让 watchdog 在 scene ready 后自动成功。
     UIWindowScene *scene = [FloatingMenu preferredWindowScene];
-    if (scene) {
-        _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
-    } else {
+    if (!scene) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5f * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (self->_enabled && !self->_window) {
+                [self buildWindow];
+            }
+        });
+        // 先用 initWithFrame 创建占位 window（watchdog 每 1s 重试）
         _window = [[FMPassthroughWindow alloc] initWithFrame:CGRectZero];
+    } else {
+        _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
     }
     _window.windowLevel = UIWindowLevelStatusBar + 2;
 
@@ -589,14 +597,22 @@ static void fmPersistKeys(NSDictionary *pairs)
             kFMCfgYRatio: @(_yRatio)
         });
 
-        // 平滑吸附动画（0.2s ease-out）
-        [UIView animateWithDuration:0.20f
+        // 平滑吸附动画：先算好最终位置，然后直接在 animate block 里设置，
+        // UIKit 会从当前 model 值（pan.Changed 的最后一帧）过渡到吸附位置
+        [UIView animateWithDuration:0.25f
                               delay:0
-             usingSpringWithDamping:0.8f
-              initialSpringVelocity:0.5f
-                            options:UIViewAnimationOptionCurveEaseOut
+             usingSpringWithDamping:0.75f
+              initialSpringVelocity:0.8f
+                            options:UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionBeginFromCurrentState
                          animations:^{
-            [self applyGeometry];
+            // dot 最终吸附位置
+            CGPoint finalDot = [self dotVisualPoint];
+            self->_dotButton.frame = CGRectMake(finalDot.x - kFMDotRadius, finalDot.y - kFMDotRadius,
+                                                 kFMDotSize, kFMDotSize);
+            // menu 按钮/标签也跟着到最终位置
+            if (self->_expanded) {
+                [self applyGeometry];
+            }
         } completion:nil];
     }
 }
@@ -740,18 +756,12 @@ static void fmPersistKeys(NSDictionary *pairs)
 // （与 Process.xm / ScriptPlayer.xm 的 bringAppForeground 同源，已在项目中验证可靠）
 - (void)launchZXTouchApp
 {
-    NSString *bundleID = kFMZXTouchBID;
-    void (^tryForeground)(void) = ^{
-        @try {
-            bringAppForeground(bundleID);
-        } @catch (NSException *exception) {
-            ZXLogUIException(exception);
-        }
-    };
-    if ([NSThread isMainThread]) {
-        tryForeground();
-    } else {
-        dispatch_sync(dispatch_get_main_queue(), tryForeground);
+    @try {
+        // SBSLaunchApplicationWithIdentifier 是 C 函数，不依赖主线程。
+        // 在后台线程直接调避免卡 SpringBoard（主线程）UI。
+        bringAppForeground(kFMZXTouchBID);
+    } @catch (NSException *exception) {
+        ZXLogUIException(exception);
     }
 }
 
