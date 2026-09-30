@@ -199,6 +199,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     BOOL     _expanded;
     BOOL     _dragging;
     BOOL     _observing;
+    BOOL     _menuAnimating;   // 展开/收起动画中，防止 toggle 混乱
     NSInteger _menuUp;        // 1 = 菜单按钮排在圆点上方；-1 = 下方；0 = 收起
     int      _edge;           // 1 右 / 0 左
     CGFloat  _yRatio;         // 圆点纵向位置比例
@@ -503,10 +504,9 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)expandMenu
 {
-    if (_expanded || !_window) {
-        return;
-    }
+    if (_expanded || !_window) return;
     _expanded = YES;
+    _menuAnimating = YES;
     [self applyGeometry];  // 先让按钮/标签到正确位置
 
     CGPoint dotCenter = _dotButton.center;
@@ -525,7 +525,8 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
 
     // 瀑布流：每个按钮/标签从 dot 位置缩放淡入
-    for (NSUInteger i = 0; i < _menuButtons.count; i++) {
+    NSUInteger total = _menuButtons.count;
+    for (NSUInteger i = 0; i < total; i++) {
         UIButton *b = _menuButtons[i];
         UILabel *l = _menuLabels[i];
         NSDictionary *t = targets[i];
@@ -541,7 +542,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         b.transform = CGAffineTransformMakeScale(0.1f, 0.1f);
         b.alpha = 0.0f;
         b.hidden = NO;
-        b.layer.zPosition = 3.0f;  // 确保按钮在 dot 上面
+        b.layer.zPosition = 3.0f;
 
         l.frame = CGRectMake(dotCenter.x - lSize.width/2,
                              dotCenter.y - lSize.height/2,
@@ -549,9 +550,10 @@ static void fmPersistKeys(NSDictionary *pairs)
         l.transform = CGAffineTransformMakeScale(0.1f, 0.1f);
         l.alpha = 0.0f;
         l.hidden = NO;
-        l.layer.zPosition = 4.0f;  // 标签在按钮上面
+        l.layer.zPosition = 4.0f;
 
         double delay = i * 0.05f;
+        BOOL isLast = (i == total - 1);
         [UIView animateWithDuration:0.30f
                               delay:delay
              usingSpringWithDamping:0.85f
@@ -564,16 +566,17 @@ static void fmPersistKeys(NSDictionary *pairs)
             l.center = lTarget;
             l.transform = CGAffineTransformIdentity;
             l.alpha = 1.0f;
-        } completion:nil];
+        } completion:^(BOOL finished) {
+            if (isLast) self->_menuAnimating = NO;  // 最后一个结束才解锁
+        }];
     }
-    _dotButton.layer.zPosition = 1.0f;  // dot 在最下面
+    _dotButton.layer.zPosition = 1.0f;
 }
 
 - (void)collapseMenu
 {
-    if (!_expanded || !_window) {
-        return;
-    }
+    if (!_expanded || !_window) return;
+    _menuAnimating = YES;
     CGPoint dotCenter = _dotButton.center;
 
     // 先保存当前位置（改 frame 之前）
@@ -590,7 +593,8 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
 
     // 反向瀑布流：每个按钮/标签向 dot 位置缩小淡出，最后一个先收
-    for (NSUInteger i = 0; i < _menuButtons.count; i++) {
+    NSUInteger total = _menuButtons.count;
+    for (NSUInteger i = 0; i < total; i++) {
         UIButton *b = _menuButtons[i];
         UILabel *l = _menuLabels[i];
         NSDictionary *t = targets[i];
@@ -604,7 +608,8 @@ static void fmPersistKeys(NSDictionary *pairs)
                                     dotCenter.y - lSize.height/2,
                                     lSize.width, lSize.height);
 
-        double delay = (_menuButtons.count - 1 - i) * 0.04f;
+        double delay = (total - 1 - i) * 0.04f;
+        BOOL isFirst = (i == 0);
         [UIView animateWithDuration:0.25f
                               delay:delay
                             options:UIViewAnimationOptionCurveEaseIn
@@ -616,8 +621,9 @@ static void fmPersistKeys(NSDictionary *pairs)
             l.transform = CGAffineTransformMakeScale(0.1f, 0.1f);
             l.alpha = 0.0f;
         } completion:^(BOOL finished) {
-            if (i == 0) {
+            if (isFirst) {
                 self->_expanded = NO;
+                self->_menuAnimating = NO;  // 最后一个（最早开始的）结束才解锁
                 [self applyGeometry];
             }
         }];
@@ -626,11 +632,16 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)toggleMenu
 {
-    if (_expanded) {
-        [self collapseMenu];
-    } else {
-        [self expandMenu];
+    // 动画中：取消所有动画 → view 跳到 applyGeometry 算的正确位置 → 再 toggle
+    if (_menuAnimating) {
+        [self.layer removeAllAnimations];
+        for (UIButton *b in _menuButtons) { [b.layer removeAllAnimations]; [b.layer removeAllTransitionAnimations]; }
+        for (UILabel *l in _menuLabels) { [l.layer removeAllAnimations]; [l.layer removeAllTransitionAnimations]; }
+        _menuAnimating = NO;
+        [self applyGeometry];  // 所有 view 跳到 _expanded 当前状态对应的正确位置
     }
+    if (_expanded) [self collapseMenu];
+    else [self expandMenu];
 }
 
 #pragma mark 手势
@@ -909,14 +920,21 @@ static void fmPersistKeys(NSDictionary *pairs)
                 [self buildWindow];
                 return;
             }
-            // 自愈 2：被系统置 hidden 时恢复
+            // 自愈 2：方向变了重布局（SpringBoard 重启可能跳过方向通知）
+            int ori = [self currentOrientation];
+            if (ori != self->_lastOrientation) {
+                [self applyGeometry];
+            }
+            // 自愈 3：dot 位置不对（比如 window.bounds 变了但没触发通知）
+            if (!self->_dragging) {
+                CGPoint expected = [self dotVisualPoint];
+                if (fabs(self->_dotButton.center.x - expected.x) > 1.0f ||
+                    fabs(self->_dotButton.center.y - expected.y) > 1.0f) {
+                    [self applyGeometry];
+                }
+            }
             if (self->_window.hidden) {
                 self->_window.hidden = NO;
-            }
-            // 方向变化时重新布局
-            int orientation = [self currentOrientation];
-            if (orientation != self->_lastOrientation) {
-                [self applyGeometry];
             }
         } @catch (NSException *exception) {
             ZXLogUIException(exception);
