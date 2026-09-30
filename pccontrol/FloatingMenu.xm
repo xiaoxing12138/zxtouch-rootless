@@ -507,34 +507,49 @@ static void fmPersistKeys(NSDictionary *pairs)
         return;
     }
     _expanded = YES;
-    [self applyGeometry];
+    [self applyGeometry];  // 先让按钮/标签到正确位置
 
     CGPoint dotCenter = _dotButton.center;
 
-    // 瀑布流：每个按钮/标签从 dot 位置缩放淡入，逐个 delay 0.05s
+    // 先保存正确位置（关键！不能改 frame 后再存）
+    NSMutableArray *targets = [NSMutableArray array];
     for (NSUInteger i = 0; i < _menuButtons.count; i++) {
         UIButton *b = _menuButtons[i];
         UILabel *l = _menuLabels[i];
+        [targets addObject:@{
+            @"b_center": [NSValue valueWithCGPoint:b.center],
+            @"l_center": [NSValue valueWithCGPoint:l.center],
+            @"b_size": [NSValue valueWithCGSize:b.frame.size],
+            @"l_size": [NSValue valueWithCGSize:l.frame.size]
+        }];
+    }
 
-        // 先把它们放到 dot 位置、缩小、透明
-        CGSize origBSize = b.frame.size;
-        CGSize origLSize = l.frame.size;
-        b.frame = CGRectMake(dotCenter.x - origBSize.width/2,
-                             dotCenter.y - origBSize.height/2,
-                             origBSize.width, origBSize.height);
+    // 瀑布流：每个按钮/标签从 dot 位置缩放淡入
+    for (NSUInteger i = 0; i < _menuButtons.count; i++) {
+        UIButton *b = _menuButtons[i];
+        UILabel *l = _menuLabels[i];
+        NSDictionary *t = targets[i];
+        CGSize bSize = [t[@"b_size"] CGSizeValue];
+        CGSize lSize = [t[@"l_size"] CGSizeValue];
+        CGPoint bTarget = [t[@"b_center"] CGPointValue];
+        CGPoint lTarget = [t[@"l_center"] CGPointValue];
+
+        // 把它们放到 dot 位置、缩小、透明
+        b.frame = CGRectMake(dotCenter.x - bSize.width/2,
+                             dotCenter.y - bSize.height/2,
+                             bSize.width, bSize.height);
         b.transform = CGAffineTransformMakeScale(0.1f, 0.1f);
         b.alpha = 0.0f;
         b.hidden = NO;
+        b.layer.zPosition = 3.0f;  // 确保按钮在 dot 上面
 
-        l.frame = CGRectMake(dotCenter.x - origLSize.width/2,
-                             dotCenter.y - origLSize.height/2,
-                             origLSize.width, origLSize.height);
+        l.frame = CGRectMake(dotCenter.x - lSize.width/2,
+                             dotCenter.y - lSize.height/2,
+                             lSize.width, lSize.height);
         l.transform = CGAffineTransformMakeScale(0.1f, 0.1f);
         l.alpha = 0.0f;
         l.hidden = NO;
-
-        CGPoint targetB = b.center;
-        CGPoint targetL = l.center;
+        l.layer.zPosition = 4.0f;  // 标签在按钮上面
 
         double delay = i * 0.05f;
         [UIView animateWithDuration:0.30f
@@ -543,14 +558,15 @@ static void fmPersistKeys(NSDictionary *pairs)
               initialSpringVelocity:0.6f
                             options:UIViewAnimationOptionCurveEaseOut
                          animations:^{
-            b.center = targetB;
+            b.center = bTarget;
             b.transform = CGAffineTransformIdentity;
             b.alpha = 1.0f;
-            l.center = targetL;
+            l.center = lTarget;
             l.transform = CGAffineTransformIdentity;
             l.alpha = 1.0f;
         } completion:nil];
     }
+    _dotButton.layer.zPosition = 1.0f;  // dot 在最下面
 }
 
 - (void)collapseMenu
@@ -560,20 +576,34 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
     CGPoint dotCenter = _dotButton.center;
 
-    // 反向瀑布流：每个按钮/标签向 dot 位置缩小淡出
+    // 先保存当前位置（改 frame 之前）
+    NSMutableArray *targets = [NSMutableArray array];
     for (NSUInteger i = 0; i < _menuButtons.count; i++) {
         UIButton *b = _menuButtons[i];
         UILabel *l = _menuLabels[i];
-        CGSize origBSize = b.frame.size;
-        CGSize origLSize = l.frame.size;
-        CGRect bTarget = CGRectMake(dotCenter.x - origBSize.width/2,
-                                    dotCenter.y - origBSize.height/2,
-                                    origBSize.width, origBSize.height);
-        CGRect lTarget = CGRectMake(dotCenter.x - origLSize.width/2,
-                                    dotCenter.y - origLSize.height/2,
-                                    origLSize.width, origLSize.height);
+        [targets addObject:@{
+            @"b_center": [NSValue valueWithCGPoint:b.center],
+            @"l_center": [NSValue valueWithCGPoint:l.center],
+            @"b_size": [NSValue valueWithCGSize:b.frame.size],
+            @"l_size": [NSValue valueWithCGSize:l.frame.size]
+        }];
+    }
 
-        // 反向：最后一个先收
+    // 反向瀑布流：每个按钮/标签向 dot 位置缩小淡出，最后一个先收
+    for (NSUInteger i = 0; i < _menuButtons.count; i++) {
+        UIButton *b = _menuButtons[i];
+        UILabel *l = _menuLabels[i];
+        NSDictionary *t = targets[i];
+        CGSize bSize = [t[@"b_size"] CGSizeValue];
+        CGSize lSize = [t[@"l_size"] CGSizeValue];
+
+        CGRect bTarget = CGRectMake(dotCenter.x - bSize.width/2,
+                                    dotCenter.y - bSize.height/2,
+                                    bSize.width, bSize.height);
+        CGRect lTarget = CGRectMake(dotCenter.x - lSize.width/2,
+                                    dotCenter.y - lSize.height/2,
+                                    lSize.width, lSize.height);
+
         double delay = (_menuButtons.count - 1 - i) * 0.04f;
         [UIView animateWithDuration:0.25f
                               delay:delay
@@ -687,7 +717,8 @@ static void fmPersistKeys(NSDictionary *pairs)
 {
     NSUInteger idx = [_menuButtons indexOfObject:sender];
     if (idx == NSNotFound) return;
-    [self collapseMenu];
+    // 不要在这里调 collapseMenu！每个 action 自己决定要不要收菜单：
+    // actionStart 启动脚本后保持菜单打开（方便停止），actionSettings/actionBack 收菜单
     if (idx == 0) [self actionStart];
     else if (idx == 1) [self actionSettings];
     else if (idx == 2) [self actionBack];
