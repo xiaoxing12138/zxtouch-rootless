@@ -634,9 +634,9 @@ static void fmPersistKeys(NSDictionary *pairs)
 {
     // 动画中：取消所有动画 → view 跳到 applyGeometry 算的正确位置 → 再 toggle
     if (_menuAnimating) {
-        [self.layer removeAllAnimations];
-        for (UIButton *b in _menuButtons) { [b.layer removeAllAnimations]; [b.layer removeAllTransitionAnimations]; }
-        for (UILabel *l in _menuLabels) { [l.layer removeAllAnimations]; [l.layer removeAllTransitionAnimations]; }
+        [_content.layer removeAllAnimations];
+        for (UIButton *b in _menuButtons) { [b.layer removeAllAnimations]; }
+        for (UILabel *l in _menuLabels) { [l.layer removeAllAnimations]; }
         _menuAnimating = NO;
         [self applyGeometry];  // 所有 view 跳到 _expanded 当前状态对应的正确位置
     }
