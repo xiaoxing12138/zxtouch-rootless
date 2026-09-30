@@ -2,6 +2,7 @@
 #import "Screen.h"
 #import "Common.h"
 #import "FloatingMenu.h"
+#import "Socket.h"
 
 static FMPassthroughWindow *_testWindow = nil;
 static UIView *_testRootView = nil;
