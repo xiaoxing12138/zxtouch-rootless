@@ -37,6 +37,7 @@
 #include "Play.h"
 #include "TouchIndicator/TouchIndicatorWindow.h"
 #include "NetSpeedIndicator.h"
+#include "FloatingMenu.h"
 #include <roothide.h>
 
 #define IPHONE7P_HEIGHT 1920
@@ -368,6 +369,7 @@ Boolean init()
     initScriptPlayer();
     initConfig();
     [NetSpeedIndicator reloadConfig];
+    [FloatingMenu reloadConfig];
 
     return true;
 }

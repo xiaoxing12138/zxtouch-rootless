@@ -1,0 +1,31 @@
+#ifndef FLOATING_MENU_H
+#define FLOATING_MENU_H
+
+#import <UIKit/UIKit.h>
+
+/*
+ * 按键精灵式悬浮控制按钮（注入 SpringBoard，rootless）。
+ *
+ * 常驻一个 48pt 圆形悬浮按钮，可拖动、可展开「启动 / 设置 / 返回」三个
+ * 纵向菜单按钮。所有配置存放在 getCommonConfigFilePath() 返回的 plist 中：
+ *
+ *   floating_menu_enabled  BOOL      是否开启
+ *   floating_menu_x        NSNumber  竖屏坐标空间下圆点中心点 X
+ *   floating_menu_y        NSNumber  竖屏坐标空间下圆点中心点 Y
+ *   floating_menu_script   NSString  选中的 .bdl 脚本绝对路径
+ */
+@interface FloatingMenu : NSObject
+
+// 开关悬浮按钮；同时持久化 floating_menu_enabled
++ (void)setEnabled:(BOOL)enabled;
++ (BOOL)isEnabled;
+
+// 重新读取 plist 并应用全部配置（enabled、位置、脚本）
++ (void)reloadConfig;
+
+@end
+
+// socket 任务 32：32;;1 开启 / 32;;0 关闭 / 32;;2 查询（"0;;1\r\n" 或 "0;;0\r\n"）
+NSString *handleFloatingMenuTaskWithRawData(UInt8 *eventData, NSError **error);
+
+#endif

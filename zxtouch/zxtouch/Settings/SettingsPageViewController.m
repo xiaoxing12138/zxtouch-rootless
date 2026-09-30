@@ -8,6 +8,7 @@
 #import "SettingsPageViewController.h"
 #import "ScriptListTableCell.h"
 #import "TouchIndicatorConfigurationViewController.h"
+#import "NetSpeedConfigurationViewController.h"
 #import "Util.h"
 #import "Socket.h"
 
@@ -207,6 +208,12 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         netSpeedIndicator = [[configManager getValueFromKey:@"net_speed_indicator_enabled"] boolValue];
     }
 
+    BOOL floatingMenu = NO;
+    if ([configManager getValueFromKey:@"floating_menu_enabled"])
+    {
+        floatingMenu = [[configManager getValueFromKey:@"floating_menu_enabled"] boolValue];
+    }
+
     // [@{"type": ?, @"title": ?, @"content": ?, ... more depends on the cell type}]
     //
     cellsForEachSection = @[
@@ -214,7 +221,9 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"双击下音量键打开控制面板", @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速指示器设置", @"secondary_title": @"位置 / 字号 / 边距 / 息屏暂停", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"悬浮控制按钮", @"switch_click_handler": NSStringFromSelector(@selector(handleFloatingMenuToggle:)), @"switch_init_status": @(floatingMenu)}
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
@@ -274,13 +283,19 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([configManager getValueFromKey:@"net_speed_indicator_enabled"])
         netSpeedIndicator = [[configManager getValueFromKey:@"net_speed_indicator_enabled"] boolValue];
 
+    BOOL floatingMenu = NO;
+    if ([configManager getValueFromKey:@"floating_menu_enabled"])
+        floatingMenu = [[configManager getValueFromKey:@"floating_menu_enabled"] boolValue];
+
     sections = @[@"远程管理", @"控制", @"自动操作", @"脚本", @"外观", @"关于"];
     cellsForEachSection = @[
         [self remoteManagementCells],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"双击下音量键打开控制面板", @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"网速指示器", @"switch_click_handler": NSStringFromSelector(@selector(handleNetSpeedIndicatorToggle:)), @"switch_init_status": @(netSpeedIndicator)},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速指示器设置", @"secondary_title": @"位置 / 字号 / 边距 / 息屏暂停", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"悬浮控制按钮", @"switch_click_handler": NSStringFromSelector(@selector(handleFloatingMenuToggle:)), @"switch_init_status": @(floatingMenu)}
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
@@ -555,6 +570,25 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     Socket *socket = [[Socket alloc] init];
     if ([socket connect:@"127.0.0.1" byPort:6000] == 0) {
         NSString *cmd = [NSString stringWithFormat:@"31;;%d\r\n", enabled ? 1 : 0];
+        [socket send:cmd];
+        [socket close];
+    }
+}
+
+- (void)handleNetSpeedSettingsTap:(TableViewCellWithEntry *)cell {
+    NetSpeedConfigurationViewController *vc = [[NetSpeedConfigurationViewController alloc] init];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)handleFloatingMenuToggle:(UISwitch*)s {
+    BOOL enabled = [s isOn];
+    [configManager updateKey:@"floating_menu_enabled" forValue:@(enabled)];
+    [configManager save];
+
+    // Notify SpringBoard tweak via socket (command 32)
+    Socket *socket = [[Socket alloc] init];
+    if ([socket connect:@"127.0.0.1" byPort:6000] == 0) {
+        NSString *cmd = [NSString stringWithFormat:@"32;;%d\r\n", enabled ? 1 : 0];
         [socket send:cmd];
         [socket close];
     }

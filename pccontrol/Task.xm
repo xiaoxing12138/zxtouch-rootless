@@ -19,6 +19,7 @@
 #include "UpdateCache.h"
 #include "Screen.h"
 #include "NetSpeedIndicator.h"
+#include "FloatingMenu.h"
 
 extern CFRunLoopRef recordRunLoop;
 
@@ -391,6 +392,25 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
         @autoreleasepool {
             NSError *err = nil;
             NSString *result = handleNetSpeedIndicatorTaskWithRawData(eventData, &err);
+            if (err)
+            {
+                notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);
+            }
+            else if (result)
+            {
+                notifyClient((UInt8*)[result UTF8String], writeStreamRef);
+            }
+            else
+            {
+                notifyClient((UInt8*)"0\r\n", writeStreamRef);
+            }
+        }
+    }
+    else if (taskType == TASK_FLOATING_MENU)
+    {
+        @autoreleasepool {
+            NSError *err = nil;
+            NSString *result = handleFloatingMenuTaskWithRawData(eventData, &err);
             if (err)
             {
                 notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);

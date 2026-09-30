@@ -90,36 +90,66 @@
     .segment { min-height: 29px; padding: 4px 10px; border: 0; border-radius: 4px; color: var(--muted); background: transparent; cursor: pointer; }
     .segment.active { color: var(--text); background: #2b323c; }
 
+    .scripts-layout { display: grid; grid-template-columns: minmax(300px, 38%) minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+    .library-panel { display: flex; flex-direction: column; min-width: 0; border: 0; border-radius: 0; }
+    .editor-panel { display: flex; flex-direction: column; min-width: 0; margin: 0; border: 0; border-left: 1px solid var(--line); border-radius: 0; }
+    @media (min-width: 821px) { .scripts-layout { height: calc(100vh - 250px); min-height: 460px; } }
+
+    .library-head { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+    .library-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .library-head .panel-tools { gap: 7px; }
+    .library-filters { display: flex; gap: 8px; }
+    .library-filters .search { flex: 1; width: auto; min-width: 0; }
+    .button.mini { min-height: 30px; padding: 4px 10px; border-color: var(--line); color: var(--muted-strong); font-size: 12px; }
+    .button.mini:hover { border-color: var(--line-strong); color: var(--text); background: var(--panel-hover); }
+
     .script-list { min-height: 320px; max-height: calc(100vh - 310px); overflow: auto; overscroll-behavior: contain; }
-    .script-row { min-height: 58px; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 13px; border-bottom: 1px solid var(--line); }
+    .scripts-layout .script-list { flex: 1; min-height: 0; max-height: none; }
+    .script-row { display: flex; align-items: center; gap: 9px; padding: 9px 13px; border-bottom: 1px solid var(--line); }
     .script-row:last-child { border-bottom: 0; }
     .script-row:hover { background: var(--panel-hover); }
-    .script-type { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid #28527a; border-radius: 6px; color: #acd6ff; background: #14263a; font-size: 9px; font-weight: 800; }
-    .script-type.raw { border-color: #67522b; color: #f3cc7d; background: #302616; }
+    .script-row.active { background: #122032; box-shadow: inset 2px 0 0 var(--blue); }
+    .type-tag { flex: 0 0 auto; padding: 2px 6px; border: 1px solid #28527a; border-radius: 4px; color: #acd6ff; background: #14263a; font-size: 9px; font-weight: 800; letter-spacing: .4px; }
+    .type-tag.raw { border-color: #67522b; color: #f3cc7d; background: #302616; }
     .script-copy { min-width: 0; }
-    .script-name { overflow: hidden; font-size: 13px; font-weight: 670; text-overflow: ellipsis; white-space: nowrap; }
-    .script-path { margin-top: 2px; overflow: hidden; color: var(--muted); font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
-    .script-actions { display: flex; align-items: center; gap: 6px; }
+    button.script-name { min-width: 0; flex: 0 1 auto; padding: 0; border: 0; color: var(--text); background: transparent; font-size: 13px; font-weight: 670; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    button.script-name:hover { color: var(--blue-hover); text-decoration: underline; text-underline-offset: 3px; }
+    .script-row.active button.script-name { color: #9dc7ff; }
+    .script-time { flex: 0 0 auto; color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+    .mini-glyph { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; color: var(--muted); background: transparent; font-size: 12px; line-height: 1; cursor: pointer; }
+    .script-row .mini-glyph { margin-left: auto; }
+    .mini-glyph:hover { color: var(--text); background: #2a313b; }
     .empty-state { min-height: 260px; display: grid; place-items: center; padding: 30px; color: var(--muted); text-align: center; }
 
-    .folder-row { min-height: 46px; display: flex; align-items: center; gap: 9px; padding: 8px 13px 8px calc(13px + var(--depth, 0) * 20px); border-bottom: 1px solid var(--line); color: var(--muted-strong); cursor: pointer; -webkit-user-select: none; user-select: none; }
+    .folder-row { min-height: 44px; display: flex; align-items: center; gap: 9px; padding: 8px 13px 8px calc(13px + var(--depth, 0) * 18px); border-bottom: 1px solid var(--line); color: var(--muted-strong); cursor: pointer; -webkit-user-select: none; user-select: none; }
     .folder-row:hover { background: var(--panel-hover); }
     .folder-row:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
     .folder-caret { width: 12px; flex: 0 0 12px; color: var(--muted); font-size: 9px; text-align: center; }
     .folder-icon { position: relative; width: 19px; height: 14px; flex: 0 0 19px; margin-top: 4px; border-radius: 2px 3px 3px 3px; background: #2c4c6d; }
     .folder-icon::before { position: absolute; top: -4px; left: 0; width: 9px; height: 4px; border-radius: 2px 2px 0 0; background: #2c4c6d; content: ""; }
     .folder-name { overflow: hidden; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-    .folder-count { margin-left: auto; flex: 0 0 auto; padding-left: 10px; color: var(--muted); font-size: 11px; }
-    .script-list .script-row { padding-left: calc(13px + var(--depth, 0) * 20px); }
-    .script-actions { flex-wrap: wrap; justify-content: flex-end; }
-    .icon-button.text-glyph { font-size: 13px; font-weight: 700; }
-    .icon-button.danger-text { color: var(--red); }
+    .folder-tools { display: flex; flex: 0 0 auto; align-items: center; gap: 3px; margin-left: auto; }
+    .folder-count { padding: 0 6px 0 4px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .mini-link { padding: 3px 6px; border: 0; border-radius: 4px; color: #b47070; background: transparent; font-size: 10.5px; line-height: 1; cursor: pointer; white-space: nowrap; }
+    .mini-link:hover { color: #ff9090; background: rgba(239, 101, 101, .12); }
+    @media (hover: hover) { .folder-row .mini-link { opacity: 0; transition: opacity .15s ease; } .folder-row:hover .mini-link, .folder-row:focus-within .mini-link { opacity: 1; } }
+    .script-list .script-row { padding-left: calc(13px + var(--depth, 0) * 18px); }
 
-    .editor-panel { margin-top: 14px; }
-    .editor-dirty { color: var(--amber); font-size: 12px; font-weight: 650; white-space: nowrap; }
-    .script-editor { display: block; width: 100%; height: calc(100vh - 320px); min-height: 340px; margin: 0; padding: 15px; border: 0; color: #d5dbe3; background: #090b0e; font: 12.5px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; tab-size: 4; white-space: pre; overflow: auto; }
+    .editor-dirty { display: inline-flex; align-items: center; gap: 4px; color: var(--amber); font-size: 11px; font-weight: 650; white-space: nowrap; }
+    .editor-empty { flex: 1; display: grid; place-content: center; gap: 12px; padding: 30px; color: var(--muted); text-align: center; }
+    .editor-empty-mark { font-size: 30px; color: #3a424d; }
+    .editor-empty p { margin: 0; }
+    .editor-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .editor-header { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .editor-back { display: none; margin-bottom: 8px; }
+    .editor-title-line { display: flex; align-items: center; min-width: 0; gap: 9px; }
+    .editor-title-line h3 { margin: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+    .editor-header p { margin: 4px 0 0; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .script-editor { display: block; width: 100%; margin: 0; padding: 15px; border: 0; color: #d5dbe3; background: #090b0e; font: 12.5px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; resize: none; tab-size: 4; white-space: pre; overflow: auto; }
+    .editor-body .script-editor { flex: 1; min-height: 0; height: auto; }
     .script-editor:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
-    .editor-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    .editor-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    .editor-actions { display: flex; gap: 8px; }
 
     .modal-fields { display: grid; gap: 12px; margin-top: 14px; }
     .modal-field { display: grid; gap: 6px; }
@@ -178,6 +208,11 @@
       .asset-layout, .device-layout { grid-template-columns: 1fr; }
       .asset-notes { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
       .script-list { max-height: 560px; }
+      .scripts-layout { grid-template-columns: minmax(0, 1fr); }
+      .editor-panel { display: none; border-left: 0; }
+      .editor-panel.is-open { display: flex; position: fixed; inset: 0; z-index: 40; background: var(--panel); }
+      .editor-back { display: inline-flex; }
+      .scripts-layout .script-list { min-height: 260px; max-height: 58vh; }
     }
 
     @media (max-width: 620px) {
@@ -199,16 +234,16 @@
       .segmented { width: 100%; }
       .segment { flex: 1; }
       .script-list { min-height: 300px; max-height: calc(100vh - 370px); }
-      .script-row { grid-template-columns: 34px minmax(0, 1fr); }
-      .script-actions { grid-column: 2; }
+      .library-head .panel-tools { width: auto; }
+      .library-filters { flex-wrap: wrap; }
+      .library-filters .search { flex-basis: 100%; }
       .log-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
       .log-filter { width: 100%; grid-column: 1 / -1; }
       .log-tools .button { width: 100%; }
       .log-output { height: calc(100vh - 390px); min-height: 340px; }
-      .editor-head { flex-wrap: wrap; }
-      .editor-tools { width: 100%; flex-wrap: wrap; }
-      .editor-dirty { order: -1; width: 100%; }
-      .script-editor { height: calc(100vh - 420px); min-height: 280px; }
+      .editor-actions { flex: 1; }
+      .editor-actions .button { flex: 1; padding-right: 8px; padding-left: 8px; }
+      .editor-hint { display: none; }
       .data-grid { grid-template-columns: 1fr; }
       .data-row, .data-row:nth-child(2n), .data-row:nth-last-child(-n + 2) { border-right: 0; border-bottom: 1px solid var(--line); }
       .data-row:last-child { border-bottom: 0; }
@@ -230,15 +265,24 @@
         <div class="run-state"><div class="activity-mark" aria-hidden="true">&#9679;</div><div class="script-copy"><div class="run-state-title" id="activity">空闲</div><div class="run-state-detail" id="lastAction">就绪</div></div></div>
         <div class="quick-controls"><span class="recording-label" id="recordingState">录制器空闲</span><button class="button" id="recordStart"><span class="button-symbol">&#9679;</span>录制</button><button class="button" id="recordStop"><span class="button-symbol">&#9632;</span>保存</button><button class="button danger" id="stop"><span class="button-symbol">&#9632;</span>停止</button></div>
       </div>
-      <section class="panel">
-        <div class="panel-head"><div class="panel-title"><h3>脚本库</h3><p id="scriptSummary">正在加载脚本</p></div><div class="panel-tools"><button class="button" id="createScript"><span class="button-symbol">&#43;</span>新建脚本</button><button class="button" id="createFolder"><span class="button-symbol">&#43;</span>新建文件夹</button><input class="search" id="scriptSearch" type="search" placeholder="搜索脚本" aria-label="搜索脚本"><div class="segmented" aria-label="脚本类型筛选"><button class="segment active" data-filter="all">全部</button><button class="segment" data-filter="py">Python</button><button class="segment" data-filter="raw">原始</button></div></div></div>
+      <div class="scripts-layout">
+      <section class="panel library-panel">
+        <div class="panel-head library-head"><div class="library-head-row"><div class="panel-title"><h3>脚本库</h3><p id="scriptSummary">正在加载脚本</p></div><div class="panel-tools"><button class="button ghost mini" id="createScript" type="button"><span class="button-symbol">&#43;</span>脚本</button><button class="button ghost mini" id="createFolder" type="button"><span class="button-symbol">&#43;</span>文件夹</button></div></div><div class="library-filters"><input class="search" id="scriptSearch" type="search" placeholder="搜索脚本" aria-label="搜索脚本"><div class="segmented" aria-label="脚本类型筛选"><button class="segment active" type="button" data-filter="all">全部</button><button class="segment" type="button" data-filter="py">Python</button><button class="segment" type="button" data-filter="raw">原始</button></div></div></div>
         <div class="script-list" id="scripts"><div class="empty-state">正在加载脚本库…</div></div>
       </section>
-      <section class="panel editor-panel" id="editorPanel" hidden>
-        <div class="panel-head editor-head"><div class="panel-title"><h3 id="editorName">编辑脚本</h3><p id="editorMeta">尚未加载</p></div><div class="panel-tools editor-tools"><span class="editor-dirty" id="editorDirty" hidden>未保存更改</span><button class="button primary" id="saveScript"><span class="button-symbol">&#10003;</span>保存</button><button class="button ghost" id="closeEditor">关闭</button></div></div>
-        <textarea class="script-editor" id="scriptEditor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="脚本编辑器"></textarea>
-        <div class="editor-foot"><span>Ctrl + S 保存当前脚本</span><span id="editorHint"></span></div>
+      <section class="panel editor-panel" id="editorPanel">
+        <div class="editor-empty" id="editorEmpty"><div class="editor-empty-mark" aria-hidden="true">&#9998;</div><p>点击左侧脚本名进行编辑</p></div>
+        <div class="editor-body" id="editorBody" hidden>
+          <div class="editor-header">
+            <button class="button ghost mini editor-back" id="editorBack" type="button"><span class="button-symbol">&#8592;</span>返回列表</button>
+            <div class="editor-title-line"><h3 id="editorName">编辑脚本</h3><span class="editor-dirty" id="editorDirty" hidden><span aria-hidden="true">&#9679;</span>未保存</span></div>
+            <p id="editorMeta">尚未加载</p>
+          </div>
+          <textarea class="script-editor" id="scriptEditor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="脚本编辑器"></textarea>
+          <div class="editor-foot"><div class="editor-actions"><button class="button primary" id="runEditor" type="button" disabled><span class="button-symbol">&#9654;</span>运行</button><button class="button danger" id="deleteEditor" type="button"><span class="button-symbol">&#10005;</span>删除</button><button class="button" id="saveScript" type="button"><span class="button-symbol">&#10003;</span>保存</button></div><span class="editor-hint">Ctrl + S 保存</span></div>
+        </div>
       </section>
+      </div>
     </section>
 
     <section class="view" id="view-assets" role="tabpanel" hidden>
@@ -315,17 +359,22 @@
     }
     function countScripts(node) { let total = node.scripts.length; node.folders.forEach(child => { total += countScripts(child); }); return total; }
     function sortTree(node) { node.scripts.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN')); node.folders.forEach(sortTree); }
+    function formatModified(value) {
+      const text = String(value || '');
+      const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+      return match ? `${match[2]}-${match[3]} ${match[4]}:${match[5]}` : text;
+    }
     function renderFolderRows(node, path, depth, html) {
       Array.from(node.folders.keys()).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')).forEach(name => {
-        const child = node.folders.get(name); const full = path ? `${path}/${name}` : name; const collapsed = state.collapsed.has(full);
-        html.push(`<div class="folder-row" style="--depth:${depth}" data-folder="${escapeAttr(full)}" role="button" tabindex="0" aria-expanded="${String(!collapsed)}"><span class="folder-caret">${collapsed ? '&#9654;' : '&#9660;'}</span><span class="folder-icon" aria-hidden="true"></span><span class="folder-name">${escapeHTML(name)}</span><span class="folder-count">${countScripts(child)} 项</span></div>`);
+        const child = node.folders.get(name); const full = path ? `${path}/${name}` : name; const collapsed = state.collapsed.has(full); const count = countScripts(child);
+        html.push(`<div class="folder-row" style="--depth:${depth}" data-folder="${escapeAttr(full)}" role="button" tabindex="0" aria-expanded="${String(!collapsed)}"><span class="folder-caret">${collapsed ? '&#9654;' : '&#9660;'}</span><span class="folder-icon" aria-hidden="true"></span><span class="folder-name">${escapeHTML(name)}</span><span class="folder-tools"><span class="folder-count">${count} 项</span>${collapsed ? '' : `<button type="button" class="mini-link delete-folder" data-folder="${escapeAttr(full)}" data-count="${count}" title="删除文件夹">删除文件夹</button>`}<button type="button" class="mini-glyph rename-folder" data-folder="${escapeAttr(full)}" data-name="${escapeAttr(name)}" title="重命名文件夹" aria-label="重命名文件夹 ${escapeAttr(name)}">&#9998;</button></span></div>`);
         if (!collapsed) renderFolderRows(child, full, depth + 1, html);
       });
       node.scripts.forEach(script => { html.push(renderScriptRow(script, depth)); });
     }
     function renderScriptRow(script, depth) {
-      const type = scriptType(script); const encodedPath = encodeURIComponent(script.path); const encodedName = encodeURIComponent(script.name);
-      return `<article class="script-row" style="--depth:${depth}"><div class="script-type ${type === 'raw' ? 'raw' : ''}">${type === 'raw' ? 'RAW' : 'PY'}</div><div class="script-copy"><div class="script-name">${escapeHTML(script.name)}</div><div class="script-path">${script.modified ? `修改于 ${escapeHTML(script.modified)}` : escapeHTML(script.entry || script.path)}</div></div><div class="script-actions"><button class="button primary run-script" data-path="${encodedPath}" data-name="${encodedName}"><span class="button-symbol">&#9654;</span>运行</button><button class="icon-button text-glyph edit-script" data-path="${encodedPath}" title="编辑脚本" aria-label="编辑 ${escapeAttr(script.name)}">&#9998;</button><button class="icon-button text-glyph rename-script" data-path="${encodedPath}" data-name="${encodedName}" title="重命名脚本" aria-label="重命名 ${escapeAttr(script.name)}">&#9999;&#65038;</button><button class="icon-button download-script" data-path="${encodedPath}" title="下载脚本" aria-label="下载 ${escapeAttr(script.name)}">&#8595;</button><button class="icon-button danger-text delete-script" data-path="${encodedPath}" data-name="${encodedName}" title="删除脚本" aria-label="删除 ${escapeAttr(script.name)}">&#10005;</button></div></article>`;
+      const type = scriptType(script); const active = state.editing && state.editing.path === script.path ? ' active' : '';
+      return `<article class="script-row${active}" style="--depth:${depth}"><span class="type-tag ${type === 'raw' ? 'raw' : ''}">${type === 'raw' ? 'RAW' : 'PY'}</span><button type="button" class="script-name open-script" data-path="${encodeURIComponent(script.path)}" title="${escapeAttr(script.name)}">${escapeHTML(script.name)}</button>${script.modified ? `<span class="script-time" title="${escapeAttr(script.modified)}">${escapeHTML(formatModified(script.modified))}</span>` : ''}<button type="button" class="mini-glyph rename-script" data-path="${encodeURIComponent(script.path)}" data-name="${encodeURIComponent(script.name)}" title="重命名" aria-label="重命名 ${escapeAttr(script.name)}">&#9998;</button></article>`;
     }
 
     function renderScripts() {
@@ -338,44 +387,93 @@
       if (searching) visible.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN')).forEach(script => html.push(renderScriptRow(script, 0)));
       else { const tree = buildScriptTree(visible); sortTree(tree); renderFolderRows(tree, '', 0, html); }
       elements.scripts.innerHTML = html.join('');
-      elements.scripts.querySelectorAll('.folder-row').forEach(row => { const toggle = () => { const path = row.dataset.folder; if (state.collapsed.has(path)) state.collapsed.delete(path); else state.collapsed.add(path); renderScripts(); }; row.addEventListener('click', toggle); row.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } }); });
-      elements.scripts.querySelectorAll('.run-script').forEach(button => button.addEventListener('click', () => confirmRun(button)));
-      elements.scripts.querySelectorAll('.edit-script').forEach(button => button.addEventListener('click', () => openEditor(decodeURIComponent(button.dataset.path))));
+      elements.scripts.querySelectorAll('.folder-row').forEach(row => { const toggle = () => { const path = row.dataset.folder; if (state.collapsed.has(path)) state.collapsed.delete(path); else state.collapsed.add(path); renderScripts(); }; row.addEventListener('click', event => { if (event.target.closest('.folder-tools')) return; toggle(); }); row.addEventListener('keydown', event => { if (event.target !== row) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } }); });
+      elements.scripts.querySelectorAll('.open-script').forEach(button => button.addEventListener('click', () => openEditor(decodeURIComponent(button.dataset.path))));
       elements.scripts.querySelectorAll('.rename-script').forEach(button => button.addEventListener('click', () => renameScript(decodeURIComponent(button.dataset.path), decodeURIComponent(button.dataset.name))));
-      elements.scripts.querySelectorAll('.download-script').forEach(button => button.addEventListener('click', () => { location.href = query(`/api/download?path=${encodeURIComponent(decodeURIComponent(button.dataset.path))}`); }));
-      elements.scripts.querySelectorAll('.delete-script').forEach(button => button.addEventListener('click', () => deleteScript(decodeURIComponent(button.dataset.path), decodeURIComponent(button.dataset.name))));
+      elements.scripts.querySelectorAll('.rename-folder').forEach(button => button.addEventListener('click', () => renameFolder(decodeURIComponent(button.dataset.folder), decodeURIComponent(button.dataset.name))));
+      elements.scripts.querySelectorAll('.delete-folder').forEach(button => button.addEventListener('click', () => deleteFolder(decodeURIComponent(button.dataset.folder), Number(button.dataset.count) || 0)));
       if (state.status) renderStatus(state.status);
     }
 
+    function showEditor(open) {
+      elements.editorEmpty.hidden = open;
+      elements.editorBody.hidden = !open;
+      elements.editorPanel.classList.toggle('is-open', open);
+    }
+    function highlightActiveScript() {
+      elements.scripts.querySelectorAll('.open-script').forEach(button => {
+        button.closest('.script-row').classList.toggle('active', Boolean(state.editing) && decodeURIComponent(button.dataset.path) === state.editing.path);
+      });
+    }
+    function resetEditor() {
+      state.editing = null;
+      elements.scriptEditor.value = '';
+      showEditor(false);
+      elements.runEditor.disabled = true;
+      highlightActiveScript();
+    }
+    function pruneEditing() {
+      if (state.editing && !state.scripts.some(script => script.path === state.editing.path)) resetEditor();
+    }
     function editingDirty() { return Boolean(state.editing) && elements.scriptEditor.value !== state.editing.content; }
     function syncEditorMeta() {
       if (!state.editing) return;
       elements.editorName.textContent = state.editing.name;
-      elements.editorMeta.textContent = `${state.editing.path}${state.editing.modified ? ` · 修改于 ${state.editing.modified}` : ''}`;
+      elements.editorMeta.textContent = `${state.editing.modified ? `修改于 ${state.editing.modified} · ` : ''}${state.editing.path}`;
       elements.editorDirty.hidden = !editingDirty();
-      elements.editorHint.textContent = editingDirty() ? '有未保存的更改' : '';
     }
     async function openEditor(path) {
-      if (state.editing && state.editing.path === path) { elements.editorPanel.hidden = false; return; }
+      if (state.editing && state.editing.path === path) { showEditor(true); return; }
       if (state.editing && editingDirty() && !await ask('放弃未保存的更改？', `「${state.editing.name}」有未保存的修改，切换后将丢失。`, '放弃更改', true)) return;
       try {
         const payload = await api(`/api/script/read?path=${encodeURIComponent(path)}`);
         state.editing = { path, name: payload.name || path, modified: payload.modified || '', content: payload.content || '' };
         elements.scriptEditor.value = state.editing.content;
-        elements.editorPanel.hidden = false; syncEditorMeta();
-        elements.editorPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        showEditor(true); syncEditorMeta(); highlightActiveScript();
+        if (state.status) renderStatus(state.status);
       } catch (error) { showToast(error.message, true); }
     }
     async function saveEditor() {
       if (!state.editing || !editingDirty() || elements.saveScript.dataset.busy === '1') return;
       setButtonBusy(elements.saveScript, true, '保存中…');
-      try { await postJSON('/api/script/save', { path: state.editing.path, content: elements.scriptEditor.value }); state.editing.content = elements.scriptEditor.value; syncEditorMeta(); showToast(`「${state.editing.name}」已保存。`); await loadScripts(); }
+      try {
+        const saved = await postJSON('/api/script/save', { path: state.editing.path, content: elements.scriptEditor.value });
+        state.editing.content = elements.scriptEditor.value;
+        await loadScripts();
+        const fresh = state.scripts.find(script => script.path === state.editing.path);
+        if (fresh && fresh.modified) state.editing.modified = fresh.modified;
+        else if (saved && saved.modified) state.editing.modified = saved.modified;
+        syncEditorMeta();
+        showToast(`「${state.editing.name}」已保存。`);
+      }
       catch (error) { showToast(error.message, true); }
       finally { setButtonBusy(elements.saveScript, false); }
     }
     async function closeEditor() {
-      if (state.editing && editingDirty() && !await ask('关闭编辑器？', `「${state.editing.name}」有未保存的修改，关闭后将丢失。`, '放弃更改', true)) return;
-      state.editing = null; elements.editorPanel.hidden = true; elements.scriptEditor.value = '';
+      if (state.editing && editingDirty() && !await ask('返回脚本列表？', `「${state.editing.name}」有未保存的修改，返回后将丢失。`, '放弃更改', true)) return;
+      resetEditor();
+    }
+    async function runCurrentScript() {
+      if (!state.editing || elements.runEditor.dataset.busy === '1') return;
+      if (!await ask('运行脚本？', `「${state.editing.name}」将立即开始运行。`, '运行脚本')) return;
+      setButtonBusy(elements.runEditor, true, '启动中…');
+      try {
+        await postJSON('/api/run', { path: state.editing.path });
+        showToast(`「${state.editing.name}」已启动。`);
+        await loadStatus();
+      } catch (error) { showToast(error.message, true); }
+      finally { setButtonBusy(elements.runEditor, false); if (state.status) renderStatus(state.status); }
+    }
+    async function deleteCurrentScript() {
+      if (!state.editing) return;
+      const path = state.editing.path; const name = state.editing.name;
+      if (!await ask('删除脚本？', `「${name}」（${path}）将被永久删除，无法恢复。`, '删除脚本', true)) return;
+      try {
+        await postJSON('/api/script/delete', { path });
+        showToast(`「${name}」已删除。`);
+        resetEditor();
+        await loadScripts();
+      } catch (error) { showToast(error.message, true); }
     }
     async function createScript() {
       const result = await askInput({ title: '新建脚本', label: '脚本名称', placeholder: '例如：每日签到', withFolder: true, actionLabel: '创建' });
@@ -390,7 +488,10 @@
       if (!result) return;
       const folder = normalizeFolder(result.name);
       if (!folder) { showToast('文件夹名称不能为空。', true); return; }
-      try { const payload = await postJSON('/api/script/create', { name: '新建脚本', folder }); showToast(`文件夹「${folder}」已创建。`); await loadScripts(); if (payload.path) await openEditor(payload.path); }
+      const parts = folder.split('/').filter(Boolean);
+      const folderName = parts.pop();
+      const parentFolder = parts.join('/');
+      try { await postJSON('/api/folder/create', { name: folderName, folder: parentFolder }); showToast(`文件夹「${folder}」已创建。`); await loadScripts(); }
       catch (error) { showToast(error.message, true); }
     }
     async function renameScript(path, name) {
@@ -406,13 +507,29 @@
         await loadScripts();
       } catch (error) { showToast(error.message, true); }
     }
-    async function deleteScript(path, name) {
-      if (!await ask('删除脚本？', `「${name}」（${path}）将被永久删除，无法恢复。`, '删除脚本', true)) return;
+    async function renameFolder(folder, name) {
+      const result = await askInput({ title: '重命名文件夹', label: '新名称', name, actionLabel: '重命名' });
+      if (!result) return;
+      const newName = result.name.trim();
+      if (!newName) { showToast('文件夹名称不能为空。', true); return; }
+      if (newName.includes('/') || newName.includes('\\')) { showToast('文件夹名称不能包含路径分隔符。', true); return; }
+      if (newName === name) return;
       try {
-        await postJSON('/api/script/delete', { path });
-        showToast(`「${name}」已删除。`);
-        if (state.editing && state.editing.path === path) { state.editing = null; elements.editorPanel.hidden = true; elements.scriptEditor.value = ''; }
-        await loadScripts();
+        await postJSON('/api/script/rename', { path: folder, newName });
+        showToast(`文件夹已重命名为「${newName}」。`);
+        await loadScripts(); pruneEditing();
+      } catch (error) { showToast(error.message, true); }
+    }
+    async function deleteFolder(folder, count) {
+      const message = count > 0
+        ? `文件夹「${folder}」非空，其中 ${count} 个脚本将连同子文件夹一起永久删除，无法恢复。`
+        : `文件夹「${folder}」将被永久删除，无法恢复。`;
+      if (!await ask('删除文件夹？', message, '删除文件夹', true)) return;
+      try {
+        await postJSON('/api/script/delete', { path: folder });
+        Array.from(state.collapsed).forEach(key => { if (key === folder || key.startsWith(`${folder}/`)) state.collapsed.delete(key); });
+        showToast(`文件夹「${folder}」已删除。`);
+        await loadScripts(); pruneEditing();
       } catch (error) { showToast(error.message, true); }
     }
 
@@ -429,14 +546,13 @@
       elements.activity.textContent = activity; elements.deviceActivity.textContent = activity; elements.screen.textContent = status.screen.width && status.screen.height ? `${Math.round(Number(status.screen.width))} x ${Math.round(Number(status.screen.height))}` : '-'; elements.orientation.textContent = orientation ? `${orientation} / ${orientationNames[orientation] || '未知'}` : '-'; elements.battery.textContent = Number.isFinite(battery) ? `${Math.round(battery)}%` : '-'; elements.foreground.textContent = status.foregroundApp || '-';
       elements.lastAction.textContent = status.lastAction || '就绪'; elements.recordingState.textContent = status.recording ? '正在录制' : '录制器空闲'; elements.socketState.textContent = online ? '已连接' : '离线'; elements.port.textContent = status.port || '8080'; elements.scriptCount.textContent = status.scriptCount ?? state.scripts.length; elements.lastError.textContent = status.lastError || '无';
       elements.stop.disabled = !online || !status.scriptPlaying; elements.recordStart.disabled = !online || status.recording; elements.recordStop.disabled = !online || !status.recording;
-      elements.scripts.querySelectorAll('.run-script').forEach(button => { if (button.dataset.busy !== '1') button.disabled = !online; });
+      if (elements.runEditor.dataset.busy !== '1') elements.runEditor.disabled = !online || !state.editing;
     }
 
     async function loadStatus() { const payload = await api('/api/status'); renderStatus(payload.status); }
     function renderLogs() { const filter = elements.logFilter.value.trim().toLowerCase(); const lines = state.rawLogs ? state.rawLogs.split(/\r?\n/) : []; const visible = filter ? lines.filter(line => line.toLowerCase().includes(filter)) : lines; const stick = elements.autoFollow.checked || elements.logs.scrollTop + elements.logs.clientHeight >= elements.logs.scrollHeight - 16; elements.logs.textContent = visible.join('\n') || '暂无运行时日志输出。'; elements.logSummary.textContent = `${visible.length} 条可见日志`; if (stick) elements.logs.scrollTop = elements.logs.scrollHeight; }
     async function loadLogs() { const payload = await api('/api/logs'); state.rawLogs = payload.logs || ''; renderLogs(); }
 
-    async function confirmRun(button) { const name = decodeURIComponent(button.dataset.name); if (!await ask('运行脚本？', `${name} 将立即开始运行。`, '运行脚本')) return; setButtonBusy(button, true, '启动中…'); try { await api('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: decodeURIComponent(button.dataset.path) }) }); showToast(`${name} 已启动。`); await loadStatus(); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(button, false); } }
     async function stopScript() { if (!await ask('停止当前脚本？', '当前脚本将立即停止。', '停止脚本', true)) return; setButtonBusy(elements.stop, true, '停止中…'); try { await api('/api/stop', { method: 'POST' }); showToast('已请求停止。'); await loadStatus(); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.stop, false); if (state.status) renderStatus(state.status); } }
     async function changeRecording(start) { const title = start ? '开始触摸录制？' : '停止并保存录制？'; const message = start ? 'ZXTouch 将持续录制触摸输入，直到你停止。' : '当前录制内容将保存到脚本库。'; if (!await ask(title, message, start ? '开始录制' : '停止并保存', !start)) return; const button = start ? elements.recordStart : elements.recordStop; setButtonBusy(button, true, start ? '启动中…' : '保存中…'); try { await api(start ? '/api/record/start' : '/api/record/stop', { method: 'POST' }); showToast(start ? '录制已开始。' : '录制已保存。'); await Promise.all([loadStatus(), start ? Promise.resolve() : loadScripts()]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(button, false); if (state.status) renderStatus(state.status); } }
 
@@ -449,8 +565,8 @@
     elements.inputCancel.addEventListener('click', () => closeInput(null)); elements.inputAccept.addEventListener('click', () => closeInput({ name: elements.inputName.value, folder: elements.inputFolder.value })); elements.inputModal.addEventListener('click', event => { if (event.target === elements.inputModal) closeInput(null); });
     [elements.inputName, elements.inputFolder].forEach(field => field.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); closeInput({ name: elements.inputName.value, folder: elements.inputFolder.value }); } }));
     elements.createScript.addEventListener('click', createScript); elements.createFolder.addEventListener('click', createFolder);
-    elements.saveScript.addEventListener('click', saveEditor); elements.closeEditor.addEventListener('click', closeEditor); elements.scriptEditor.addEventListener('input', syncEditorMeta);
-    document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { if (!elements.editorPanel.hidden) { event.preventDefault(); saveEditor(); } return; } if (event.key === 'Escape') { if (!elements.confirmModal.hidden) closeConfirmation(false); else if (!elements.inputModal.hidden) closeInput(null); } });
+    elements.saveScript.addEventListener('click', saveEditor); elements.editorBack.addEventListener('click', closeEditor); elements.runEditor.addEventListener('click', runCurrentScript); elements.deleteEditor.addEventListener('click', deleteCurrentScript); elements.scriptEditor.addEventListener('input', syncEditorMeta);
+    document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { if (state.editing && !elements.editorBody.hidden) { event.preventDefault(); saveEditor(); } return; } if (event.key === 'Escape') { if (!elements.confirmModal.hidden) closeConfirmation(false); else if (!elements.inputModal.hidden) closeInput(null); } });
     elements.refresh.addEventListener('click', refreshAll); elements.stop.addEventListener('click', stopScript); elements.recordStart.addEventListener('click', () => changeRecording(true)); elements.recordStop.addEventListener('click', () => changeRecording(false)); elements.assetForm.addEventListener('submit', uploadAsset); elements.assetFile.addEventListener('change', () => { elements.assetFileName.textContent = elements.assetFile.files[0]?.name || '选择资源文件'; }); elements.scriptSearch.addEventListener('input', renderScripts); elements.logFilter.addEventListener('input', renderLogs);
     document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => selectView(tab.dataset.view)));
     document.querySelectorAll('.segment').forEach(button => button.addEventListener('click', () => { state.scriptFilter = button.dataset.filter; document.querySelectorAll('.segment').forEach(segment => segment.classList.toggle('active', segment === button)); renderScripts(); }));

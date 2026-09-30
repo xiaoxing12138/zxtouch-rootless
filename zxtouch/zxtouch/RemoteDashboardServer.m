@@ -418,6 +418,32 @@ static NSString *ZXDashboardIPAddress(void)
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"path": [strongSelf relativePathForScriptsPath:bundlePath] } status:200];
     }];
 
+    [self.server addHandlerForMethod:@"POST" path:@"/api/folder/create" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSDictionary *body = [request.jsonObject isKindOfClass:[NSDictionary class]] ? request.jsonObject : @{};
+        NSString *name = [body[@"name"] isKindOfClass:[NSString class]] ? body[@"name"] : @"";
+        NSString *folder = [body[@"folder"] isKindOfClass:[NSString class]] ? body[@"folder"] : @"";
+        if (![strongSelf isSafeScriptName:name]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"文件夹名无效，不能包含 / \\ : * ? \" < > | 等字符。" } status:400];
+        }
+        NSString *relativePath = folder.length ? [folder stringByAppendingPathComponent:name] : name;
+        NSString *folderPath = [strongSelf safePathForRelativePath:relativePath mustExist:NO];
+        if (!folderPath) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"路径无效。" } status:400];
+        }
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        if ([fileManager fileExistsAtPath:folderPath]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"同名文件夹已存在。" } status:409];
+        }
+        NSError *error = nil;
+        if (![fileManager createDirectoryAtPath:folderPath withIntermediateDirectories:YES attributes:nil error:&error]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"无法创建文件夹。" } status:500];
+        }
+        strongSelf.lastAction = [NSString stringWithFormat:@"新建文件夹 %@", name];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"path": [strongSelf relativePathForScriptsPath:folderPath] } status:200];
+    }];
+
     [self.server addHandlerForMethod:@"POST" path:@"/api/script/delete" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];

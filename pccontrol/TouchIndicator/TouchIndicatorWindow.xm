@@ -52,6 +52,32 @@ static TouchIndicatorWindow *touchIndicatorWindow;
 static BOOL logNextIndicatorOrientation = NO;
 static BOOL logNextWindowGeometry = NO;
 
+// 触摸圆点直径（pt），从配置键 touch_indicator.dot_size 读取，缺省取硬编码的 INDICATOR_VIEW_DEFAULT_SIZE
+static CGFloat indicatorDotSize = INDICATOR_VIEW_DEFAULT_SIZE;
+
+@interface TouchIndicatorWindow ()
+- (void)setIndicatorDotSize:(CGFloat)dotSize;
+@end
+
+static CGFloat dotSizeFromTouchIndicatorConfig(NSDictionary *config)
+{
+    CGFloat dotSize = INDICATOR_VIEW_DEFAULT_SIZE;
+    @try {
+        id rawValue = config[@"touch_indicator"][@"dot_size"];
+        if (rawValue && [rawValue respondsToSelector:@selector(floatValue)]) {
+            CGFloat parsed = [rawValue floatValue];
+            // 配置缺失或异常时保持默认值；合法值统一钳制在 8–80 pt
+            if (parsed > 0) {
+                dotSize = MAX(8.0f, MIN(80.0f, parsed));
+            }
+        }
+    }
+    @catch (NSException *exception) {
+        dotSize = INDICATOR_VIEW_DEFAULT_SIZE;
+    }
+    return dotSize;
+}
+
 static BOOL orientationMaskSupports(UIInterfaceOrientationMask mask, UIInterfaceOrientation orientation)
 {
     switch (orientation) {
@@ -369,7 +395,10 @@ void handleTouchIndicatorTaskWithRawData(UInt8* eventData, NSError **error)
 
         if (config[@"touch_indicator"][@"show_coordinates"] != nil)
             showCoordinates = [config[@"touch_indicator"][@"show_coordinates"] boolValue];
+        indicatorDotSize = dotSizeFromTouchIndicatorConfig(config);
         [touchIndicatorWindow setIndicatorColorWithRed:red green:green blue:blue alpha:alpha];
+        [touchIndicatorWindow setIndicatorDotSize:indicatorDotSize];
+        NSLog(@"com.zjx.springboard: reload touch indicator. dot size: %f pt", indicatorDotSize);
     }
     else
     {
@@ -421,6 +450,7 @@ void startTouchIndicator(NSError **error)
         CGFloat green = 0;
         CGFloat blue = 0;
         CGFloat alpha = 0.7f;
+        indicatorDotSize = INDICATOR_VIEW_DEFAULT_SIZE;
 
         if ([[NSFileManager defaultManager] fileExistsAtPath:configFilePath])
         {
@@ -439,7 +469,8 @@ void startTouchIndicator(NSError **error)
                 alpha = [config[@"touch_indicator"][@"color"][@"alpha"] floatValue];
                 if (config[@"touch_indicator"][@"show_coordinates"] != nil)
                     showCoordinates = [config[@"touch_indicator"][@"show_coordinates"] boolValue];
-                NSLog(@"com.zjx.springboard: red: %f, g: %f, b: %f, showCoords: %d", red, green, blue, showCoordinates);
+                indicatorDotSize = dotSizeFromTouchIndicatorConfig(config);
+                NSLog(@"com.zjx.springboard: red: %f, g: %f, b: %f, showCoords: %d, dotSize: %f", red, green, blue, showCoordinates, indicatorDotSize);
             }
             @catch (NSException *exception) {
                 NSLog(@"com.zjx.springboard: 123123");
@@ -468,6 +499,7 @@ void startTouchIndicator(NSError **error)
 
         // init a touch indicator window
         touchIndicatorWindow = [[TouchIndicatorWindow alloc] init];
+        [touchIndicatorWindow setIndicatorDotSize:indicatorDotSize];
         [touchIndicatorWindow show];
 
         // create callback
@@ -587,6 +619,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
     TouchIndicatorView* touchIndicatorViewList[20];
     TouchIndicatorCoordinateView* coordinateView[20];
     UIColor* indicatorColor;
+    CGFloat indicatorDotSize;
     NSTimer* orientationRefreshTimer;
 }
 
@@ -670,6 +703,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
     self = [super init];
     if (self)
     {
+        indicatorDotSize = INDICATOR_VIEW_DEFAULT_SIZE;
         ZXSafeMainAsync(^{
             [self rebuildOverlayWindow];
             _window.autoresizingMask = indicatorLocksToPortrait ? UIViewAutoresizingNone :
@@ -733,7 +767,8 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
             appendTouchIndicatorDebugLog(message);
             logNextWindowGeometry = NO;
         }
-        CGFloat indicatorSize = radius*SIZE_INDIACTOR_TOUCH_RADIUS_RATIO;
+        // 圆点直径固定取配置值 touch_indicator.dot_size（pt），不再随触摸 majorRadius 变化
+        CGFloat indicatorSize = indicatorDotSize;
         // init a indicator
         CGFloat halfSize = indicatorSize/2;
         TouchIndicatorView *indicator = [[TouchIndicatorView alloc] initWithFrame:CGRectMake(x - halfSize, y - halfSize, indicatorSize, indicatorSize)];
@@ -790,6 +825,43 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
     indicatorColor = [UIColor colorWithRed:red/255 green:green/255 blue:blue/255 alpha:alpha];
 }
 
+- (void)setIndicatorDotSize:(CGFloat)dotSize {
+    ZXSafeMainAsync(^{
+        @try {
+            CGFloat clamped = dotSize;
+            if (clamped < 8.0f) clamped = 8.0f;
+            if (clamped > 80.0f) clamped = 80.0f;
+            indicatorDotSize = clamped;
+
+            // reload 配置时，屏幕上已有的圆点也立刻按新直径重排（保持圆心不动）
+            CGFloat newHalf = clamped / 2.0f;
+            for (int i = 0; i < 20; i++) {
+                TouchIndicatorView *indicator = touchIndicatorViewList[i];
+                if (!indicator) continue;
+
+                CGRect oldFrame = indicator.frame;
+                CGFloat centerX = oldFrame.origin.x + oldFrame.size.width / 2.0f;
+                CGFloat centerY = oldFrame.origin.y + oldFrame.size.height / 2.0f;
+                indicator.frame = CGRectMake(centerX - newHalf, centerY - newHalf, clamped, clamped);
+                indicator.layer.cornerRadius = newHalf;
+
+                TouchIndicatorCoordinateView *coord = coordinateView[i];
+                if (coord) {
+                    CGRect oldCoordFrame = coord.frame;
+                    CGFloat coordCenterY = oldCoordFrame.origin.y + oldCoordFrame.size.height / 2.0f;
+                    coord.frame = CGRectMake(centerX + newHalf + 5,
+                                             coordCenterY - oldCoordFrame.size.height / 2.0f,
+                                             oldCoordFrame.size.width,
+                                             oldCoordFrame.size.height);
+                }
+            }
+        }
+        @catch (NSException *exception) {
+            NSLog(@"com.zjx.springboard: setIndicatorDotSize exception: %@", exception);
+        }
+    });
+}
+
 
 - (void)moveIndicator:(int)index x:(CGFloat)x y:(CGFloat)y majorRadius:(CGFloat)radius {
     if (index >= 20)
@@ -802,7 +874,8 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
         [self updateWindowFrameForOrientation:cachedOrientation];
 
         // update width and height and cornerRadius
-        CGFloat indicatorSize = radius*SIZE_INDIACTOR_TOUCH_RADIUS_RATIO;
+        // 圆点直径固定取配置值 touch_indicator.dot_size（pt），不再随触摸 majorRadius 变化
+        CGFloat indicatorSize = indicatorDotSize;
         CGFloat halfSize = indicatorSize/2;
         touchIndicatorViewList[index-1].frame = CGRectMake(x - halfSize, y - halfSize, indicatorSize, indicatorSize);
         touchIndicatorViewList[index-1].layer.cornerRadius = halfSize;
