@@ -45,13 +45,26 @@
 #define kFMCfgScript      @"floating_menu_script"
 #define kFMZXTouchBID     @"com.zjx.zxtouch"
 
-#pragma mark - 透传视图 / 根控制器
+#pragma mark - 透传视图 / 透传窗口 / 根控制器
 
 @interface FMPassthroughView : UIView
 @end
 
 @implementation FMPassthroughView
 // 只有真正落在按钮/圆点上的触摸才拦截，空白处一律放行给下层 app
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
+{
+    UIView *hit = [super hitTest:point withEvent:event];
+    return (hit == self) ? nil : hit;
+}
+@end
+
+// 关键：UIWindow 默认会在没有子视图命中时返回 self，从而拦截触摸。
+// 必须重写 hitTest 让 window 自身也透传，否则全屏 window 仍会挡住整个屏幕。
+@interface FMPassthroughWindow : UIWindow
+@end
+
+@implementation FMPassthroughWindow
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
 {
     UIView *hit = [super hitTest:point withEvent:event];
@@ -78,12 +91,13 @@ static FloatingMenu *_fmShared = nil;
 
 static CGAffineTransform fmTransformForOrientation(int orientation)
 {
-    // 与 1.0.2 旧版网速窗（位置验证正确）一致的角度
+    // content 旋转角度（与 NetSpeedIndicator 一致）：
+    // LandscapeLeft → -M_PI_2，LandscapeRight → M_PI_2
     switch (orientation) {
         case UIInterfaceOrientationLandscapeLeft:
-            return CGAffineTransformMakeRotation(M_PI_2);
-        case UIInterfaceOrientationLandscapeRight:
             return CGAffineTransformMakeRotation(-M_PI_2);
+        case UIInterfaceOrientationLandscapeRight:
+            return CGAffineTransformMakeRotation(M_PI_2);
         case UIInterfaceOrientationPortraitUpsideDown:
             return CGAffineTransformMakeRotation(M_PI);
         default:
@@ -230,7 +244,8 @@ static void fmPersistKeys(NSDictionary *pairs)
     [self visualWidth:&visW height:&visH portrait:NULL];
     CGFloat y = _yRatio * visH;
     y = MIN(MAX(y, kFMDotRadius + 2.0f), visH - kFMDotRadius - 2.0f);
-    CGFloat x = (_edge == 0) ? kFMDotRadius : (visW - kFMDotRadius);
+    // 中心压在边线上 → 正好露出一半
+    CGFloat x = (_edge == 0) ? 0.0f : visW;
     return CGPointMake(x, y);
 }
 
@@ -265,10 +280,10 @@ static void fmPersistKeys(NSDictionary *pairs)
 
     UIWindowScene *scene = [FloatingMenu preferredWindowScene];
     if (scene) {
-        _window = [[UIWindow alloc] initWithWindowScene:scene];
+        _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
         _window.frame = portrait;
     } else {
-        _window = [[UIWindow alloc] initWithFrame:portrait];
+        _window = [[FMPassthroughWindow alloc] initWithFrame:portrait];
     }
     _window.windowLevel = UIWindowLevelStatusBar + 2;
     _window.backgroundColor = [UIColor clearColor];

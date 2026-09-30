@@ -131,14 +131,17 @@ static int zxCurrentOrientation(void)
     }
 }
 
-// 与 1.0.2 旧版（位置验证正确）完全一致的角度
+// content 旋转角度：以竖屏 window 为基准，把 content 整体旋到当前方向，
+// 使 content 内的「视觉坐标」(0,0) 始终落在视觉左上角。
+// 推导：content bounds 旋成横屏尺寸后，(0,0) 相对 center 旋转后必须落到
+// 视觉左上角对应的竖屏坐标，只有以下角度满足。
 static CGAffineTransform zxTransformForOrientation(int orientation)
 {
     switch (orientation) {
         case UIInterfaceOrientationLandscapeLeft:
-            return CGAffineTransformMakeRotation(M_PI_2);
-        case UIInterfaceOrientationLandscapeRight:
             return CGAffineTransformMakeRotation(-M_PI_2);
+        case UIInterfaceOrientationLandscapeRight:
+            return CGAffineTransformMakeRotation(M_PI_2);
         case UIInterfaceOrientationPortraitUpsideDown:
             return CGAffineTransformMakeRotation(M_PI);
         default:
