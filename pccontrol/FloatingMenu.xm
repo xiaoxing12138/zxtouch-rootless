@@ -5,13 +5,10 @@
 #import "Toast.h"
 #import "AlertBox.h"
 #import "Process.h"
-#import "Popup.h"
+#import "FunctionWindow.h"
 #import <QuartzCore/QuartzCore.h>
 #import <CoreImage/CoreImage.h>
 #include <roothide.h>
-
-// 控制面板由 Tweak.xm 全局持有（启动时无条件创建），这里只借它打开「功能」页
-extern PopupWindow *popupWindow;
 
 /*
  * 按键精灵式悬浮控制按钮（v2）
@@ -1176,18 +1173,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
 }
 
-// 「功能」= 打开控制面板并直接停在功能勾选页（选项 + 功能开关）
+// 「功能」= 直接弹出独立的功能页窗口（选项 + 功能开关）
 - (void)actionFunction
 {
     [self collapseMenu];
-
-    // popupWindow 由 Tweak.xm 启动时无条件创建。若真的还是 nil 就放弃，
-    // 不要在这里另建一个——那样会同时存在两个面板，和全局那份状态不同步。
-    if (!popupWindow) {
-        fmToast(@"控制面板未就绪", 2);
-        return;
-    }
-    [popupWindow showFunctionPage];
+    [[FunctionWindow shared] show];
 }
 
 #pragma mark - 菜单动作

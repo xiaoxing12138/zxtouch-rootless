@@ -8,6 +8,7 @@
 #include "Common.h"
 #include "Config.h"
 #import "ScriptFunctions.h"
+#import "FunctionWindow.h"
 #import <UIKit/UIKit.h>
 
 #define BTN_H 40
@@ -55,16 +56,6 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
     float           _interval;
     BOOL            _settingsVisible;  // whether to show settings dialog before playing
     BOOL            isShown;
-
-    // 「功能」勾选页
-    UIView         *_functionPageView;
-    UIScrollView   *_functionScrollView;
-    UIButton       *_functionScriptBtn;
-    NSArray<NSString *>       *_functionNames;
-    NSMutableArray<UISwitch *> *_functionSwitches;
-    NSString       *_functionScriptPath;
-    NSMutableDictionary<NSString *, NSString *> *_functionOptionValues;  // 选项名 → 当前值
-    BOOL            _pickingScript;   // 正在脚本列表里挑「功能」页要用的脚本
 }
 
 - (id) init {
@@ -75,7 +66,6 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
         _interval = 0.0f;
         _settingsVisible = NO;
         isShown = NO;
-        _functionOptionValues = [NSMutableDictionary dictionary];
         [self buildWindow];
     }
     return self;
@@ -117,11 +107,12 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
         ttl.text = @"ZXTouch 控制面板"; ttl.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
         ttl.textColor = [UIColor labelColor]; [cv addSubview:ttl];
 
-        // 功能勾选页入口
+        // 功能勾选页入口：关闭本面板，改为弹出独立的功能页窗口
         UIButton *funcBtn = makeBtn(@"功能", [UIColor systemBlueColor]);
         funcBtn.frame = CGRectMake(pw-126, 8, 44, 32);
         [funcBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-            [self openFunctionPage];
+            [self hide];
+            [[FunctionWindow shared] show];
         }] forControlEvents:UIControlEventTouchUpInside];
         [cv addSubview:funcBtn];
 
@@ -186,8 +177,6 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
         _scriptScrollView.backgroundColor = [UIColor clearColor];
         [cv addSubview:_scriptScrollView];
 
-        [self buildFunctionPageInView:cv width:pw height:ph];
-
         // Reposition on rotation
         [[NSNotificationCenter defaultCenter] addObserverForName:UIDeviceOrientationDidChangeNotification
             object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
@@ -200,389 +189,6 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
     UIView *s = [[UIView alloc] initWithFrame:r];
     s.backgroundColor = [UIColor separatorColor];
     return s;
-}
-
-#pragma mark - 功能勾选页
-
-// 输入框弹出键盘时，键盘上方的「完成」条
-- (UIView*) optionKeyboardAccessory {
-    UIToolbar *bar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
-    bar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    UIBarButtonItem *space = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace
-                                                                          target:nil action:nil];
-    UIBarButtonItem *done = [[UIBarButtonItem alloc] initWithTitle:@"完成"
-                                                             style:UIBarButtonItemStylePlain
-                                                            target:self
-                                                            action:@selector(dismissOptionKeyboard)];
-    bar.items = @[space, done];
-    return bar;
-}
-
-- (void) dismissOptionKeyboard {
-    [_functionPageView endEditing:YES];
-}
-
-// 把当前选项值存回 plist（切脚本 / 返回 / 运行 / 输入框失焦时调用）
-- (void) persistOptionValues {
-    if (_functionScriptPath.length == 0) return;
-    if (_functionOptionValues.count == 0) return;
-    ZXSaveScriptOptionValues(_functionScriptPath, _functionOptionValues);
-}
-
-- (void) optionEditingEnded {
-    [self persistOptionValues];
-}
-
-// 一行选项：左边名称，右边按类型给控件
-- (UIView*) buildOptionRow:(NSDictionary*)decl value:(NSString*)value width:(CGFloat)pw {
-    NSString *name = decl[@"name"];
-    ZXOptionType type = (ZXOptionType)[decl[@"type"] integerValue];
-    NSArray<NSString *> *choices = decl[@"choices"];
-    NSString *initial = value.length ? value : @"";
-
-    CGFloat rowW = pw - 8;
-    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, 44)];
-    row.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    row.layer.cornerRadius = 8;
-    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-
-    CGFloat labelW = MAX(rowW * 0.42f, 64);
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, labelW, 44)];
-    label.text = name;
-    label.font = [UIFont systemFontOfSize:14];
-    label.textColor = [UIColor labelColor];
-    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [row addSubview:label];
-
-    CGFloat ctrlX = 10 + labelW + 6;
-    CGFloat ctrlW = rowW - ctrlX - 10;
-    if (ctrlW < 50) ctrlW = 50;
-
-    if (type == ZXOptionTypeNumber || type == ZXOptionTypeText) {
-        UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(ctrlX, 6, ctrlW, 32)];
-        tf.font = [UIFont systemFontOfSize:14];
-        tf.textColor = [UIColor labelColor];
-        tf.backgroundColor = [UIColor systemBackgroundColor];
-        tf.layer.cornerRadius = 8;
-        tf.layer.borderColor = [UIColor separatorColor].CGColor;
-        tf.layer.borderWidth = 1;
-        tf.textAlignment = NSTextAlignmentRight;
-        tf.keyboardType = (type == ZXOptionTypeNumber) ? UIKeyboardTypeDecimalPad : UIKeyboardTypeDefault;
-        tf.inputAccessoryView = [self optionKeyboardAccessory];
-        tf.text = initial;
-        tf.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        UIView *padL = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 32)];
-        tf.leftView = padL; tf.leftViewMode = UITextFieldViewModeAlways;
-        UIView *padR = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 32)];
-        tf.rightView = padR; tf.rightViewMode = UITextFieldViewModeAlways;
-        [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-            _functionOptionValues[name] = tf.text ?: @"";
-        }] forControlEvents:UIControlEventEditingChanged];
-        [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-            [self optionEditingEnded];
-        }] forControlEvents:UIControlEventEditingDidEnd];
-        [row addSubview:tf];
-    } else if (type == ZXOptionTypeDropdown) {
-        UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
-        btn.frame = CGRectMake(ctrlX, 6, ctrlW, 32);
-        btn.titleLabel.font = [UIFont systemFontOfSize:14];
-        btn.backgroundColor = [UIColor systemBackgroundColor];
-        btn.layer.cornerRadius = 8;
-        btn.layer.borderColor = [UIColor separatorColor].CGColor;
-        btn.layer.borderWidth = 1;
-        btn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
-        btn.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [btn setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
-        [btn setTitle:[NSString stringWithFormat:@"%@  ▾", initial] forState:UIControlStateNormal];
-
-        // 用 UIMenu 做下拉：面板是独立 UIWindow，弹 UIAlertController 会被限制在面板尺寸里
-        NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
-        for (NSString *choice in choices) {
-            [items addObject:[UIAction actionWithTitle:choice image:nil identifier:nil handler:^(__kindof UIAction *a) {
-                _functionOptionValues[name] = choice;
-                [btn setTitle:[NSString stringWithFormat:@"%@  ▾", choice] forState:UIControlStateNormal];
-                [self optionEditingEnded];
-            }]];
-        }
-        btn.menu = [UIMenu menuWithTitle:@"" children:items];
-        btn.showsMenuAsPrimaryAction = YES;
-        [row addSubview:btn];
-    } else {
-        UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:choices];
-        seg.frame = CGRectMake(ctrlX, 6, ctrlW, 32);
-        NSInteger idx = [choices indexOfObject:initial];
-        seg.selectedSegmentIndex = (idx == NSNotFound) ? 0 : idx;
-        seg.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [seg addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-            NSInteger i = seg.selectedSegmentIndex;
-            if (i >= 0 && i < (NSInteger)choices.count) _functionOptionValues[name] = choices[i];
-            [self optionEditingEnded];
-        }] forControlEvents:UIControlEventValueChanged];
-        [row addSubview:seg];
-    }
-
-    return row;
-}
-
-- (void) addSectionLabel:(NSString*)text width:(CGFloat)pw atY:(CGFloat)y {
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, y, pw - 24, 18)];
-    label.text = text;
-    label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
-    label.textColor = [UIColor secondaryLabelColor];
-    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [_functionScrollView addSubview:label];
-}
-
-- (void) buildFunctionPageInView:(UIView*)cv width:(CGFloat)pw height:(CGFloat)ph {
-    CGFloat pageH = MAX(ph - 47, 120);
-
-    _functionPageView = [[UIView alloc] initWithFrame:CGRectMake(0, 47, pw, pageH)];
-    _functionPageView.backgroundColor = [UIColor systemBackgroundColor];
-    _functionPageView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _functionPageView.hidden = YES;
-    [cv addSubview:_functionPageView];
-    UIView *pv = _functionPageView;
-
-    // 顶行：当前脚本（点一下去脚本列表里换）
-    _functionScriptBtn = makeBtn(@"脚本：", [UIColor systemBlueColor]);
-    _functionScriptBtn.frame = CGRectMake(8, 8, pw-16, 36);
-    _functionScriptBtn.titleLabel.font = [UIFont systemFontOfSize:13];
-    _functionScriptBtn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    _functionScriptBtn.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [_functionScriptBtn setImage:panelSymbol(@"list.bullet") forState:UIControlStateNormal];
-    [_functionScriptBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self beginScriptPicking];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [pv addSubview:_functionScriptBtn];
-
-    UIView *sep = [self makeSepAt:CGRectMake(0, 52, pw, 1)];
-    sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [pv addSubview:sep];
-
-    // 功能列表（每行一个开关）
-    _functionScrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 53, pw, pageH-53-96)];
-    _functionScrollView.backgroundColor = [UIColor clearColor];
-    _functionScrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [pv addSubview:_functionScrollView];
-
-    CGFloat halfW = (pw - 24) / 2;
-    UIButton *allBtn = makeBtn(@"全选", [UIColor systemBlueColor]);
-    allBtn.frame = CGRectMake(8, pageH-92, halfW, 36);
-    allBtn.titleLabel.font = [UIFont systemFontOfSize:13];
-    allBtn.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-    [allBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self setAllFunctionSwitches:YES];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [pv addSubview:allBtn];
-
-    UIButton *noneBtn = makeBtn(@"全不选", [UIColor secondaryLabelColor]);
-    noneBtn.frame = CGRectMake(pw/2+4, pageH-92, halfW, 36);
-    noneBtn.titleLabel.font = [UIFont systemFontOfSize:13];
-    noneBtn.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-    [noneBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self setAllFunctionSwitches:NO];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [pv addSubview:noneBtn];
-
-    UIButton *backBtn = makeBtn(@"返回", [UIColor secondaryLabelColor]);
-    backBtn.frame = CGRectMake(8, pageH-50, halfW, 42);
-    backBtn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-    backBtn.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-    [backBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self closeFunctionPage];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [pv addSubview:backBtn];
-
-    UIButton *runBtn = makeBtn(@"运行", [UIColor systemGreenColor]);
-    runBtn.frame = CGRectMake(pw/2+4, pageH-50, halfW, 42);
-    runBtn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-    runBtn.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.14];
-    runBtn.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-    [runBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self runFunctionSelection];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [pv addSubview:runBtn];
-}
-
-- (void) showFunctionPage {
-    // show 内部把「功能」页藏起来，所以必须排在它后面再打开。
-    // 两次都投到主队列，FIFO 保证顺序（ZXSafeMainAsync 是 async）。
-    [self show];
-    ZXSafeMainAsync(^{
-        [self openFunctionPage];
-    });
-}
-
-- (void) openFunctionPage {
-    // 正在挑脚本时再点「功能」= 放弃挑选，回到功能页
-    if (_pickingScript) {
-        _pickingScript = NO;
-        [self reloadFunctionPage];
-        _functionPageView.hidden = NO;
-        return;
-    }
-
-    NSFileManager *fm = [NSFileManager defaultManager];
-    BOOL valid = _functionScriptPath.length > 0 && [fm fileExistsAtPath:_functionScriptPath];
-    if (!valid) {
-        NSString *last = ZXLastFunctionScriptPath();
-        if (last.length > 0 && [fm fileExistsAtPath:last]) {
-            _functionScriptPath = last;
-            valid = YES;
-        }
-    }
-    if (!valid) _functionScriptPath = ZXFirstScriptPathWithFunctions();
-
-    [self reloadFunctionPage];
-    _functionPageView.hidden = NO;
-}
-
-- (void) closeFunctionPage {
-    [_functionPageView endEditing:YES];
-    [self persistOptionValues];
-    _pickingScript = NO;
-    _functionPageView.hidden = YES;
-    [self refreshScriptList];
-}
-
-- (void) beginScriptPicking {
-    [_functionPageView endEditing:YES];
-    _pickingScript = YES;
-    _functionPageView.hidden = YES;
-    [self refreshScriptList];
-}
-
-- (void) selectFunctionScript:(NSString*)path {
-    [_functionPageView endEditing:YES];
-    [self persistOptionValues];
-    _pickingScript = NO;
-    _functionScriptPath = [path copy];
-    ZXSaveLastFunctionScriptPath(_functionScriptPath);
-    [self reloadFunctionPage];
-    _functionPageView.hidden = NO;
-}
-
-- (void) reloadFunctionPage {
-    NSString *title = _functionScriptPath.length
-        ? [[_functionScriptPath lastPathComponent] stringByDeletingPathExtension]
-        : @"（点这里选脚本）";
-    [_functionScriptBtn setTitle:[NSString stringWithFormat:@"脚本：%@", title] forState:UIControlStateNormal];
-
-    [_functionPageView endEditing:YES];
-    for (UIView *v in _functionScrollView.subviews) [v removeFromSuperview];
-    _functionSwitches = [NSMutableArray array];
-    _functionOptionValues = [NSMutableDictionary dictionary];
-
-    CGFloat pw = _functionScrollView.frame.size.width;
-    if (pw < 10) pw = 240;
-
-    BOOL hasScript = _functionScriptPath.length > 0;
-    NSArray<NSDictionary *> *decls = hasScript ? (ZXScriptOptionDeclarations(_functionScriptPath) ?: @[]) : @[];
-    _functionNames = hasScript ? (ZXScriptFunctionNames(_functionScriptPath) ?: @[]) : @[];
-    NSDictionary<NSString *, NSString *> *saved = hasScript ? ZXScriptOptionValues(_functionScriptPath) : @{};
-
-    CGFloat y = 4;
-
-    if (decls.count > 0) {
-        [self addSectionLabel:@"选项" width:pw atY:y];
-        y += 22;
-
-        for (NSDictionary *decl in decls) {
-            NSString *name = decl[@"name"];
-            NSString *value = saved[name];
-            if (value.length == 0) value = decl[@"default"];
-            if (value.length == 0) value = @"";
-            _functionOptionValues[name] = value;
-
-            UIView *row = [self buildOptionRow:decl value:value width:pw];
-            row.frame = CGRectMake(4, y, pw - 8, 44);
-            [_functionScrollView addSubview:row];
-            y += 44 + 6;
-        }
-        y += 4;
-    }
-
-    if (_functionNames.count > 0) {
-        [self addSectionLabel:@"功能" width:pw atY:y];
-        y += 22;
-
-        NSArray<NSString *> *selected = hasScript ? ZXScriptFunctionSelection(_functionScriptPath) : nil;
-        CGFloat rowW = pw - 8;
-        CGFloat switchW = 51;
-        CGFloat labelW = MAX(rowW - 10 - switchW - 12, 60);
-
-        for (NSString *funcName in _functionNames) {
-            UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, y, rowW, 46)];
-            row.backgroundColor = [UIColor secondarySystemBackgroundColor];
-            row.layer.cornerRadius = 8;
-            row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-
-            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, labelW, 46)];
-            label.text = funcName;
-            label.font = [UIFont systemFontOfSize:14];
-            label.textColor = [UIColor labelColor];
-            label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-            [row addSubview:label];
-
-            UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(rowW - 10 - switchW, 8, switchW, 31)];
-            sw.on = (selected == nil) ? YES : [selected containsObject:funcName];
-            sw.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-            [row addSubview:sw];
-            [_functionSwitches addObject:sw];
-
-            [_functionScrollView addSubview:row];
-            y += 46 + 6;
-        }
-    }
-
-    if (decls.count == 0 && _functionNames.count == 0) {
-        UILabel *empty = [[UILabel alloc] initWithFrame:CGRectMake(12, 16, pw - 24, 90)];
-        empty.numberOfLines = 0;
-        empty.font = [UIFont systemFontOfSize:12];
-        empty.textColor = [UIColor secondaryLabelColor];
-        empty.text = @"这个脚本还没有声明功能或选项。\n在脚本里加一行\n「# @功能 名称」或\n「# @选项 名称 数字 默认=0」\n就会出现。";
-        empty.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [_functionScrollView addSubview:empty];
-        y = 110;
-    }
-
-    _functionScrollView.contentSize = CGSizeMake(pw, y + 4);
-    [_functionScrollView setContentOffset:CGPointZero animated:NO];
-}
-
-- (void) setAllFunctionSwitches:(BOOL)on {
-    for (UISwitch *sw in _functionSwitches) [sw setOn:on animated:YES];
-}
-
-- (void) runFunctionSelection {
-    if (_functionScriptPath.length == 0) {
-        showAlertBox(@"提示", @"请先点顶部的「脚本」选一个脚本。", 2);
-        return;
-    }
-
-    [_functionPageView endEditing:YES];
-    [self persistOptionValues];
-
-    NSMutableArray<NSString *> *picked = [NSMutableArray array];
-    for (NSUInteger i = 0; i < _functionSwitches.count && i < _functionNames.count; i++) {
-        if (_functionSwitches[i].isOn) [picked addObject:_functionNames[i]];
-    }
-    // 只有声明了功能的脚本才要求至少勾一个（只声明选项的脚本可以直接运行）
-    if (_functionNames.count > 0 && picked.count == 0) {
-        showAlertBox(@"提示", @"请至少勾选一个功能。", 2);
-        return;
-    }
-
-    ZXSaveScriptFunctionSelection(_functionScriptPath, picked);
-    ZXSaveLastFunctionScriptPath(_functionScriptPath);
-
-    NSString *scriptPath = [_functionScriptPath copy];
-    [self hide];
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSError *err = nil;
-        playScriptWithSettings((UInt8*)[scriptPath UTF8String], 0, 1.0f, 0.0f, &err);
-        if (err) showAlertBox(@"错误", [err localizedDescription], 999);
-    });
 }
 
 - (void) updateSettingsButtonAppearance {
@@ -655,15 +261,10 @@ void applyPanelDarkMode(BOOL dark) {
                 [self refreshScriptList];
             }] forControlEvents:UIControlEventTouchUpInside];
         } else {
-            // 挑选「功能」页要用的脚本时，点脚本 = 选中它，而不是运行
-            [btn setImage:panelSymbol(_pickingScript ? @"checkmark.circle" : @"play.fill") forState:UIControlStateNormal];
-            btn.tintColor = _pickingScript ? [UIColor systemBlueColor] : [UIColor labelColor];
+            [btn setImage:panelSymbol(@"play.fill") forState:UIControlStateNormal];
+            btn.tintColor = [UIColor labelColor];
             NSString *fullPath = item[@"path"];
             [btn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-                if (_pickingScript) {
-                    [self selectFunctionScript:fullPath];
-                    return;
-                }
                 if (_settingsVisible) {
                     UIAlertController *alert = [UIAlertController
                         alertControllerWithTitle:@"播放设置"
@@ -820,11 +421,9 @@ void applyPanelDarkMode(BOOL dark) {
 
 - (void) show {
     // 每次打开都回到脚本列表首页
-    _pickingScript = NO;
     [self refreshScriptList];
     [self repositionWindow];
     ZXSafeMainAsync(^{
-        _functionPageView.hidden = YES;
         // Apply dark mode from config each time the panel opens
         NSDictionary *cfg = [[NSDictionary alloc] initWithContentsOfFile:SCRIPT_PLAY_CONFIG_PATH];
         NSDictionary *panelInfo = cfg[@"panelPlaybackInfo"];
