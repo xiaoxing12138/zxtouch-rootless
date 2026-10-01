@@ -14,8 +14,11 @@
 /*
  * 按键精灵式悬浮控制按钮（注入 SpringBoard，rootless）。
  *
- * 常驻一个 48pt 圆形悬浮按钮，可拖动、可展开「启动 / 设置 / 返回」三个
- * 纵向菜单按钮。所有配置存放在 getCommonConfigFilePath() 返回的 plist 中：
+ * 常驻一个 48pt 圆形悬浮按钮，可拖动、可展开三个菜单按钮。菜单按钮随脚本状态切换：
+ *   未运行 → 启动 / 设置 / 返回
+ *   运行中 → 暂停 / 停止 / 返回
+ *   已暂停 → 启动 / 停止 / 返回（圆点变灰、叠加「已暂停」文字、光圈停转）
+ * 所有配置存放在 getCommonConfigFilePath() 返回的 plist 中：
  *
  *   floating_menu_enabled   BOOL      是否开启
  *   floating_menu_edge      NSNumber  吸附边：1=视觉右边(默认) 0=左边
@@ -41,7 +44,8 @@
 + (void)startRunningSpinner;
 + (void)stopRunningSpinner;
 
-// 「启动」钮三态：按当前脚本状态刷新（未运行=启动 / 运行中=暂停 / 已暂停=继续）
+// 菜单三态：按当前脚本状态刷新（未运行=启动·设置 / 运行中=暂停·停止 / 已暂停=启动·停止），
+// 同时刷新圆点的暂停外观（变灰 + 叠加文字）与旋转光圈（只有运行中才转）
 + (void)refreshScriptPlayState;
 // 脚本结束或被停止后强制回到「未运行」态（此时 getter 可能还没更新，不能靠查询）
 + (void)setScriptIdle;

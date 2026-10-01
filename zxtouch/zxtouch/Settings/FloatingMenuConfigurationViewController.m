@@ -47,7 +47,16 @@ typedef NS_ENUM(NSInteger, FMSection) {
     FMSectionAppearance     = 2,  // 圆点大小 + 菜单黑底透明度
     FMSectionMenuAppearance = 3,  // 菜单按钮大小/间距/标签字号/图标留白/圆点-菜单间距
     FMSectionDotIcon        = 4,  // 圆点图标来源
-    FMSectionColors         = 5   // 颜色（圆点/按钮背景、图标、标签文字）
+    FMSectionColors         = 5,  // 颜色（圆点/按钮背景、图标、标签文字）
+    FMSectionPause          = 6   // 暂停显示（文字/字号/颜色/变灰深度）
+};
+
+// 「暂停显示」分组行号
+typedef NS_ENUM(NSInteger, PauseRow) {
+    PauseRowText  = 0,  // 暂停文字（点按输入）
+    PauseRowFont  = 1,  // 文字字号
+    PauseRowColor = 2,  // 文字颜色
+    PauseRowGray  = 3   // 圆点变灰深度
 };
 
 // 「圆点图标」分组行号
@@ -80,6 +89,24 @@ static NSArray<NSArray<NSString *> *> *FMColorPresets(void) {
         @[@"白色", @"#FFFFFF"], @[@"黑色", @"#000000"], @[@"红色", @"#FF3B30"],
         @[@"绿色", @"#34C759"], @[@"蓝色", @"#007AFF"], @[@"橙色", @"#FF9500"]
     ];
+}
+
+/*
+ * 「暂停显示」定义表（key / 标题 / 默认值，滑块项另带 min/max）。
+ * 默认值与范围必须与 tweak 端 FloatingMenu.xm 的 kFMPause* 宏保持一致。
+ */
+static NSArray<NSDictionary *> *FMPauseSpecs(void) {
+    static NSArray<NSDictionary *> *specs = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        specs = @[
+            @{@"key": @"floating_menu_pause_text",       @"title": @"暂停文字",   @"default": @"已暂停"},
+            @{@"key": @"floating_menu_pause_font_size",  @"title": @"文字字号",   @"min": @6.0f,  @"max": @16.0f, @"default": @9.0f},
+            @{@"key": @"floating_menu_pause_text_color", @"title": @"文字颜色",   @"default": @"#FFFFFF"},
+            @{@"key": @"floating_menu_pause_gray_alpha", @"title": @"圆点变灰深度", @"min": @0.0f, @"max": @1.0f,  @"default": @0.55f}
+        ];
+    });
+    return specs;
 }
 
 // 「外观」分组行号
@@ -271,6 +298,82 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
 // 任意滑块松手后统一通知 tweak 重载配置
 - (void)sliderTouchUp:(id)sender {
     [self reloadTweak];
+}
+
+#pragma mark - 暂停显示（表驱动）
+
+- (NSString *)pauseText {
+    NSString *text = _config[@"floating_menu_pause_text"];
+    if (![text isKindOfClass:[NSString class]] || text.length == 0) {
+        return @"已暂停";
+    }
+    return text;
+}
+
+- (void)pauseSliderChanged:(UISlider *)slider {
+    NSArray<NSDictionary *> *specs = FMPauseSpecs();
+    NSInteger row = slider.tag;
+    if (row < 0 || row >= (NSInteger)specs.count) {
+        return;
+    }
+    NSDictionary *spec = specs[row];
+    BOOL isAlpha = (row == PauseRowGray);
+
+    float stepped = isAlpha ? roundf(slider.value * 100.0f) / 100.0f : roundf(slider.value);
+    [slider setValue:stepped animated:NO];
+
+    // 显示实时数值
+    UIView *view = slider;
+    while (view && ![view isKindOfClass:[TableViewCellWithSlider class]]) {
+        view = view.superview;
+    }
+    if ([view isKindOfClass:[TableViewCellWithSlider class]]) {
+        ((TableViewCellWithSlider *)view).value.text = isAlpha
+            ? [NSString stringWithFormat:@"%.2f", stepped]
+            : [NSString stringWithFormat:@"%.0f pt", stepped];
+    }
+
+    // 拖动过程中只写 plist，松手才 reload
+    _config[spec[@"key"]] = @(stepped);
+    [self saveConfig];
+}
+
+// 暂停文字：弹输入框；圆点很小，留空则回落到默认「已暂停」
+- (void)presentPauseTextEditor {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"暂停文字"
+        message:@"脚本暂停时叠加在圆点上的文字"
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.text = [self pauseText];
+        textField.clearButtonMode = UITextFieldViewModeWhileEditing;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak FloatingMenuConfigurationViewController *weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        FloatingMenuConfigurationViewController *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        NSString *input = alert.textFields.firstObject.text ?: @"";
+        strongSelf->_config[@"floating_menu_pause_text"] = input;
+        [strongSelf saveConfig];
+        [strongSelf reloadTweak];
+        [strongSelf->_tableView reloadData];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)pickPauseTextColor {
+    NSDictionary *spec = FMPauseSpecs()[PauseRowColor];
+    NSString *current = [self colorHexForKey:spec[@"key"] defaultHex:spec[@"default"]];
+    __weak FloatingMenuConfigurationViewController *weakSelf = self;
+    [self presentColorPickerForTitle:spec[@"title"] current:current presets:FMColorPresets()
+                            onPicked:^(NSString *hex) {
+        FloatingMenuConfigurationViewController *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_config[spec[@"key"]] = hex;
+        [strongSelf saveConfig];
+        [strongSelf reloadTweak];
+        [strongSelf->_tableView reloadData];
+    }];
 }
 
 #pragma mark - 圆点图标
@@ -492,7 +595,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 #pragma mark - UITableView
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 6;
+    return 7;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -502,7 +605,9 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         case FMSectionAppearance: return 2;  // 圆点大小 + 菜单黑底透明度
         case FMSectionDotIcon:    return ([self dotIconMode] == kDotIconModeCustom) ? 2 : 1;
         case FMSectionColors:     return (NSInteger)FMColorSpecs().count;
-        default:                  return (NSInteger)FMMenuAppearanceSpecs().count;
+        case FMSectionPause:      return (NSInteger)FMPauseSpecs().count;
+        case FMSectionMenuAppearance: return (NSInteger)FMMenuAppearanceSpecs().count;
+        default:                  return 0;
     }
 }
 
@@ -511,9 +616,11 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         case FMSectionSwitch:     return @"开关";
         case FMSectionPosition:   return @"位置";
         case FMSectionAppearance: return @"外观";
+        case FMSectionMenuAppearance: return @"菜单外观";
         case FMSectionDotIcon:    return @"圆点图标";
         case FMSectionColors:     return @"颜色";
-        default:                  return @"菜单外观";
+        case FMSectionPause:      return @"暂停显示";
+        default:                  return nil;
     }
 }
 
@@ -584,7 +691,23 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         return cell;
     }
 
-    // 滑块：位置-纵向位置 / 外观-圆点大小·菜单黑底透明度 / 菜单外观-表驱动多项
+    // 「暂停显示」：文本行（暂停文字 / 文字颜色）走 Value1 + 箭头，其余两行走滑块
+    if (indexPath.section == FMSectionPause &&
+        (indexPath.row == PauseRowText || indexPath.row == PauseRowColor)) {
+        NSDictionary *spec = FMPauseSpecs()[indexPath.row];
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"PauseTextCell"];
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"PauseTextCell"];
+        }
+        cell.textLabel.text = spec[@"title"];
+        cell.detailTextLabel.text = (indexPath.row == PauseRowText)
+            ? [self pauseText]
+            : [self colorHexForKey:spec[@"key"] defaultHex:spec[@"default"]];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return cell;
+    }
+
+    // 滑块：位置-纵向位置 / 外观-圆点大小·菜单黑底透明度 / 菜单外观·暂停显示-表驱动多项
     TableViewCellWithSlider *cell = [tableView dequeueReusableCellWithIdentifier:@"SliderCell" forIndexPath:indexPath];
     cell.slideBar.continuous = YES;
     [cell.slideBar removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
@@ -595,6 +718,8 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
                                                                   : @selector(menuBgAlphaValueChanged:);
     } else if (indexPath.section == FMSectionMenuAppearance) {
         changedSelector = @selector(menuAppearanceSliderChanged:);
+    } else if (indexPath.section == FMSectionPause) {
+        changedSelector = @selector(pauseSliderChanged:);
     }
     [cell.slideBar addTarget:self action:changedSelector forControlEvents:UIControlEventValueChanged];
     [cell.slideBar addTarget:self action:@selector(sliderTouchUp:)
@@ -629,6 +754,21 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         cell.slideBar.maximumValue = 1.0f;
         cell.slideBar.value = bgAlpha;
         cell.value.text = [NSString stringWithFormat:@"%.2f", bgAlpha];
+    } else if (indexPath.section == FMSectionPause) {
+        // 表驱动：文字字号 / 圆点变灰深度
+        NSDictionary *spec = FMPauseSpecs()[indexPath.row];
+        float minV = [spec[@"min"] floatValue];
+        float maxV = [spec[@"max"] floatValue];
+        float value = _config[spec[@"key"]] ? [_config[spec[@"key"]] floatValue] : [spec[@"default"] floatValue];
+        if (value < minV || value > maxV) value = [spec[@"default"] floatValue];
+        cell.title.text = spec[@"title"];
+        cell.slideBar.tag = indexPath.row;
+        cell.slideBar.minimumValue = minV;
+        cell.slideBar.maximumValue = maxV;
+        cell.slideBar.value = value;
+        cell.value.text = (indexPath.row == PauseRowGray)
+            ? [NSString stringWithFormat:@"%.2f", value]
+            : [NSString stringWithFormat:@"%.0f pt", value];
     } else {
         float ratio = [_config[kCfgYRatio] floatValue];
         cell.title.text = @"纵向位置";
@@ -651,6 +791,12 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         }
     } else if (indexPath.section == FMSectionColors) {
         [self pickColorAtIndexPath:indexPath];
+    } else if (indexPath.section == FMSectionPause) {
+        if (indexPath.row == PauseRowText) {
+            [self presentPauseTextEditor];
+        } else if (indexPath.row == PauseRowColor) {
+            [self pickPauseTextColor];
+        }
     }
 }
 

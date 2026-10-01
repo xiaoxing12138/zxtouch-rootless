@@ -6,6 +6,7 @@
 #import "AlertBox.h"
 #import "Process.h"
 #import <QuartzCore/QuartzCore.h>
+#import <CoreImage/CoreImage.h>
 #include <roothide.h>
 
 /*
@@ -74,6 +75,10 @@
 #define kFMCfgMenuBtnColor @"floating_menu_menu_btn_color" // 菜单按钮背景色 #RRGGBB
 #define kFMCfgIconColor    @"floating_menu_icon_color"     // 图标颜色 #RRGGBB（圆点字母 + 菜单图标）
 #define kFMCfgLabelColor   @"floating_menu_label_color"    // 菜单标签文字色 #RRGGBB
+#define kFMCfgPauseText    @"floating_menu_pause_text"        // 暂停时叠加在圆点上的文字
+#define kFMCfgPauseFont    @"floating_menu_pause_font_size"   // 暂停文字字号 6..16
+#define kFMCfgPauseColor   @"floating_menu_pause_text_color"  // 暂停文字颜色 #RRGGBB
+#define kFMCfgPauseGray    @"floating_menu_pause_gray_alpha"  // 圆点变灰深度（灰罩不透明度）0..1
 
 // 颜色默认值：圆点沿用旧硬编码色 (20,20,28)，菜单底沿用 white 0.12 (≈#1F1F1F)
 #define kFMDotBgColorDefault   @"#14141C"
@@ -82,11 +87,24 @@
 #define kFMLabelColorDefault   @"#FFFFFF"
 #define kFMDotBgAlpha          0.82f   // 圆点底色不透明度（未开放配置）
 
-// 「启动」钮三态
+// 暂停显示默认值与范围（设置页「暂停显示」分组）
+#define kFMPauseTextDefault  @"已暂停"
+#define kFMPauseFontDefault  9.0f
+#define kFMPauseFontMin      6.0f
+#define kFMPauseFontMax      16.0f
+#define kFMPauseColorDefault @"#FFFFFF"
+#define kFMPauseGrayDefault  0.55f
+#define kFMPauseGrayMin      0.0f
+#define kFMPauseGrayMax      1.0f
+
+// 菜单按钮随脚本状态切换：
+//   未运行 → 启动 / 设置 / 返回
+//   运行中 → 暂停 / 停止 / 返回
+//   已暂停 → 启动 / 停止 / 返回（圆点同时变灰并叠加「已暂停」）
 typedef NS_ENUM(NSInteger, FMScriptPlayState) {
-    FMScriptPlayStateIdle    = 0,  // 未运行 → play.fill「启动」
-    FMScriptPlayStateRunning = 1,  // 运行中 → pause.fill「暂停」
-    FMScriptPlayStatePaused  = 2   // 已暂停 → play.fill「继续」
+    FMScriptPlayStateIdle    = 0,  // 未运行
+    FMScriptPlayStateRunning = 1,  // 运行中
+    FMScriptPlayStatePaused  = 2   // 已暂停
 };
 
 // 圆点图标来源
@@ -237,6 +255,42 @@ static void fmToast(NSString *content, int type)
     [Toast showToastWithContent:content type:type duration:1.8f position:1 fontSize:14];
 }
 
+// 图片转灰度（饱和度置 0），用于脚本暂停时的圆点图标。失败时原样返回。
+static UIImage *fmGrayscaleImage(UIImage *image)
+{
+    if (!image || !image.CGImage) {
+        return image;
+    }
+    @try {
+        CIImage *input = [CIImage imageWithCGImage:image.CGImage];
+        CIFilter *filter = input ? [CIFilter filterWithName:@"CIColorControls"] : nil;
+        if (!filter) {
+            return image;
+        }
+        [filter setValue:input forKey:kCIInputImageKey];
+        [filter setValue:@(0.0f) forKey:kCIInputSaturationKey];
+        CIImage *output = filter.outputImage;
+        if (!output) {
+            return image;
+        }
+        // CIContext 创建开销大，全局只建一次
+        static CIContext *context = nil;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            context = [CIContext contextWithOptions:nil];
+        });
+        CGImageRef cgImage = [context createCGImage:output fromRect:output.extent];
+        if (!cgImage) {
+            return image;
+        }
+        UIImage *result = [UIImage imageWithCGImage:cgImage scale:image.scale orientation:image.orientation];
+        CGImageRelease(cgImage);
+        return result ?: image;
+    } @catch (NSException *exception) {
+        return image;
+    }
+}
+
 static NSString *fmConfigPath(void)
 {
     return getCommonConfigFilePath();
@@ -284,8 +338,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     UIView                   *_content;
     UIButton                 *_dotButton;
     UIImageView              *_dotIconView;      // 圆点图标（字母Z 模式时隐藏）
+    UIImage                  *_dotIconImage;     // 圆点图标的原图（暂停时转灰度用）
+    UIView                   *_pauseOverlay;     // 暂停时覆盖圆点的灰罩
+    UILabel                  *_pauseLabel;       // 暂停时叠加在圆点上的文字
     UIView                   *_menuPanel;        // 白色半透明面板（菜单容器）
-    NSMutableArray<UIButton *> *_menuButtons; // 启动 / 设置 / 返回（圆形图标按钮）
+    NSMutableArray<UIButton *> *_menuButtons; // 启动/暂停 / 设置/停止 / 返回（圆形图标按钮）
     NSMutableArray<UILabel *>  *_menuLabels;  // 对应下方文字标签
     NSTimer                  *_watchTimer;
 
@@ -309,6 +366,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     NSString *_menuBtnColorHex; // 菜单按钮背景色
     NSString *_iconColorHex;    // 图标颜色（圆点字母 + 菜单图标）
     NSString *_labelColorHex;   // 菜单标签文字色
+    NSString *_pauseText;       // 暂停时圆点上的文字
+    CGFloat  _pauseFont;        // 暂停文字字号（6..16）
+    NSString *_pauseTextColorHex; // 暂停文字颜色
+    CGFloat  _pauseGrayAlpha;   // 圆点变灰深度（灰罩不透明度 0..1）
+    FMScriptPlayState _playState; // 当前脚本状态（驱动菜单按钮 + 圆点暂停外观）
     int      _lastOrientation;
 
     CGPoint  _dragStartVisual;
@@ -317,6 +379,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)applyGeometry;
 - (void)applyDotIcon;
+- (void)applyPauseAppearance;
 - (void)applyScriptPlayState:(FMScriptPlayState)state;
 - (void)expandMenu;
 - (void)collapseMenu;
@@ -341,6 +404,11 @@ static void fmPersistKeys(NSDictionary *pairs)
         _menuBtnColorHex = kFMMenuBtnColorDefault;
         _iconColorHex = kFMIconColorDefault;
         _labelColorHex = kFMLabelColorDefault;
+        _pauseText = kFMPauseTextDefault;
+        _pauseFont = kFMPauseFontDefault;
+        _pauseTextColorHex = kFMPauseColorDefault;
+        _pauseGrayAlpha = kFMPauseGrayDefault;
+        _playState = FMScriptPlayStateIdle;
     }
     return self;
 }
@@ -552,14 +620,25 @@ static void fmPersistKeys(NSDictionary *pairs)
     _dotIconView.hidden = YES;
     [_dotButton addSubview:_dotIconView];
 
-    [self applyDotIcon];
-    [FloatingMenu refreshScriptPlayState];
+    // 暂停外观：灰罩 + 叠加文字（都在圆点内部，不拦触摸；文字必须在灰罩之上）
+    _pauseOverlay = [[UIView alloc] initWithFrame:_dotButton.bounds];
+    _pauseOverlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _pauseOverlay.layer.cornerRadius = [self dotRadius];
+    _pauseOverlay.userInteractionEnabled = NO;
+    _pauseOverlay.hidden = YES;
+    [_dotButton addSubview:_pauseOverlay];
 
-    // 重建窗口后脚本可能仍在跑（例如改了配置触发 reload），恢复旋转光圈，
-    // 否则会出现「脚本运行中但光圈消失」的假象。
-    if (isScriptPlaying()) {
-        [self startRunningSpinner];
-    }
+    _pauseLabel = [[UILabel alloc] initWithFrame:_dotButton.bounds];
+    _pauseLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _pauseLabel.textAlignment = NSTextAlignmentCenter;
+    _pauseLabel.adjustsFontSizeToFitWidth = YES;
+    _pauseLabel.minimumScaleFactor = 0.5f;
+    _pauseLabel.numberOfLines = 1;
+    _pauseLabel.userInteractionEnabled = NO;
+    _pauseLabel.hidden = YES;
+    [_dotButton addSubview:_pauseLabel];
+
+    [self applyDotIcon];
 
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self
                                                                           action:@selector(handleDotPan:)];
@@ -612,6 +691,10 @@ static void fmPersistKeys(NSDictionary *pairs)
         [_menuLabels addObject:lbl];
     }
 
+    // 三态一次性刷新：菜单按钮图标/文字 + 圆点暂停外观 + 旋转光圈，
+    // 重建窗口后也保证「脚本运行中但光圈消失 / 暂停却还在转」不会出现。
+    [FloatingMenu refreshScriptPlayState];
+
     _lastOrientation = [self currentOrientation];
 
     // 先做一次初步定位（window.bounds 可能还是 zero，visualWidth 会 fallback）
@@ -647,6 +730,9 @@ static void fmPersistKeys(NSDictionary *pairs)
         icon = [UIImage imageWithContentsOfFile:fmDotIconCustomPath()];
     }
 
+    // 原图留一份，暂停时转灰度用（灰度的结果不覆盖原图）
+    _dotIconImage = icon;
+
     if (icon) {
         _dotIconView.image = icon;
         _dotIconView.frame = _dotButton.bounds;
@@ -657,11 +743,46 @@ static void fmPersistKeys(NSDictionary *pairs)
         _dotIconView.hidden = YES;
         [_dotButton setTitle:@"Z" forState:UIControlStateNormal];
     }
+
+    [self applyPauseAppearance];
 }
 
-#pragma mark 「启动」钮三态
+#pragma mark 暂停外观
 
-// 按脚本当前状态刷新按钮：未运行=启动 / 运行中=暂停 / 已暂停=继续。
+// 暂停态：圆点图标转灰度 + 叠加灰罩 + 叠加文字。
+// 光圈不在这里管——由 applyScriptPlayState: 统一按状态启停。
+- (void)applyPauseAppearance
+{
+    if (!_dotButton) {
+        return;
+    }
+    BOOL paused = (_playState == FMScriptPlayStatePaused);
+
+    if (_dotIconImage) {
+        _dotIconView.image = paused ? fmGrayscaleImage(_dotIconImage) : _dotIconImage;
+        _dotIconView.hidden = NO;
+    } else {
+        // 字母 Z 模式没有图片，直接把字色转灰
+        _dotIconView.image = nil;
+        _dotIconView.hidden = YES;
+        UIColor *color = paused ? [UIColor colorWithWhite:0.55f alpha:1.0f] : [self iconColor];
+        [_dotButton setTitleColor:color forState:UIControlStateNormal];
+    }
+
+    _pauseOverlay.hidden = !paused;
+    _pauseOverlay.backgroundColor = [UIColor colorWithWhite:0.45f alpha:_pauseGrayAlpha];
+
+    _pauseLabel.hidden = !paused;
+    if (paused) {
+        _pauseLabel.text = _pauseText;
+        _pauseLabel.font = [UIFont boldSystemFontOfSize:_pauseFont];
+        _pauseLabel.textColor = fmColorFromHex(_pauseTextColorHex, 1.0f) ?: [UIColor whiteColor];
+    }
+}
+
+#pragma mark 菜单三态
+
+// 按脚本当前状态刷新菜单按钮与圆点：未运行=启动/设置 / 运行中=暂停/停止 / 已暂停=启动/停止。
 // 结果不缓存——暂停/停止可能由 App 端或脚本自然结束触发，缓存会显示过期状态。
 + (void)refreshScriptPlayState
 {
@@ -679,23 +800,41 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)applyScriptPlayState:(FMScriptPlayState)state
 {
-    if (_menuButtons.count < 1 || _menuLabels.count < 1) {
-        return;
-    }
+    _playState = state;
 
-    NSString *symbol = (state == FMScriptPlayStateRunning) ? @"pause.fill" : @"play.fill";
-    NSString *title = @"启动";
+    // 第 3 个按钮恒为「返回」；第 2 个按钮在「设置」和「停止」之间切换
+    NSString *symbols[3] = { @"play.fill", @"gearshape.fill", @"arrow.uturn.backward.circle.fill" };
+    NSString *titles[3]  = { @"启动", @"设置", @"返回" };
     if (state == FMScriptPlayStateRunning) {
-        title = @"暂停";
+        symbols[0] = @"pause.fill";
+        titles[0]  = @"暂停";
+        symbols[1] = @"stop.fill";
+        titles[1]  = @"停止";
     } else if (state == FMScriptPlayStatePaused) {
-        title = @"继续";
+        symbols[0] = @"play.fill";
+        titles[0]  = @"启动";
+        symbols[1] = @"stop.fill";
+        titles[1]  = @"停止";
     }
 
-    UIButton *button = _menuButtons[0];
-    if (@available(iOS 13.0, *)) {
-        [button setImage:[UIImage systemImageNamed:symbol] forState:UIControlStateNormal];
+    for (NSUInteger i = 0; i < _menuButtons.count && i < 3; i++) {
+        UIButton *button = _menuButtons[i];
+        if (@available(iOS 13.0, *)) {
+            [button setImage:[UIImage systemImageNamed:symbols[i]] forState:UIControlStateNormal];
+        }
+        if (i < _menuLabels.count) {
+            _menuLabels[i].text = titles[i];
+        }
     }
-    _menuLabels[0].text = title;
+
+    [self applyPauseAppearance];
+
+    // 光圈只在真正运行时转
+    if (state == FMScriptPlayStateRunning) {
+        [self startRunningSpinner];
+    } else {
+        [self stopRunningSpinner];
+    }
 }
 
 #pragma mark 几何布局（主线程，视觉坐标）
@@ -1016,9 +1155,15 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (idx == NSNotFound) return;
     // 不要在这里调 collapseMenu！每个 action 自己决定要不要收菜单：
     // actionStart 启动脚本后保持菜单打开（方便停止），actionSettings/actionBack 收菜单
-    if (idx == 0) [self actionStart];
-    else if (idx == 1) [self actionSettings];
-    else if (idx == 2) [self actionBack];
+    if (idx == 0) {
+        [self actionStart];
+    } else if (idx == 1) {
+        // 第 2 个按钮：脚本在跑（含暂停）时是「停止」，没跑时才是「设置」
+        if (isScriptPlaying()) [self actionStop];
+        else [self actionSettings];
+    } else if (idx == 2) {
+        [self actionBack];
+    }
 }
 
 #pragma mark - 菜单动作
@@ -1027,11 +1172,11 @@ static void fmPersistKeys(NSDictionary *pairs)
 {
     [self collapseMenu];
 
-    // 脚本在跑 → 这个按钮是「暂停 / 继续」；没跑 → 才是「启动」
+    // 脚本在跑 → 这个按钮是「暂停 / 启动」；没跑 → 才是「启动」
     if (isScriptPlaying()) {
         if (isScriptPaused()) {
             resumeScriptPlaying();
-            fmToast(@"已继续", 3);
+            fmToast(@"已启动", 3);
         } else {
             pauseScriptPlaying();
             fmToast(@"已暂停", 3);
@@ -1063,6 +1208,15 @@ static void fmPersistKeys(NSDictionary *pairs)
             }
         }
     });
+}
+
+- (void)actionStop
+{
+    [self collapseMenu];
+    // stopScriptPlaying 内部已经会停光圈并把状态刷回「未运行」，这里不再重复
+    NSError *err = nil;
+    stopScriptPlaying(&err);
+    fmToast(@"已停止", 3);
 }
 
 - (void)actionSettings
@@ -1341,6 +1495,9 @@ static void fmPersistKeys(NSDictionary *pairs)
                     self->_content = nil;
                     self->_dotButton = nil;
                     self->_dotIconView = nil;
+                    self->_dotIconImage = nil;
+                    self->_pauseOverlay = nil;
+                    self->_pauseLabel = nil;
                     self->_menuButtons = nil;
                     self->_expanded = NO;
                 }
@@ -1372,6 +1529,10 @@ static void fmPersistKeys(NSDictionary *pairs)
             NSString *menuBtnColorHex = kFMMenuBtnColorDefault;
             NSString *iconColorHex = kFMIconColorDefault;
             NSString *labelColorHex = kFMLabelColorDefault;
+            NSString *pauseText = kFMPauseTextDefault;
+            CGFloat pauseFont = kFMPauseFontDefault;
+            NSString *pauseColorHex = kFMPauseColorDefault;
+            CGFloat pauseGrayAlpha = kFMPauseGrayDefault;
             NSString *script = @"";
 
             NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
@@ -1431,6 +1592,21 @@ static void fmPersistKeys(NSDictionary *pairs)
                 if ([config[kFMCfgLabelColor] isKindOfClass:[NSString class]]) {
                     labelColorHex = config[kFMCfgLabelColor];
                 }
+                if ([config[kFMCfgPauseText] isKindOfClass:[NSString class]] &&
+                    [config[kFMCfgPauseText] length] > 0) {
+                    pauseText = config[kFMCfgPauseText];
+                }
+                NSNumber *pauseFontValue = config[kFMCfgPauseFont];
+                if ([pauseFontValue isKindOfClass:[NSNumber class]]) {
+                    pauseFont = [pauseFontValue doubleValue];
+                }
+                if ([config[kFMCfgPauseColor] isKindOfClass:[NSString class]]) {
+                    pauseColorHex = config[kFMCfgPauseColor];
+                }
+                NSNumber *pauseGrayValue = config[kFMCfgPauseGray];
+                if ([pauseGrayValue isKindOfClass:[NSNumber class]]) {
+                    pauseGrayAlpha = [pauseGrayValue doubleValue];
+                }
                 if (!hasEdge) {
                     NSNumber *xValue = config[@"floating_menu_x"];
                     CGFloat pw, ph;
@@ -1459,6 +1635,10 @@ static void fmPersistKeys(NSDictionary *pairs)
             self->_menuBtnColorHex = menuBtnColorHex;
             self->_iconColorHex = iconColorHex;
             self->_labelColorHex = labelColorHex;
+            self->_pauseText = pauseText;
+            self->_pauseFont = MIN(MAX(pauseFont, kFMPauseFontMin), kFMPauseFontMax);
+            self->_pauseTextColorHex = pauseColorHex;
+            self->_pauseGrayAlpha = MIN(MAX(pauseGrayAlpha, kFMPauseGrayMin), kFMPauseGrayMax);
             self->_scriptPath = script;
 
             // 彻底照搬 NetSpeedIndicator.reloadAppearance 模式：
@@ -1487,6 +1667,9 @@ static void fmPersistKeys(NSDictionary *pairs)
     _content = nil;
     _dotButton = nil;
     _dotIconView = nil;
+    _dotIconImage = nil;
+    _pauseOverlay = nil;
+    _pauseLabel = nil;
     _menuPanel = nil;
     [_menuButtons removeAllObjects];
     [_menuLabels removeAllObjects];
@@ -1519,6 +1702,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     info[@"menu_btn_color"] = _menuBtnColorHex ?: @"";
     info[@"icon_color"] = _iconColorHex ?: @"";
     info[@"label_color"] = _labelColorHex ?: @"";
+    info[@"pause_text"] = _pauseText ?: @"";
+    info[@"pause_font"] = @(_pauseFont);
+    info[@"pause_text_color"] = _pauseTextColorHex ?: @"";
+    info[@"pause_gray_alpha"] = @(_pauseGrayAlpha);
+    info[@"play_state"] = @(_playState);
     info[@"last_orientation"] = @(_lastOrientation);
 
     CGFloat visW, visH;

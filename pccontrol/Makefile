@@ -26,7 +26,7 @@ pccontrol_CFLAGS = -Wno-error -Wno-module-import-in-extern-c -fobjc-arc \
 	-I../zxtouch/zxtouch/GCDWebServer/Core \
 	-I../zxtouch/zxtouch/GCDWebServer/Responses \
 	-I../zxtouch/zxtouch/GCDWebServer/Requests
-pccontrol_FRAMEWORKS = UIKit AssetsLibrary AVFoundation CoreMedia CoreVideo IOSurface IOMobileFramebuffer Accelerate MobileCoreServices QuartzCore
+pccontrol_FRAMEWORKS = UIKit AssetsLibrary AVFoundation CoreMedia CoreVideo CoreImage IOSurface IOMobileFramebuffer Accelerate MobileCoreServices QuartzCore
 pccontrol_ARCHS = arm64 arm64e
 
 pccontrol_PRIVATE_FRAMEWORKS = IOKit
