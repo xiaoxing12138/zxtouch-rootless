@@ -9,7 +9,7 @@
 #define FN_BTN_H     40.0f
 #define FN_TOP_H     49.0f
 #define FN_BOTTOM_H  56.0f
-#define FN_CARD_W    340.0f
+#define FN_CARD_W    540.0f   // 卡片宽度：要装下「名称 + 4 个参数框 + 开关」一整行（屏幕不够宽时按屏宽自动缩）
 
 // window 内空白区域透传：只有真正落在卡片子视图上的触摸才拦截，
 // 卡片外的点击落到下层 App。
@@ -196,7 +196,7 @@ static UIImage *fnSymbol(NSString *name) {
     // 建好后先隐藏，等 show 时再显示
     _window.hidden = YES;
 
-    // 旋转后居中 / 重排（卡片宽度取 340 与屏幕宽度 - 40 的较小值，需按新尺寸重算）
+    // 旋转后居中 / 重排（卡片宽度取 FN_CARD_W 与屏幕宽度 - 40 的较小值，需按新尺寸重算）
     [[NSNotificationCenter defaultCenter] addObserverForName:UIDeviceOrientationDidChangeNotification
         object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
             if (!self->_shown) return;
@@ -382,8 +382,8 @@ static UIImage *fnSymbol(NSString *name) {
     return row;
 }
 
-// 一行功能：左边名称、右边开关；声明行里写了参数（x= / y= / 延迟= / 次数=）时，
-// 名称和开关中间按声明顺序各给一个输入框，用户填的值就是脚本读到的东西。
+// 一行功能：名称 + 参数输入框 + 开关，全部排在同一行
+// （卡片已加宽到 FN_CARD_W，一行放得下 4 个框；每个框左边一个小字写参数名）
 - (UIView *)buildFunctionRow:(NSDictionary *)decl
                         isOn:(BOOL)isOn
                        saved:(NSDictionary<NSString *, NSString *> *)saved
@@ -394,24 +394,25 @@ static UIImage *fnSymbol(NSString *name) {
     NSArray<NSString *> *keys = decl[@"paramOrder"] ?: @[];
 
     CGFloat rowW = pw - 8;
-    CGFloat switchW = 51;
-    CGFloat nameH = 40.0f;
-    CGFloat fieldsH = (keys.count > 0) ? 48.0f : 0.0f;
+    CGFloat rowH = 46.0f;
+    CGFloat pad = 10.0f;
+    CGFloat nameW = 76.0f;
+    CGFloat switchW = 51.0f;
+    CGFloat capW = 26.0f;      // 参数名小字（x / 延迟 / 次数…）的宽度
+    CGFloat capGap = 4.0f;
 
-    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, nameH + fieldsH)];
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, rowH)];
     row.backgroundColor = [UIColor secondarySystemBackgroundColor];
     row.layer.cornerRadius = 8;
     row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
 
-    CGFloat labelW = MAX(rowW - 10 - switchW - 12, 60);
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, labelW, nameH)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(pad, 0, nameW, rowH)];
     label.text = funcName;
     label.font = [UIFont systemFontOfSize:14];
     label.textColor = [UIColor labelColor];
-    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [row addSubview:label];
 
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(rowW - 10 - switchW, 5, switchW, 31)];
+    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(rowW - pad - switchW, (rowH - 31) / 2.0f, switchW, 31)];
     sw.on = isOn;
     sw.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [row addSubview:sw];
@@ -424,23 +425,27 @@ static UIImage *fnSymbol(NSString *name) {
             _functionParamValues[funcName] = store;
         }
 
+        // 名称右边到开关左边留给参数，平均分；框太宽就封顶，免得看着空
         CGFloat gap = 6.0f;
-        CGFloat fieldW = (rowW - 20 - gap * (keys.count - 1)) / (CGFloat)keys.count;
-        CGFloat fx = 10;
+        CGFloat fieldsW = rowW - pad - nameW - 8 - 8 - switchW - pad;
+        CGFloat unitW = (fieldsW - gap * (keys.count - 1)) / (CGFloat)keys.count;
+        CGFloat fieldW = MIN(unitW - capW - capGap, 96.0f);
+        if (fieldW < 28.0f) fieldW = 28.0f;
+        CGFloat fx = pad + nameW + 8;
         for (NSString *key in keys) {
             NSString *value = saved[key];
             if (value.length == 0) value = decl[@"params"][key];
             if (value.length == 0) value = @"";
             store[key] = value;
 
-            UILabel *cap = [[UILabel alloc] initWithFrame:CGRectMake(fx, nameH, fieldW, 13)];
+            UILabel *cap = [[UILabel alloc] initWithFrame:CGRectMake(fx, 0, capW, rowH)];
             cap.text = key;   // x / y / 延迟 / 次数
-            cap.font = [UIFont systemFontOfSize:10];
+            cap.font = [UIFont systemFontOfSize:11];
             cap.textColor = [UIColor secondaryLabelColor];
-            cap.textAlignment = NSTextAlignmentCenter;
+            cap.textAlignment = NSTextAlignmentRight;
             [row addSubview:cap];
 
-            UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(fx, nameH + 15, fieldW, 29)];
+            UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(fx + capW + capGap, (rowH - 30) / 2.0f, fieldW, 30)];
             tf.font = [UIFont systemFontOfSize:13];
             tf.textColor = [UIColor labelColor];
             tf.backgroundColor = [UIColor systemBackgroundColor];
@@ -461,11 +466,11 @@ static UIImage *fnSymbol(NSString *name) {
             }] forControlEvents:UIControlEventEditingDidEnd];
             [row addSubview:tf];
 
-            fx += fieldW + gap;
+            fx += capW + capGap + fieldW + gap;
         }
     }
 
-    if (outHeight) *outHeight = nameH + fieldsH;
+    if (outHeight) *outHeight = rowH;
     return row;
 }
 
