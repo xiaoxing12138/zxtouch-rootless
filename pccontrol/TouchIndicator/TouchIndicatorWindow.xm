@@ -619,6 +619,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
     }
     
 }
+}
 
 
 @implementation TouchIndicatorWindow
