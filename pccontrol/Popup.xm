@@ -404,6 +404,15 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
     [pv addSubview:runBtn];
 }
 
+- (void) showFunctionPage {
+    // show 内部把「功能」页藏起来，所以必须排在它后面再打开。
+    // 两次都投到主队列，FIFO 保证顺序（ZXSafeMainAsync 是 async）。
+    [self show];
+    ZXSafeMainAsync(^{
+        [self openFunctionPage];
+    });
+}
+
 - (void) openFunctionPage {
     // 正在挑脚本时再点「功能」= 放弃挑选，回到功能页
     if (_pickingScript) {

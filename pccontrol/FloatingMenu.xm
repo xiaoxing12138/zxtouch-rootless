@@ -5,9 +5,13 @@
 #import "Toast.h"
 #import "AlertBox.h"
 #import "Process.h"
+#import "Popup.h"
 #import <QuartzCore/QuartzCore.h>
 #import <CoreImage/CoreImage.h>
 #include <roothide.h>
+
+// 控制面板由 Tweak.xm 全局持有（启动时无条件创建），这里只借它打开「功能」页
+extern PopupWindow *popupWindow;
 
 /*
  * 按键精灵式悬浮控制按钮（v2）
@@ -22,7 +26,7 @@
  * 交互：
  *   - 收起态：48pt 圆点自动吸附视觉左/右边缘，只露一半（center 在边线），
  *     随时可拖；松手按离哪条竖边近重新吸附并持久化；
- *   - 点圆点：在靠屏幕内侧展开「启动 / 设置 / 返回」（纵向朝空间足的一侧排）；
+ *   - 点圆点：在靠屏幕内侧横向展开「启动 / 功能 / 设置 / 返回」（朝空间足的一侧排）；
  *   - 位置以「贴哪边 + 纵向比例」持久化，旋转后位置自然正确。
  *
  * 健壮性：
@@ -97,10 +101,10 @@
 #define kFMPauseGrayMin      0.0f
 #define kFMPauseGrayMax      1.0f
 
-// 菜单按钮随脚本状态切换：
-//   未运行 → 启动 / 设置 / 返回
-//   运行中 → 暂停 / 停止 / 返回
-//   已暂停 → 启动 / 停止 / 返回（圆点同时变灰并叠加「已暂停」）
+// 菜单按钮随脚本状态切换（「功能」和「返回」两个位置恒不变）：
+//   未运行 → 启动 / 功能 / 设置 / 返回
+//   运行中 → 暂停 / 功能 / 停止 / 返回
+//   已暂停 → 启动 / 功能 / 停止 / 返回（圆点同时变灰并叠加「已暂停」）
 typedef NS_ENUM(NSInteger, FMScriptPlayState) {
     FMScriptPlayStateIdle    = 0,  // 未运行
     FMScriptPlayStateRunning = 1,  // 运行中
@@ -342,7 +346,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     UIView                   *_pauseOverlay;     // 暂停时覆盖圆点的灰罩
     UILabel                  *_pauseLabel;       // 暂停时叠加在圆点上的文字
     UIView                   *_menuPanel;        // 白色半透明面板（菜单容器）
-    NSMutableArray<UIButton *> *_menuButtons; // 启动/暂停 / 设置/停止 / 返回（圆形图标按钮）
+    NSMutableArray<UIButton *> *_menuButtons; // 启动/暂停 / 功能 / 设置/停止 / 返回（圆形图标按钮）
     NSMutableArray<UILabel *>  *_menuLabels;  // 对应下方文字标签
     NSTimer                  *_watchTimer;
 
@@ -649,7 +653,8 @@ static void fmPersistKeys(NSDictionary *pairs)
     [_dotButton addGestureRecognizer:pan];
     [_dotButton addGestureRecognizer:tap];
 
-    // 菜单：三个独立圆形按钮 + 下方文字标签（仿按键精灵，无容器面板）
+    // 菜单：四个独立圆形按钮 + 下方文字标签（仿按键精灵，无容器面板）
+    // 顺序：启动/暂停、功能、设置/停止、返回（与 applyScriptPlayState / handleMenuIconTap 的下标约定一致）
     _menuButtons = [NSMutableArray array];
     _menuLabels  = [NSMutableArray array];
     _menuPanel = nil;  // 不再需要白色容器面板
@@ -657,10 +662,10 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat btnSize  = _menuBtnSize;
     CGFloat labelH   = [self menuLabelHeight];
 
-    NSArray *symbolNames = @[@"play.fill", @"gearshape.fill", @"arrow.uturn.backward.circle.fill"];
-    NSArray *titles      = @[@"启动", @"设置", @"返回"];
+    NSArray *symbolNames = @[@"play.fill", @"checklist", @"gearshape.fill", @"arrow.uturn.backward.circle.fill"];
+    NSArray *titles      = @[@"启动", @"功能", @"设置", @"返回"];
 
-    for (NSUInteger i = 0; i < 3; i++) {
+    for (NSUInteger i = 0; i < symbolNames.count; i++) {
         UIButton *iconBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         iconBtn.frame = CGRectMake(0, 0, btnSize, btnSize);
         iconBtn.backgroundColor = [self menuBackgroundColor];  // 黑底（透明度可配置）
@@ -783,6 +788,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 #pragma mark 菜单三态
 
 // 按脚本当前状态刷新菜单按钮与圆点：未运行=启动/设置 / 运行中=暂停/停止 / 已暂停=启动/停止。
+// 「功能」（下标 1）与「返回」（下标 3）不随状态变。
 // 结果不缓存——暂停/停止可能由 App 端或脚本自然结束触发，缓存会显示过期状态。
 + (void)refreshScriptPlayState
 {
@@ -802,22 +808,22 @@ static void fmPersistKeys(NSDictionary *pairs)
 {
     _playState = state;
 
-    // 第 3 个按钮恒为「返回」；第 2 个按钮在「设置」和「停止」之间切换
-    NSString *symbols[3] = { @"play.fill", @"gearshape.fill", @"arrow.uturn.backward.circle.fill" };
-    NSString *titles[3]  = { @"启动", @"设置", @"返回" };
+    // 下标约定：0 = 启动/暂停，1 = 功能（字形/文字都不变），2 = 设置⇄停止，3 = 返回（恒不变）
+    NSString *symbols[4] = { @"play.fill", @"checklist", @"gearshape.fill", @"arrow.uturn.backward.circle.fill" };
+    NSString *titles[4]  = { @"启动", @"功能", @"设置", @"返回" };
     if (state == FMScriptPlayStateRunning) {
         symbols[0] = @"pause.fill";
         titles[0]  = @"暂停";
-        symbols[1] = @"stop.fill";
-        titles[1]  = @"停止";
+        symbols[2] = @"stop.fill";
+        titles[2]  = @"停止";
     } else if (state == FMScriptPlayStatePaused) {
         symbols[0] = @"play.fill";
         titles[0]  = @"启动";
-        symbols[1] = @"stop.fill";
-        titles[1]  = @"停止";
+        symbols[2] = @"stop.fill";
+        titles[2]  = @"停止";
     }
 
-    for (NSUInteger i = 0; i < _menuButtons.count && i < 3; i++) {
+    for (NSUInteger i = 0; i < _menuButtons.count && i < 4; i++) {
         UIButton *button = _menuButtons[i];
         if (@available(iOS 13.0, *)) {
             [button setImage:[UIImage systemImageNamed:symbols[i]] forState:UIControlStateNormal];
@@ -868,12 +874,14 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat dotRadius = [self dotRadius];
 
     if (_expanded) {
-        // 三个按钮+标签的整体尺寸（与 buildWindow 共用同一组配置，不再各写一份）
+        // 四个按钮+标签的整体尺寸（与 buildWindow 共用同一组配置，不再各写一份）
         CGFloat btnSize  = _menuBtnSize;
         CGFloat btnGap   = _menuBtnGap;
         CGFloat labelH   = [self menuLabelHeight];
         CGFloat btnLabelGap = kFMMenuLabelGap;
-        CGFloat totalBtnW = btnSize * 3 + btnGap * 2;
+        // 按钮个数直接跟 _menuButtons 走，以后加减按钮不用改这里
+        NSUInteger btnCount = _menuButtons.count;
+        CGFloat totalBtnW = btnSize * btnCount + btnGap * (btnCount > 0 ? btnCount - 1 : 0);
         CGFloat rowH      = btnSize + btnLabelGap + labelH;
 
         // 横向位置：贴右 → 按钮在圆点左边；贴左 → 按钮在圆点右边
@@ -887,7 +895,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         // 纵向：整体居中对齐圆点中心
         CGFloat startY = dot.y - rowH / 2.0f;
 
-        for (NSUInteger i = 0; i < 3; i++) {
+        for (NSUInteger i = 0; i < btnCount; i++) {
             CGFloat bx = firstBtnX + i * (btnSize + btnGap);
             CGFloat by = startY;
             CGFloat ly = by + btnSize + btnLabelGap;
@@ -1154,16 +1162,32 @@ static void fmPersistKeys(NSDictionary *pairs)
     NSUInteger idx = [_menuButtons indexOfObject:sender];
     if (idx == NSNotFound) return;
     // 不要在这里调 collapseMenu！每个 action 自己决定要不要收菜单：
-    // actionStart 启动脚本后保持菜单打开（方便停止），actionSettings/actionBack 收菜单
+    // actionStart 启动脚本后保持菜单打开（方便停止），其余 action 收菜单
     if (idx == 0) {
         [self actionStart];
     } else if (idx == 1) {
-        // 第 2 个按钮：脚本在跑（含暂停）时是「停止」，没跑时才是「设置」
+        [self actionFunction];
+    } else if (idx == 2) {
+        // 第 3 个按钮：脚本在跑（含暂停）时是「停止」，没跑时才是「设置」
         if (isScriptPlaying()) [self actionStop];
         else [self actionSettings];
-    } else if (idx == 2) {
+    } else if (idx == 3) {
         [self actionBack];
     }
+}
+
+// 「功能」= 打开控制面板并直接停在功能勾选页（选项 + 功能开关）
+- (void)actionFunction
+{
+    [self collapseMenu];
+
+    // popupWindow 由 Tweak.xm 启动时无条件创建。若真的还是 nil 就放弃，
+    // 不要在这里另建一个——那样会同时存在两个面板，和全局那份状态不同步。
+    if (!popupWindow) {
+        fmToast(@"控制面板未就绪", 2);
+        return;
+    }
+    [popupWindow showFunctionPage];
 }
 
 #pragma mark - 菜单动作
