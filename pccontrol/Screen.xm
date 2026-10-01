@@ -116,39 +116,23 @@ OBJC_EXTERN UIImage *_UICreateScreenUIImage(void);
 
 + (CGImageRef)createScreenShotCGImageRef
 {
-    Boolean isiPad8orUp = false;
-
+    // 屏幕的物理帧缓冲永远是竖屏摆放的（UIScreen.bounds 自 iOS 8 起也不随方向变化），
+    // CARenderServerRenderDisplay 会把整块竖屏帧缓冲按 1:1 画到 surface 的左上角。
+    // 因此 surface 必须按“竖屏物理尺寸”分配。旧代码在 iPad 上把宽高换成了横屏尺寸，
+    // 帧缓冲超出 surface 的部分会被直接裁掉（屏幕右侧约 720px 丢失），
+    // 导致图像识别 / 取色 / 找色看不到背包右栏。这里统一按竖屏物理尺寸分配，
+    // 返回整张竖屏帧缓冲，坐标与触摸引擎使用的竖屏物理像素空间一致。
     CGFloat scale = [UIScreen mainScreen].scale;
     CGSize screenSize = [UIScreen mainScreen].bounds.size;
 
-    int height = (int)(screenSize.height * scale);
     int width = (int)(screenSize.width * scale);
+    int height = (int)(screenSize.height * scale);
 
-    // check whether it is ipad8 or later
-    NSString *searchText = getDeviceName();
-
-    NSRange range = [searchText rangeOfString:@"^iPad[8-9]|iPad[1-9][0-9]+" options:NSRegularExpressionSearch];
-    if (range.location != NSNotFound) { // ipad pro (3rd) or later
-        isiPad8orUp = true;
-    }
-
-    if (isiPad8orUp)
+    if (width > height)
     {
-        if (width < height)
-        {
-            int temp = width;
-            width = height;
-            height = temp;
-        }
-    }
-    else
-    {
-        if (width > height)
-        {
-            int temp = width;
-            width = height;
-            height = temp;
-        }
+        int temp = width;
+        width = height;
+        height = temp;
     }
 
     int bytesPerElement = 4;
@@ -187,39 +171,6 @@ OBJC_EXTERN UIImage *_UICreateScreenUIImage(void);
     CGImageRef cgImageRef = nil;
     if (screenSurface) {
         cgImageRef = UICreateCGImageFromIOSurface(screenSurface);
-        int targetWidth = CGImageGetWidth(cgImageRef);
-        int targetHeight = CGImageGetHeight(cgImageRef);
-
-        if (isiPad8orUp) // rotate 90 degrees counterclockwise
-        {
-            CGColorSpaceRef colorSpaceInfo = CGImageGetColorSpace(cgImageRef);
-            CGContextRef bitmap;
-
-            //if (sourceImage.imageOrientation == UIImageOrientationUp || sourceImage.imageOrientation == UIImageOrientationDown) {
-                bitmap = CGBitmapContextCreate(NULL, targetHeight, targetWidth, CGImageGetBitsPerComponent(cgImageRef), CGImageGetBytesPerRow(cgImageRef), colorSpaceInfo, kCGImageAlphaPremultipliedFirst);
-            //} else {
-                //bitmap = CGBitmapContextCreate(NULL, targetHeight, targetWidth, CGImageGetBitsPerComponent(cgImageRef), CGImageGetBytesPerRow(imageRef), colorSpaceInfo, bitmapInfo);
-
-            //}   
-
-            CGFloat degrees = -90.f;
-            CGFloat radians = degrees * (M_PI / 180.f);
-
-            if (bitmap) {
-                CGContextTranslateCTM (bitmap, 0.5*targetHeight, 0.5*targetWidth);
-                CGContextRotateCTM (bitmap, radians);
-                CGContextTranslateCTM (bitmap, -0.5*targetWidth, -0.5*targetHeight);
-
-                CGContextDrawImage(bitmap, CGRectMake(0, 0, targetWidth, targetHeight), cgImageRef);
-
-                CGImageRef rotatedImage = CGBitmapContextCreateImage(bitmap);
-                if (rotatedImage) {
-                    CGImageRelease(cgImageRef);
-                    cgImageRef = rotatedImage;
-                }
-                CGContextRelease(bitmap);
-            }
-        }
     }
     IOSurfaceUnlock(screenSurface, 0, NULL);
     CFRelease(screenSurface);
