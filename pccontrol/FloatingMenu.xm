@@ -283,7 +283,7 @@ static UIImage *fmGrayscaleImage(UIImage *image)
         if (!cgImage) {
             return image;
         }
-        UIImage *result = [UIImage imageWithCGImage:cgImage scale:image.scale orientation:image.orientation];
+        UIImage *result = [UIImage imageWithCGImage:cgImage scale:image.scale orientation:image.imageOrientation];
         CGImageRelease(cgImage);
         return result ?: image;
     } @catch (NSException *exception) {
