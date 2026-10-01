@@ -442,8 +442,8 @@ static NSString *ZXPythonModulePath(void)
     NSString *scriptDir = [filePath stringByDeletingLastPathComponent];
     NSString *statusFile = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/last_python_status";
     NSString *pythonModulePath = ZXPythonModulePath();
-    // 功能勾选结果（形如 ZX_FUNCS=0,2 ）必须在解释器之前设置，脚本用 os.environ 读取
-    NSString *selectionEnv = ZXScriptFunctionEnvPrefix(scriptBundlePath);
+    // 功能勾选 + 选项（形如 ZX_OPTS_FILE=... ZX_FUNCS=0,2 ）必须在解释器之前设置，脚本用 os.environ 读取
+    NSString *selectionEnv = ZXScriptEnvPrefix(scriptBundlePath);
     NSString *envPrefix = pythonModulePath.length > 0 ? [NSString stringWithFormat:@"PYTHONPATH=%@ ", ZXShellQuote(pythonModulePath)] : @"";
     envPrefix = [selectionEnv stringByAppendingString:envPrefix];
     NSString *commandToRun = [NSString stringWithFormat:@"rm -f %@; (cd %@ && %@%@ -u %@ 2>&1; echo $? > %@) | %@ %@ %@; exit $(cat %@ 2>/dev/null || echo 1)",

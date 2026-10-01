@@ -63,6 +63,7 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
     NSArray<NSString *>       *_functionNames;
     NSMutableArray<UISwitch *> *_functionSwitches;
     NSString       *_functionScriptPath;
+    NSMutableDictionary<NSString *, NSString *> *_functionOptionValues;  // 选项名 → 当前值
     BOOL            _pickingScript;   // 正在脚本列表里挑「功能」页要用的脚本
 }
 
@@ -74,6 +75,7 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
         _interval = 0.0f;
         _settingsVisible = NO;
         isShown = NO;
+        _functionOptionValues = [NSMutableDictionary dictionary];
         [self buildWindow];
     }
     return self;
@@ -202,6 +204,135 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
 
 #pragma mark - 功能勾选页
 
+// 输入框弹出键盘时，键盘上方的「完成」条
+- (UIView*) optionKeyboardAccessory {
+    UIToolbar *bar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
+    bar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    UIBarButtonItem *space = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace
+                                                                          target:nil action:nil];
+    UIBarButtonItem *done = [[UIBarButtonItem alloc] initWithTitle:@"完成"
+                                                             style:UIBarButtonItemStylePlain
+                                                            target:self
+                                                            action:@selector(dismissOptionKeyboard)];
+    bar.items = @[space, done];
+    return bar;
+}
+
+- (void) dismissOptionKeyboard {
+    [_functionPageView endEditing:YES];
+}
+
+// 把当前选项值存回 plist（切脚本 / 返回 / 运行 / 输入框失焦时调用）
+- (void) persistOptionValues {
+    if (_functionScriptPath.length == 0) return;
+    if (_functionOptionValues.count == 0) return;
+    ZXSaveScriptOptionValues(_functionScriptPath, _functionOptionValues);
+}
+
+- (void) optionEditingEnded {
+    [self persistOptionValues];
+}
+
+// 一行选项：左边名称，右边按类型给控件
+- (UIView*) buildOptionRow:(NSDictionary*)decl value:(NSString*)value width:(CGFloat)pw {
+    NSString *name = decl[@"name"];
+    ZXOptionType type = (ZXOptionType)[decl[@"type"] integerValue];
+    NSArray<NSString *> *choices = decl[@"choices"];
+    NSString *initial = value.length ? value : @"";
+
+    CGFloat rowW = pw - 8;
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, 44)];
+    row.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    row.layer.cornerRadius = 8;
+    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+
+    CGFloat labelW = MAX(rowW * 0.42f, 64);
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, labelW, 44)];
+    label.text = name;
+    label.font = [UIFont systemFontOfSize:14];
+    label.textColor = [UIColor labelColor];
+    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [row addSubview:label];
+
+    CGFloat ctrlX = 10 + labelW + 6;
+    CGFloat ctrlW = rowW - ctrlX - 10;
+    if (ctrlW < 50) ctrlW = 50;
+
+    if (type == ZXOptionTypeNumber || type == ZXOptionTypeText) {
+        UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(ctrlX, 6, ctrlW, 32)];
+        tf.font = [UIFont systemFontOfSize:14];
+        tf.textColor = [UIColor labelColor];
+        tf.backgroundColor = [UIColor systemBackgroundColor];
+        tf.layer.cornerRadius = 8;
+        tf.layer.borderColor = [UIColor separatorColor].CGColor;
+        tf.layer.borderWidth = 1;
+        tf.textAlignment = NSTextAlignmentRight;
+        tf.keyboardType = (type == ZXOptionTypeNumber) ? UIKeyboardTypeDecimalPad : UIKeyboardTypeDefault;
+        tf.inputAccessoryView = [self optionKeyboardAccessory];
+        tf.text = initial;
+        tf.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        UIView *padL = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 32)];
+        tf.leftView = padL; tf.leftViewMode = UITextFieldViewModeAlways;
+        UIView *padR = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 32)];
+        tf.rightView = padR; tf.rightViewMode = UITextFieldViewModeAlways;
+        [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            _functionOptionValues[name] = tf.text ?: @"";
+        }] forControlEvents:UIControlEventEditingChanged];
+        [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            [self optionEditingEnded];
+        }] forControlEvents:UIControlEventEditingDidEnd];
+        [row addSubview:tf];
+    } else if (type == ZXOptionTypeDropdown) {
+        UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+        btn.frame = CGRectMake(ctrlX, 6, ctrlW, 32);
+        btn.titleLabel.font = [UIFont systemFontOfSize:14];
+        btn.backgroundColor = [UIColor systemBackgroundColor];
+        btn.layer.cornerRadius = 8;
+        btn.layer.borderColor = [UIColor separatorColor].CGColor;
+        btn.layer.borderWidth = 1;
+        btn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
+        btn.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [btn setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
+        [btn setTitle:[NSString stringWithFormat:@"%@  ▾", initial] forState:UIControlStateNormal];
+
+        // 用 UIMenu 做下拉：面板是独立 UIWindow，弹 UIAlertController 会被限制在面板尺寸里
+        NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
+        for (NSString *choice in choices) {
+            [items addObject:[UIAction actionWithTitle:choice image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                _functionOptionValues[name] = choice;
+                [btn setTitle:[NSString stringWithFormat:@"%@  ▾", choice] forState:UIControlStateNormal];
+                [self optionEditingEnded];
+            }]];
+        }
+        btn.menu = [UIMenu menuWithTitle:@"" children:items];
+        btn.showsMenuAsPrimaryAction = YES;
+        [row addSubview:btn];
+    } else {
+        UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:choices];
+        seg.frame = CGRectMake(ctrlX, 6, ctrlW, 32);
+        NSInteger idx = [choices indexOfObject:initial];
+        seg.selectedSegmentIndex = (idx == NSNotFound) ? 0 : idx;
+        seg.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [seg addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            NSInteger i = seg.selectedSegmentIndex;
+            if (i >= 0 && i < (NSInteger)choices.count) _functionOptionValues[name] = choices[i];
+            [self optionEditingEnded];
+        }] forControlEvents:UIControlEventValueChanged];
+        [row addSubview:seg];
+    }
+
+    return row;
+}
+
+- (void) addSectionLabel:(NSString*)text width:(CGFloat)pw atY:(CGFloat)y {
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, y, pw - 24, 18)];
+    label.text = text;
+    label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    label.textColor = [UIColor secondaryLabelColor];
+    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [_functionScrollView addSubview:label];
+}
+
 - (void) buildFunctionPageInView:(UIView*)cv width:(CGFloat)pw height:(CGFloat)ph {
     CGFloat pageH = MAX(ph - 47, 120);
 
@@ -298,18 +429,23 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
 }
 
 - (void) closeFunctionPage {
+    [_functionPageView endEditing:YES];
+    [self persistOptionValues];
     _pickingScript = NO;
     _functionPageView.hidden = YES;
     [self refreshScriptList];
 }
 
 - (void) beginScriptPicking {
+    [_functionPageView endEditing:YES];
     _pickingScript = YES;
     _functionPageView.hidden = YES;
     [self refreshScriptList];
 }
 
 - (void) selectFunctionScript:(NSString*)path {
+    [_functionPageView endEditing:YES];
+    [self persistOptionValues];
     _pickingScript = NO;
     _functionScriptPath = [path copy];
     ZXSaveLastFunctionScriptPath(_functionScriptPath);
@@ -323,53 +459,84 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
         : @"（点这里选脚本）";
     [_functionScriptBtn setTitle:[NSString stringWithFormat:@"脚本：%@", title] forState:UIControlStateNormal];
 
+    [_functionPageView endEditing:YES];
     for (UIView *v in _functionScrollView.subviews) [v removeFromSuperview];
     _functionSwitches = [NSMutableArray array];
-    _functionNames = ZXScriptFunctionNames(_functionScriptPath) ?: @[];
+    _functionOptionValues = [NSMutableDictionary dictionary];
 
     CGFloat pw = _functionScrollView.frame.size.width;
     if (pw < 10) pw = 240;
 
-    if (_functionNames.count == 0) {
-        UILabel *empty = [[UILabel alloc] initWithFrame:CGRectMake(12, 16, pw-24, 60)];
+    BOOL hasScript = _functionScriptPath.length > 0;
+    NSArray<NSDictionary *> *decls = hasScript ? (ZXScriptOptionDeclarations(_functionScriptPath) ?: @[]) : @[];
+    _functionNames = hasScript ? (ZXScriptFunctionNames(_functionScriptPath) ?: @[]) : @[];
+    NSDictionary<NSString *, NSString *> *saved = hasScript ? ZXScriptOptionValues(_functionScriptPath) : @{};
+
+    CGFloat y = 4;
+
+    if (decls.count > 0) {
+        [self addSectionLabel:@"选项" width:pw atY:y];
+        y += 22;
+
+        for (NSDictionary *decl in decls) {
+            NSString *name = decl[@"name"];
+            NSString *value = saved[name];
+            if (value.length == 0) value = decl[@"default"];
+            if (value.length == 0) value = @"";
+            _functionOptionValues[name] = value;
+
+            UIView *row = [self buildOptionRow:decl value:value width:pw];
+            row.frame = CGRectMake(4, y, pw - 8, 44);
+            [_functionScrollView addSubview:row];
+            y += 44 + 6;
+        }
+        y += 4;
+    }
+
+    if (_functionNames.count > 0) {
+        [self addSectionLabel:@"功能" width:pw atY:y];
+        y += 22;
+
+        NSArray<NSString *> *selected = hasScript ? ZXScriptFunctionSelection(_functionScriptPath) : nil;
+        CGFloat rowW = pw - 8;
+        CGFloat switchW = 51;
+        CGFloat labelW = MAX(rowW - 10 - switchW - 12, 60);
+
+        for (NSString *funcName in _functionNames) {
+            UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, y, rowW, 46)];
+            row.backgroundColor = [UIColor secondarySystemBackgroundColor];
+            row.layer.cornerRadius = 8;
+            row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+
+            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, labelW, 46)];
+            label.text = funcName;
+            label.font = [UIFont systemFontOfSize:14];
+            label.textColor = [UIColor labelColor];
+            label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+            [row addSubview:label];
+
+            UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(rowW - 10 - switchW, 8, switchW, 31)];
+            sw.on = (selected == nil) ? YES : [selected containsObject:funcName];
+            sw.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+            [row addSubview:sw];
+            [_functionSwitches addObject:sw];
+
+            [_functionScrollView addSubview:row];
+            y += 46 + 6;
+        }
+    }
+
+    if (decls.count == 0 && _functionNames.count == 0) {
+        UILabel *empty = [[UILabel alloc] initWithFrame:CGRectMake(12, 16, pw - 24, 90)];
         empty.numberOfLines = 0;
         empty.font = [UIFont systemFontOfSize:12];
         empty.textColor = [UIColor secondaryLabelColor];
-        empty.text = @"这个脚本还没有声明功能。\n在脚本里加一行「# @功能 名称」即可出现在这里。";
+        empty.text = @"这个脚本还没有声明功能或选项。\n在脚本里加一行\n「# @功能 名称」或\n「# @选项 名称 数字 默认=0」\n就会出现。";
         empty.autoresizingMask = UIViewAutoresizingFlexibleWidth;
         [_functionScrollView addSubview:empty];
-        _functionScrollView.contentSize = CGSizeMake(pw, 90);
-        return;
+        y = 110;
     }
 
-    NSArray<NSString *> *saved = ZXScriptFunctionSelection(_functionScriptPath);
-    CGFloat rowW = pw - 8;
-    CGFloat switchW = 51;
-    CGFloat labelW = MAX(rowW - 10 - switchW - 12, 60);
-
-    CGFloat y = 6;
-    for (NSString *funcName in _functionNames) {
-        UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, y, rowW, 46)];
-        row.backgroundColor = [UIColor secondarySystemBackgroundColor];
-        row.layer.cornerRadius = 8;
-        row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-
-        UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, labelW, 46)];
-        label.text = funcName;
-        label.font = [UIFont systemFontOfSize:14];
-        label.textColor = [UIColor labelColor];
-        label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [row addSubview:label];
-
-        UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(rowW - 10 - switchW, 8, switchW, 31)];
-        sw.on = (saved == nil) ? YES : [saved containsObject:funcName];
-        sw.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-        [row addSubview:sw];
-        [_functionSwitches addObject:sw];
-
-        [_functionScrollView addSubview:row];
-        y += 46 + 6;
-    }
     _functionScrollView.contentSize = CGSizeMake(pw, y + 4);
     [_functionScrollView setContentOffset:CGPointZero animated:NO];
 }
@@ -384,11 +551,15 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
         return;
     }
 
+    [_functionPageView endEditing:YES];
+    [self persistOptionValues];
+
     NSMutableArray<NSString *> *picked = [NSMutableArray array];
     for (NSUInteger i = 0; i < _functionSwitches.count && i < _functionNames.count; i++) {
         if (_functionSwitches[i].isOn) [picked addObject:_functionNames[i]];
     }
-    if (picked.count == 0) {
+    // 只有声明了功能的脚本才要求至少勾一个（只声明选项的脚本可以直接运行）
+    if (_functionNames.count > 0 && picked.count == 0) {
         showAlertBox(@"提示", @"请至少勾选一个功能。", 2);
         return;
     }
