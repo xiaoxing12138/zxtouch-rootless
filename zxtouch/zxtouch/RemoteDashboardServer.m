@@ -52,6 +52,32 @@ static NSString *ZXDashboardIPAddress(void)
 
 #if ZX_DASHBOARD_SPRINGBOARD_SERVER
 
+// 8080 网页端是 SpringBoard 里的 tweak 在跑，[NSBundle mainBundle] 拿到的是
+// SpringBoard 自己的版本号（1.0），所以必须去读 ZXTouch App 包里的 Info.plist。
+static NSString *ZXDashboardAppVersion(void)
+{
+    static NSString *version = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSArray<NSString *> *candidates = @[
+            @"/var/jb/Applications/zxtouch.app/Info.plist",
+            @"/Applications/zxtouch.app/Info.plist"
+        ];
+        for (NSString *path in candidates) {
+            NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:path];
+            NSString *value = [info[@"CFBundleShortVersionString"] isKindOfClass:[NSString class]] ? info[@"CFBundleShortVersionString"] : nil;
+            if (value.length > 0) {
+                version = [value copy];
+                break;
+            }
+        }
+        if (version == nil) {
+            version = [[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] copy] ?: @"";
+        }
+    });
+    return version;
+}
+
 @interface ZXRemoteDashboardServer : NSObject
 @property(nonatomic, strong) GCDWebServer *server;
 @property(nonatomic, copy) NSString *token;
@@ -182,25 +208,23 @@ static NSString *ZXDashboardIPAddress(void)
     }];
 }
 
-- (NSString *)sendSocketCommand:(NSString *)command expectsReply:(BOOL)expectsReply
+// 连一次、发一条、收一条。连不上或没回包都返回 nil（区别于服务端真的回了 "-1;;…"）。
+- (NSString *)sendSocketCommandOnce:(NSString *)command expectsReply:(BOOL)expectsReply
 {
     int socketHandle = socket(AF_INET, SOCK_STREAM, 0);
-    if (socketHandle < 0) {
-        self.lastError = @"无法连接 ZXTouch 服务。";
-        return @"-1;;ZXTouch 服务不可用。";
-    }
+    if (socketHandle < 0) return nil;
     struct sockaddr_in address;
     memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
     address.sin_port = htons(6000);
     inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
-    struct timeval timeout = {2, 0};
+    // 4 秒：251/252/2532 这几条要绕到 SpringBoard 主线程去取，主线程一忙 2 秒就不够。
+    struct timeval timeout = {4, 0};
     setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
     if (connect(socketHandle, (struct sockaddr *)&address, sizeof(address)) != 0) {
-        self.lastError = @"无法连接到本机 ZXTouch 服务。";
         close(socketHandle);
-        return @"-1;;ZXTouch 服务不可用。";
+        return nil;
     }
     // The tweak's socket server splits incoming data on CRLF and only dispatches
     // a task once it sees the terminator, so a bare command sits in the buffer
@@ -209,20 +233,29 @@ static NSString *ZXDashboardIPAddress(void)
                                                        : [command stringByAppendingString:@"\r\n"];
     const char *message = terminated.UTF8String;
     if (send(socketHandle, message, strlen(message), 0) < 0) {
-        self.lastError = @"无法向本机 ZXTouch 服务发送指令。";
         close(socketHandle);
-        return @"-1;;ZXTouch 服务不可用。";
+        return nil;
     }
     char buffer[4096] = {0};
     ssize_t length = expectsReply ? recv(socketHandle, buffer, sizeof(buffer) - 1, 0) : 1;
     close(socketHandle);
-    NSString *result = expectsReply && length > 0 ? [NSString stringWithUTF8String:buffer] : (expectsReply ? @"" : @"0");
-    if (result.length == 0 || [result hasPrefix:@"-1"]) {
-        self.lastError = result.length ? result : @"本机 ZXTouch 服务没有返回响应。";
-    } else {
-        self.lastError = @"";
+    if (!expectsReply) return @"0";
+    return length > 0 ? [NSString stringWithUTF8String:buffer] : nil;
+}
+
+- (NSString *)sendSocketCommand:(NSString *)command expectsReply:(BOOL)expectsReply
+{
+    NSString *result = [self sendSocketCommandOnce:command expectsReply:expectsReply];
+    // 偶发一次不回包（服务端正忙）就重连再发一次，避免网页端误报「服务不可用」。
+    if (result == nil) {
+        result = [self sendSocketCommandOnce:command expectsReply:expectsReply];
     }
-    return result ?: @"";
+    if (result == nil) {
+        self.lastError = @"本机 ZXTouch 服务没有返回响应。";
+        return @"-1;;ZXTouch 服务不可用。";
+    }
+    self.lastError = [result hasPrefix:@"-1"] ? result : @"";
+    return result;
 }
 
 - (NSString *)payloadFromSocketReply:(NSString *)reply
@@ -244,10 +277,15 @@ static NSString *ZXDashboardIPAddress(void)
     NSArray *sizeParts = [size componentsSeparatedByString:@";;"];
     NSArray *batteryParts = [battery componentsSeparatedByString:@";;"];
     NSArray *runtimeParts = [runtime componentsSeparatedByString:@";;"];
-    NSString *version = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
+    NSString *version = ZXDashboardAppVersion();
+    // 四条里任意一条有响应就算服务在线：251 要等 SpringBoard 主线程，最容易被卡住，
+    // 只盯它会让网页端误报「服务不可用」。
+    BOOL serviceOnline = [rawSize hasPrefix:@"0"] || [rawOrientation hasPrefix:@"0"] ||
+                         [rawBattery hasPrefix:@"0"] || [rawRuntime hasPrefix:@"0"];
+    if (serviceOnline) self.lastError = @"";
     return @{
         @"running": @(self.server.running),
-        @"serviceOnline": @([rawSize hasPrefix:@"0"]),
+        @"serviceOnline": @(serviceOnline),
         @"port": @(self.server.port),
         @"version": version,
         @"screen": @{ @"width": sizeParts.count > 0 ? sizeParts[0] : @"", @"height": sizeParts.count > 1 ? sizeParts[1] : @"" },

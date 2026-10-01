@@ -665,7 +665,15 @@
     elements.downloadLogs.addEventListener('click', () => { const url = URL.createObjectURL(new Blob([state.rawLogs], { type: 'text/plain' })); const link = document.createElement('a'); link.href = url; link.download = `zxtouch-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }); elements.clearLogs.addEventListener('click', clearLogs);
 
     selectView(location.hash.slice(1) || 'scripts'); refreshAll();
-    setInterval(() => { if (document.visibilityState !== 'visible') return; loadStatus().catch(() => {}); loadLogs().catch(() => {}); }, 3000);
+    (async function pollLoop() {
+      for (;;) {
+        if (document.visibilityState === 'visible') {
+          try { await loadStatus(); } catch (_) {}
+          try { await loadLogs(); } catch (_) {}
+        }
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+    })();
   </script>
 </body>
 </html>
