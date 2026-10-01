@@ -152,6 +152,35 @@ static void appendChildEvent(IOHIDEventRef parent, int type, int index, float x,
 }
 
 
+/*
+Convert a point shown on the touch indicator (pixels in the CURRENT orientation)
+into the portrait physical pixel space the touch engine below expects.
+This is the exact inverse of the transform TouchIndicatorWindow.xm applies to
+raw touches, so "write down what the indicator shows" works in every direction.
+*/
+static void convertIndicatorPointToTouchSpace(int orientation, float dx, float dy, float *tx, float *ty)
+{
+    switch (orientation)
+    {
+        case UIInterfaceOrientationPortraitUpsideDown:
+            *tx = device_screen_width - dx;
+            *ty = device_screen_height - dy;
+            break;
+        case UIInterfaceOrientationLandscapeRight: // 3
+            *tx = device_screen_width - dy;
+            *ty = dx;
+            break;
+        case UIInterfaceOrientationLandscapeLeft: // 4
+            *tx = dy;
+            *ty = device_screen_height - dx;
+            break;
+        default: // UIInterfaceOrientationPortrait, or unknown -> no conversion
+            *tx = dx;
+            *ty = dy;
+            break;
+    }
+}
+
 /**
 Perform touch events with data received from socket
 */
@@ -162,12 +191,20 @@ void performTouchFromRawData(UInt8 *eventData)
     IOHIDEventSetIntegerValue(parent , 0xb0019, 1); //set flags of parent event   flags: 0x20001 -> 0xa0001
     IOHIDEventSetIntegerValue(parent , 0x4, 1); //set flags of parent event   flags: 0xa0001 -> 0xa0011
 
+    // Coordinates in the payload are the pixels displayed by the touch indicator
+    // for the current orientation, so they need converting into the touch engine's
+    // portrait physical pixel space. Read the direction once for the whole batch.
+    int screenOrientation = [Screen getScreenOrientation];
+
     for (int i = 0; i < getTouchCountFromDataArray(eventData); i++)
     {
         //NSLog(@"### com.zjx.springboard: get data. index: %d. type: %d. touchIndex: %d. x: %f. y: %f", i, getTouchTypeFromDataArray(eventData, i), getTouchIndexFromDataArray(eventData, i), getTouchXFromDataArray(eventData, i), getTouchYFromDataArray(eventData, i));
         int touchType = getTouchTypeFromDataArray(eventData, i);
-        int x = getTouchXFromDataArray(eventData, i);
-        int y = getTouchYFromDataArray(eventData, i);
+        float convertedX = 0.0f;
+        float convertedY = 0.0f;
+        convertIndicatorPointToTouchSpace(screenOrientation, getTouchXFromDataArray(eventData, i), getTouchYFromDataArray(eventData, i), &convertedX, &convertedY);
+        int x = (int)convertedX;
+        int y = (int)convertedY;
         int index = getTouchIndexFromDataArray(eventData, i);
 
         appendChildEvent(parent, touchType, index, x, y); // append child event to parent
