@@ -8,8 +8,8 @@
 
 #define FN_BTN_H     40.0f
 #define FN_TOP_H     49.0f
-#define FN_BOTTOM_H  56.0f
 #define FN_CARD_W    540.0f   // 卡片宽度：要装下「名称 + 4 个参数框 + 开关」一整行（屏幕不够宽时按屏宽自动缩）
+#define FN_NAME_W    104.0f   // 功能名宽度：能站下 7 个中文字（14pt 字号）
 
 // window 内空白区域透传：只有真正落在卡片子视图上的触摸才拦截，
 // 卡片外的点击落到下层 App。
@@ -60,8 +60,7 @@ static UIImage *fnSymbol(NSString *name) {
     UIScrollView    *_functionScrollView;
     UIButton        *_functionScriptBtn;
     UIButton        *_closeBtn;
-    UIButton        *_allBtn;
-    UIButton        *_noneBtn;
+    UIButton        *_saveBtn;
     UIButton        *_runBtn;
 
     NSArray<NSString *>        *_functionNames;
@@ -132,6 +131,8 @@ static UIImage *fnSymbol(NSString *name) {
     _functionScriptBtn = fnMakeButton(@"脚本：", [UIColor systemBlueColor]);
     _functionScriptBtn.frame = CGRectMake(8, 6, FN_CARD_W - 8 - 40 - 6, 36);
     _functionScriptBtn.titleLabel.font = [UIFont systemFontOfSize:13];
+    _functionScriptBtn.titleLabel.adjustsFontSizeToFitWidth = YES;   // 脚本名长了缩字号
+    _functionScriptBtn.titleLabel.minimumScaleFactor = 0.8;
     _functionScriptBtn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     [_functionScriptBtn setImage:fnSymbol(@"list.bullet") forState:UIControlStateNormal];
     [_functionScriptBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
@@ -168,21 +169,7 @@ static UIImage *fnSymbol(NSString *name) {
     _functionScrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [_cardView addSubview:_functionScrollView];
 
-    // 底部：全选 / 全不选 / 运行
-    _allBtn = fnMakeButton(@"全选", [UIColor systemBlueColor]);
-    _allBtn.titleLabel.font = [UIFont systemFontOfSize:13];
-    [_allBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self setAllFunctionSwitches:YES];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [_cardView addSubview:_allBtn];
-
-    _noneBtn = fnMakeButton(@"全不选", [UIColor secondaryLabelColor]);
-    _noneBtn.titleLabel.font = [UIFont systemFontOfSize:13];
-    [_noneBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self setAllFunctionSwitches:NO];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [_cardView addSubview:_noneBtn];
-
+    // 顶行右侧：运行 / 保存（都在 ✕ 左边，位置在 layoutCard 里排）
     _runBtn = fnMakeButton(@"运行", [UIColor systemGreenColor]);
     _runBtn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     _runBtn.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.14];
@@ -190,6 +177,13 @@ static UIImage *fnSymbol(NSString *name) {
         [self runFunctionSelection];
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_runBtn];
+
+    _saveBtn = fnMakeButton(@"保存", [UIColor systemBlueColor]);
+    _saveBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    [_saveBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [self hide];   // hide 里先存盘再关闭，就是「保存并关闭」
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [_cardView addSubview:_saveBtn];
 
     [self layoutCard];
 
@@ -224,28 +218,32 @@ static UIImage *fnSymbol(NSString *name) {
 
     CGFloat cardW = [self cardWidth];
 
-    // 高度按内容自适应，不超过屏幕高度的 72%
+    // 高度按内容自适应，不超过屏幕高度的 72%（底部不再放按钮，高度就是 顶行 + 内容）
     CGFloat maxH = screenH * 0.72f;
-    CGFloat cardH = FN_TOP_H + _contentHeight + FN_BOTTOM_H;
+    CGFloat cardH = FN_TOP_H + _contentHeight;
     if (cardH > maxH) cardH = maxH;
-    CGFloat minH = FN_TOP_H + FN_BOTTOM_H + 60.0f;
+    CGFloat minH = FN_TOP_H + 60.0f;
     if (cardH < minH) cardH = minH;
     if (cardH > screenH - 40.0f) cardH = screenH - 40.0f;
     if (cardH < 100.0f) cardH = 100.0f;
 
     _cardView.frame = CGRectMake((screenW - cardW) / 2.0f, (screenH - cardH) / 2.0f, cardW, cardH);
 
-    _functionScriptBtn.frame = CGRectMake(8, 6, cardW - 8 - 40 - 6, 36);
-    _closeBtn.frame = CGRectMake(cardW - 40, 6, 32, 36);
-    _functionScrollView.frame = CGRectMake(0, FN_TOP_H, cardW, MAX(cardH - FN_TOP_H - FN_BOTTOM_H, 0));
+    // 顶行从右往左排：✕ / 保存 / 运行，剩下的左边给脚本选择（约占卡片 1/3）
+    CGFloat topY = 6.0f, topH = 36.0f, gap = 6.0f;
+    CGFloat rightX = cardW - 8.0f;
+    _closeBtn.frame = CGRectMake(rightX - 32.0f, topY, 32.0f, topH);
+    rightX -= (32.0f + gap);
+    _saveBtn.frame = CGRectMake(rightX - 64.0f, topY, 64.0f, topH);
+    rightX -= (64.0f + gap);
+    _runBtn.frame = CGRectMake(rightX - 64.0f, topY, 64.0f, topH);
+    rightX -= (64.0f + gap);
 
-    CGFloat margin = 8.0f;
-    CGFloat spacing = 8.0f;
-    CGFloat bw = (cardW - margin * 2 - spacing * 2) / 3.0f;
-    CGFloat by = cardH - FN_BOTTOM_H + 8.0f;
-    _allBtn.frame = CGRectMake(margin, by, bw, 40);
-    _noneBtn.frame = CGRectMake(margin + bw + spacing, by, bw, 40);
-    _runBtn.frame = CGRectMake(margin + (bw + spacing) * 2, by, bw, 40);
+    CGFloat scriptW = cardW / 3.0f;
+    if (8.0f + scriptW > rightX - 6.0f) scriptW = MAX(rightX - 6.0f - 8.0f, 80.0f);
+    _functionScriptBtn.frame = CGRectMake(8, topY, scriptW, topH);
+
+    _functionScrollView.frame = CGRectMake(0, FN_TOP_H, cardW, MAX(cardH - FN_TOP_H, 0));
 }
 
 #pragma mark - 选项控件
@@ -312,9 +310,10 @@ static UIImage *fnSymbol(NSString *name) {
     label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [row addSubview:label];
 
-    CGFloat ctrlX = 10 + labelW + 6;
-    CGFloat ctrlW = rowW - ctrlX - 10;
+    // 输入框只占原来一半宽，缩完靠右对齐
+    CGFloat ctrlW = (rowW - (10 + labelW + 6) - 10) * 0.5f;
     if (ctrlW < 50) ctrlW = 50;
+    CGFloat ctrlX = rowW - 10 - ctrlW;
 
     if (type == ZXOptionTypeNumber || type == ZXOptionTypeText) {
         UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(ctrlX, 6, ctrlW, 32)];
@@ -396,7 +395,7 @@ static UIImage *fnSymbol(NSString *name) {
     CGFloat rowW = pw - 8;
     CGFloat rowH = 46.0f;
     CGFloat pad = 10.0f;
-    CGFloat nameW = 76.0f;
+    CGFloat nameW = FN_NAME_W;   // 够放 7 个中文字
     CGFloat switchW = 51.0f;
     CGFloat capW = 26.0f;      // 参数名小字（x / 延迟 / 次数…）的宽度
     CGFloat capGap = 4.0f;
@@ -410,6 +409,8 @@ static UIImage *fnSymbol(NSString *name) {
     label.text = funcName;
     label.font = [UIFont systemFontOfSize:14];
     label.textColor = [UIColor labelColor];
+    label.adjustsFontSizeToFitWidth = YES;   // 超长的名字缩字号，不留省略号
+    label.minimumScaleFactor = 0.8;
     [row addSubview:label];
 
     UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(rowW - pad - switchW, (rowH - 31) / 2.0f, switchW, 31)];
@@ -429,7 +430,7 @@ static UIImage *fnSymbol(NSString *name) {
         CGFloat gap = 6.0f;
         CGFloat fieldsW = rowW - pad - nameW - 8 - 8 - switchW - pad;
         CGFloat unitW = (fieldsW - gap * (keys.count - 1)) / (CGFloat)keys.count;
-        CGFloat fieldW = MIN(unitW - capW - capGap, 96.0f);
+        CGFloat fieldW = MIN(unitW - capW - capGap, 60.0f);   // 参数框收窄，够放 4 位数就行
         if (fieldW < 28.0f) fieldW = 28.0f;
         CGFloat fx = pad + nameW + 8;
         for (NSString *key in keys) {
@@ -468,6 +469,47 @@ static UIImage *fnSymbol(NSString *name) {
 
             fx += capW + capGap + fieldW + gap;
         }
+    }
+
+    if (outHeight) *outHeight = rowH;
+    return row;
+}
+
+// 一行排 3 个「只有开关」的功能（名称 + 开关，没参数框），省地方
+- (UIView *)buildCompactFunctionRow:(NSArray<NSDictionary *> *)decls
+                               isOn:(NSArray<NSNumber *> *)isOn
+                              width:(CGFloat)pw
+                           switches:(NSMutableArray<UISwitch *> *)outSwitches
+                             height:(CGFloat *)outHeight {
+    CGFloat rowW = pw - 8;
+    CGFloat rowH = 44.0f;
+    CGFloat gap = 6.0f;
+    CGFloat cellW = (rowW - gap * 2) / 3.0f;
+
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, rowH)];
+    row.backgroundColor = [UIColor clearColor];
+    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+
+    for (NSUInteger i = 0; i < decls.count && i < 3; i++) {
+        NSDictionary *decl = decls[i];
+        UIView *cell = [[UIView alloc] initWithFrame:CGRectMake(i * (cellW + gap), 0, cellW, rowH)];
+        cell.backgroundColor = [UIColor secondarySystemBackgroundColor];
+        cell.layer.cornerRadius = 8;
+        cell.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [row addSubview:cell];
+
+        UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(8, 0, cellW - 8 - 51 - 6, rowH)];
+        label.text = decl[@"name"];
+        label.font = [UIFont systemFontOfSize:14];
+        label.textColor = [UIColor labelColor];
+        label.adjustsFontSizeToFitWidth = YES;   // 名字长了缩字号，不留省略号
+        label.minimumScaleFactor = 0.8;
+        [cell addSubview:label];
+
+        UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(cellW - 8 - 51, (rowH - 31) / 2.0f, 51, 31)];
+        sw.on = [isOn[i] boolValue];
+        [cell addSubview:sw];
+        [outSwitches addObject:sw];
     }
 
     if (outHeight) *outHeight = rowH;
@@ -519,22 +561,48 @@ static UIImage *fnSymbol(NSString *name) {
 
         NSArray<NSString *> *selected = hasScript ? ZXScriptFunctionSelection(_functionScriptPath) : nil;
 
+        // 先把功能按行分组（顺序不变，勾选序号才对得上）：
+        // 带参数的自己占一整行；只有开关的攒够 3 个排一行
+        NSMutableArray<NSArray<NSDictionary *> *> *rowGroups = [NSMutableArray array];
+        NSMutableArray<NSDictionary *> *batch = [NSMutableArray array];
         for (NSDictionary *decl in funcDecls) {
-            NSString *funcName = decl[@"name"];
-            BOOL isOn = (selected == nil) ? YES : [selected containsObject:funcName];
+            BOOL hasParams = [(decl[@"paramOrder"] ?: @[]) count] > 0;
+            if (hasParams) {
+                if (batch.count > 0) { [rowGroups addObject:[batch copy]]; [batch removeAllObjects]; }
+                [rowGroups addObject:@[decl]];
+            } else {
+                [batch addObject:decl];
+                if (batch.count == 3) { [rowGroups addObject:[batch copy]]; [batch removeAllObjects]; }
+            }
+        }
+        if (batch.count > 0) [rowGroups addObject:[batch copy]];
 
-            UISwitch *sw = nil;
+        for (NSArray<NSDictionary *> *group in rowGroups) {
+            BOOL hasParams = [(group[0][@"paramOrder"] ?: @[]) count] > 0;
+            NSMutableArray<NSNumber *> *ons = [NSMutableArray array];
+            for (NSDictionary *decl in group) {
+                NSString *n = decl[@"name"];
+                [ons addObject:@((selected == nil) ? YES : [selected containsObject:n])];
+            }
+
+            UIView *row = nil;
             CGFloat rowH = 0;
-            UIView *row = [self buildFunctionRow:decl
-                                            isOn:isOn
-                                           saved:savedParams[funcName]
-                                           width:pw
-                                          switch:&sw
-                                          height:&rowH];
+            if (hasParams) {
+                UISwitch *sw = nil;
+                row = [self buildFunctionRow:group[0]
+                                        isOn:[ons[0] boolValue]
+                                       saved:savedParams[group[0][@"name"]]
+                                       width:pw
+                                      switch:&sw
+                                      height:&rowH];
+                [_functionSwitches addObject:sw];
+            } else {
+                NSMutableArray<UISwitch *> *sws = [NSMutableArray array];
+                row = [self buildCompactFunctionRow:group isOn:ons width:pw switches:sws height:&rowH];
+                [_functionSwitches addObjectsFromArray:sws];
+            }
             row.frame = CGRectMake(4, y, pw - 8, rowH);
             [_functionScrollView addSubview:row];
-            [_functionSwitches addObject:sw];
-
             y += rowH + 6;
         }
         y += 4;
@@ -644,10 +712,6 @@ static UIImage *fnSymbol(NSString *name) {
 }
 
 #pragma mark - 运行
-
-- (void)setAllFunctionSwitches:(BOOL)on {
-    for (UISwitch *sw in _functionSwitches) [sw setOn:on animated:YES];
-}
 
 - (void)runFunctionSelection {
     if (_functionScriptPath.length == 0) {
