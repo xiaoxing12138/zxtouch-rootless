@@ -289,31 +289,28 @@ static UIImage *fnSymbol(NSString *name) {
     [self persistAllValues];
 }
 
-// 一行选项：左边名称，右边按类型给控件
-- (UIView *)buildOptionRow:(NSDictionary *)decl value:(NSString *)value width:(CGFloat)pw {
+// 一格选项：左边名称，右边按类型给控件。cellW = 这一格的宽度（选项区一行放两格）
+- (UIView *)buildOptionCell:(NSDictionary *)decl value:(NSString *)value width:(CGFloat)cellW {
     NSString *name = decl[@"name"];
     ZXOptionType type = (ZXOptionType)[decl[@"type"] integerValue];
     NSArray<NSString *> *choices = decl[@"choices"];
     NSString *initial = value.length ? value : @"";
 
-    CGFloat rowW = pw - 8;
-    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, 44)];
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, cellW, 44)];
     row.backgroundColor = [UIColor secondarySystemBackgroundColor];
     row.layer.cornerRadius = 8;
-    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
 
-    CGFloat labelW = MAX(rowW * 0.42f, 64);
+    CGFloat labelW = 72.0f;   // 放得下「抬起延迟」「自动拾取」这种 4 个字
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, labelW, 44)];
     label.text = name;
     label.font = [UIFont systemFontOfSize:14];
     label.textColor = [UIColor labelColor];
-    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [row addSubview:label];
 
-    // 输入框只占原来一半宽，缩完靠右对齐
-    CGFloat ctrlW = (rowW - (10 + labelW + 6) - 10) * 0.5f;
+    // 控件跟在名称后面，占满这一格剩下的宽度
+    CGFloat ctrlX = 10 + labelW + 6;
+    CGFloat ctrlW = cellW - ctrlX - 10;
     if (ctrlW < 50) ctrlW = 50;
-    CGFloat ctrlX = rowW - 10 - ctrlW;
 
     if (type == ZXOptionTypeNumber || type == ZXOptionTypeText) {
         UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(ctrlX, 6, ctrlW, 32)];
@@ -378,6 +375,26 @@ static UIImage *fnSymbol(NSString *name) {
         [row addSubview:seg];
     }
 
+    return row;
+}
+
+// 一行放两个选项（左一格右一格），最后落单的就只占左半
+- (UIView *)buildOptionPairRow:(NSArray<NSDictionary *> *)decls
+                        values:(NSArray<NSString *> *)values
+                         width:(CGFloat)pw {
+    CGFloat rowW = pw - 8;
+    CGFloat gap = 6.0f;
+    CGFloat cellW = (rowW - gap) / 2.0f;
+
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, 44)];
+    row.backgroundColor = [UIColor clearColor];
+    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+
+    for (NSUInteger i = 0; i < decls.count && i < 2; i++) {
+        UIView *cell = [self buildOptionCell:decls[i] value:values[i] width:cellW];
+        cell.frame = CGRectMake(i * (cellW + gap), 0, cellW, 44);
+        [row addSubview:cell];
+    }
     return row;
 }
 
@@ -612,14 +629,22 @@ static UIImage *fnSymbol(NSString *name) {
         [self addSectionLabel:@"选项" width:pw atY:y];
         y += 22;
 
-        for (NSDictionary *decl in decls) {
-            NSString *name = decl[@"name"];
-            NSString *value = saved[name];
-            if (value.length == 0) value = decl[@"default"];
-            if (value.length == 0) value = @"";
-            _functionOptionValues[name] = value;
+        // 选项一行放两个
+        for (NSUInteger i = 0; i < decls.count; i += 2) {
+            NSMutableArray<NSDictionary *> *pair = [NSMutableArray array];
+            NSMutableArray<NSString *> *pairValues = [NSMutableArray array];
+            for (NSUInteger j = i; j < i + 2 && j < decls.count; j++) {
+                NSDictionary *decl = decls[j];
+                NSString *name = decl[@"name"];
+                NSString *value = saved[name];
+                if (value.length == 0) value = decl[@"default"];
+                if (value.length == 0) value = @"";
+                _functionOptionValues[name] = value;
+                [pair addObject:decl];
+                [pairValues addObject:value];
+            }
 
-            UIView *row = [self buildOptionRow:decl value:value width:pw];
+            UIView *row = [self buildOptionPairRow:pair values:pairValues width:pw];
             row.frame = CGRectMake(4, y, pw - 8, 44);
             [_functionScrollView addSubview:row];
             y += 44 + 6;
