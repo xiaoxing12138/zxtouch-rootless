@@ -17,16 +17,18 @@ static NSString *ZXFunctionEntryFilePath(NSString *scriptBundlePath)
     return [scriptBundlePath stringByAppendingPathComponent:entry];
 }
 
-NSArray<NSString *> *ZXScriptFunctionNames(NSString *scriptBundlePath)
+// 声明行形如： # @功能 攻击 x=333 y=740 延迟=0.1 次数=3
+// 功能名取第一个词；后面带 = 的词都是「参数=默认值」，面板按声明顺序给它们出输入框
+NSArray<NSDictionary *> *ZXScriptFunctionDeclarations(NSString *scriptBundlePath)
 {
-    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    NSMutableArray<NSDictionary *> *decls = [NSMutableArray array];
     NSString *entryPath = ZXFunctionEntryFilePath(scriptBundlePath);
-    if (entryPath.length == 0) return names;
+    if (entryPath.length == 0) return decls;
 
     NSString *source = [NSString stringWithContentsOfFile:entryPath
                                                 encoding:NSUTF8StringEncoding
                                                    error:nil];
-    if (source.length == 0) return names;
+    if (source.length == 0) return decls;
 
     NSCharacterSet *blank = [NSCharacterSet whitespaceAndNewlineCharacterSet];
     for (NSString *rawLine in [source componentsSeparatedByString:@"\n"]) {
@@ -36,9 +38,36 @@ NSArray<NSString *> *ZXScriptFunctionNames(NSString *scriptBundlePath)
         NSString *body = [[line substringFromIndex:1] stringByTrimmingCharactersInSet:blank];
         if (![body hasPrefix:ZXFunctionMarker()]) continue;
 
-        NSString *name = [[body substringFromIndex:ZXFunctionMarker().length]
+        NSString *rest = [[body substringFromIndex:ZXFunctionMarker().length]
                           stringByTrimmingCharactersInSet:blank];
-        if (name.length > 0) [names addObject:name];
+        NSArray<NSString *> *rawTokens =
+            [rest componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        NSMutableArray<NSString *> *tokens = [NSMutableArray array];
+        for (NSString *t in rawTokens) if (t.length > 0) [tokens addObject:t];
+        if (tokens.count == 0) continue;
+
+        NSMutableDictionary<NSString *, NSString *> *params = [NSMutableDictionary dictionary];
+        NSMutableArray<NSString *> *order = [NSMutableArray array];
+        for (NSUInteger i = 1; i < tokens.count; i++) {
+            NSRange eq = [tokens[i] rangeOfString:@"="];
+            if (eq.location == NSNotFound) continue;
+            NSString *key = [tokens[i] substringToIndex:eq.location];
+            NSString *value = [tokens[i] substringFromIndex:eq.location + 1];
+            if (key.length == 0) continue;
+            if (!params[key]) [order addObject:key];
+            params[key] = value;
+        }
+
+        [decls addObject:@{ @"name": tokens[0], @"params": params, @"paramOrder": order }];
+    }
+    return decls;
+}
+
+NSArray<NSString *> *ZXScriptFunctionNames(NSString *scriptBundlePath)
+{
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (NSDictionary *decl in ZXScriptFunctionDeclarations(scriptBundlePath)) {
+        [names addObject:decl[@"name"]];
     }
     return names;
 }
@@ -83,6 +112,70 @@ void ZXSaveScriptFunctionSelection(NSString *scriptBundlePath, NSArray<NSString 
 }
 
 #define ZX_OPTIONS_FILE_NAME @"script_options.json"
+#define ZX_FUNC_PARAMS_FILE_NAME @"script_funcs.json"
+
+#pragma mark - 功能参数（# @功能 名称 x=.. y=.. 延迟=.. 次数=..）
+
+// 读到的都是「功能名 → 参数名 → 值」，值一律当字符串存
+NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *ZXScriptFunctionParams(NSString *scriptBundlePath)
+{
+    if (scriptBundlePath.length == 0) return @{};
+    NSDictionary *config = ZXFunctionConfigRead();
+    NSDictionary *all = config[@"func_params"];
+    if (![all isKindOfClass:[NSDictionary class]]) return @{};
+
+    NSDictionary *saved = all[scriptBundlePath];
+    if (![saved isKindOfClass:[NSDictionary class]]) return @{};
+
+    NSMutableDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *result = [NSMutableDictionary dictionary];
+    for (id funcName in (NSDictionary *)saved) {
+        NSDictionary *values = ((NSDictionary *)saved)[funcName];
+        if (![funcName isKindOfClass:[NSString class]] || ![values isKindOfClass:[NSDictionary class]]) continue;
+
+        NSMutableDictionary<NSString *, NSString *> *pairs = [NSMutableDictionary dictionary];
+        for (id key in (NSDictionary *)values) {
+            id value = ((NSDictionary *)values)[key];
+            if ([key isKindOfClass:[NSString class]] && [value isKindOfClass:[NSString class]])
+                pairs[key] = value;
+        }
+        result[funcName] = pairs;
+    }
+    return result;
+}
+
+void ZXSaveScriptFunctionParams(NSString *scriptBundlePath,
+                                NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *params)
+{
+    if (scriptBundlePath.length == 0) return;
+
+    NSMutableDictionary *config = ZXFunctionConfigRead();
+    NSDictionary *existing = config[@"func_params"];
+    NSMutableDictionary *all = [existing isKindOfClass:[NSDictionary class]]
+        ? [NSMutableDictionary dictionaryWithDictionary:existing]
+        : [NSMutableDictionary dictionary];
+
+    all[scriptBundlePath] = ([params isKindOfClass:[NSDictionary class]] ? [params copy] : @{});
+    config[@"func_params"] = all;
+    [config writeToFile:SCRIPT_FUNCTIONS_CONFIG_PATH atomically:YES];
+}
+
+NSDictionary<NSString *, NSString *> *ZXScriptEffectiveFunctionParams(NSString *scriptBundlePath, NSString *funcName)
+{
+    NSMutableDictionary<NSString *, NSString *> *values = [NSMutableDictionary dictionary];
+    if (funcName.length == 0) return values;
+
+    NSDictionary<NSString *, NSString *> *saved = ZXScriptFunctionParams(scriptBundlePath)[funcName];
+    for (NSDictionary *decl in ZXScriptFunctionDeclarations(scriptBundlePath)) {
+        if (![decl[@"name"] isEqualToString:funcName]) continue;
+        for (NSString *key in decl[@"paramOrder"]) {
+            NSString *value = saved[key];
+            if (value.length == 0) value = decl[@"params"][key];
+            values[key] = value ?: @"";
+        }
+        break;
+    }
+    return values;
+}
 
 #pragma mark - 选项
 
@@ -206,6 +299,36 @@ static NSString *ZXOptionsFilePath(void)
             stringByAppendingPathComponent:ZX_OPTIONS_FILE_NAME];
 }
 
+static NSString *ZXFuncParamsFilePath(void)
+{
+    return [[SCRIPT_FUNCTIONS_CONFIG_PATH stringByDeletingLastPathComponent]
+            stringByAppendingPathComponent:ZX_FUNC_PARAMS_FILE_NAME];
+}
+
+// 把「功能名 → 参数名 → 值」写成 JSON 文件，让脚本用 ZX_FUNC_PARAMS_FILE 读。
+// 只写声明了参数的功能；一个都没有就不写文件（返回 NO）。
+static BOOL ZXWriteScriptFunctionParamsFile(NSString *scriptBundlePath)
+{
+    NSMutableDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *all = [NSMutableDictionary dictionary];
+    for (NSDictionary *decl in ZXScriptFunctionDeclarations(scriptBundlePath)) {
+        NSArray<NSString *> *order = decl[@"paramOrder"];
+        if (order.count == 0) continue;
+        NSString *funcName = decl[@"name"];
+        all[funcName] = ZXScriptEffectiveFunctionParams(scriptBundlePath, funcName);
+    }
+    if (all.count == 0) return NO;
+
+    NSData *json = [NSJSONSerialization dataWithJSONObject:all options:0 error:nil];
+    if (!json) return NO;
+
+    NSString *path = ZXFuncParamsFilePath();
+    [[NSFileManager defaultManager] createDirectoryAtPath:[path stringByDeletingLastPathComponent]
+                             withIntermediateDirectories:YES
+                                              attributes:nil
+                                                   error:nil];
+    return [json writeToFile:path atomically:YES];
+}
+
 // 把选项的当前值写成 JSON 文件，让脚本用 ZX_OPTS_FILE 读；
 // 用文件而不是环境变量，是为了中文值不被 shell 转义搞乱。
 static BOOL ZXWriteScriptOptionFile(NSString *scriptBundlePath)
@@ -233,6 +356,10 @@ NSString *ZXScriptEnvPrefix(NSString *scriptBundlePath)
     // 选项：声明了才写文件（脚本可能只声明选项、不声明功能）
     if (ZXScriptOptionDeclarations(scriptBundlePath).count > 0 && ZXWriteScriptOptionFile(scriptBundlePath))
         [env appendFormat:@"ZX_OPTS_FILE=%@ ", ZXOptionsFilePath()];
+
+    // 功能参数（x/y/延迟/次数 这些面板上填的值），同样走文件不走环境变量
+    if (ZXWriteScriptFunctionParamsFile(scriptBundlePath))
+        [env appendFormat:@"ZX_FUNC_PARAMS_FILE=%@ ", ZXFuncParamsFilePath()];
 
     // 勾选的功能序号
     NSArray<NSString *> *selection = ZXScriptFunctionSelection(scriptBundlePath);

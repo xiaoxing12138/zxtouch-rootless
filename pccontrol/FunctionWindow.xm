@@ -68,6 +68,8 @@ static UIImage *fnSymbol(NSString *name) {
     NSMutableArray<UISwitch *> *_functionSwitches;
     NSString                   *_functionScriptPath;
     NSMutableDictionary<NSString *, NSString *> *_functionOptionValues;  // 选项名 → 当前值
+    // 功能名 → 参数名 → 当前值（x/y/延迟/次数 这些，声明了才在面板上出现）
+    NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *_functionParamValues;
     BOOL                        _pickingScript;   // 正在挑「功能」页要用的脚本
     BOOL                        _shown;
     CGFloat                     _contentHeight;   // 卡片中间滚动区的内容高度（用于自适应卡片高度）
@@ -86,6 +88,7 @@ static UIImage *fnSymbol(NSString *name) {
     self = [super init];
     if (self) {
         _functionOptionValues = [NSMutableDictionary dictionary];
+        _functionParamValues = [NSMutableDictionary dictionary];
         _pickingScript = NO;
         _shown = NO;
         _contentHeight = 0;
@@ -197,7 +200,7 @@ static UIImage *fnSymbol(NSString *name) {
     [[NSNotificationCenter defaultCenter] addObserverForName:UIDeviceOrientationDidChangeNotification
         object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
             if (!self->_shown) return;
-            [self persistOptionValues];
+            [self persistAllValues];
             if (self->_pickingScript) [self reloadScriptPicker];
             else [self reloadFunctionPage];
         }];
@@ -272,8 +275,20 @@ static UIImage *fnSymbol(NSString *name) {
     ZXSaveScriptOptionValues(_functionScriptPath, _functionOptionValues);
 }
 
-- (void)optionEditingEnded {
+// 把当前功能参数（x/y/延迟/次数）存回 plist
+- (void)persistFunctionParamValues {
+    if (_functionScriptPath.length == 0) return;
+    if (_functionParamValues.count == 0) return;
+    ZXSaveScriptFunctionParams(_functionScriptPath, _functionParamValues);
+}
+
+- (void)persistAllValues {
     [self persistOptionValues];
+    [self persistFunctionParamValues];
+}
+
+- (void)optionEditingEnded {
+    [self persistAllValues];
 }
 
 // 一行选项：左边名称，右边按类型给控件
@@ -367,6 +382,93 @@ static UIImage *fnSymbol(NSString *name) {
     return row;
 }
 
+// 一行功能：左边名称、右边开关；声明行里写了参数（x= / y= / 延迟= / 次数=）时，
+// 名称和开关中间按声明顺序各给一个输入框，用户填的值就是脚本读到的东西。
+- (UIView *)buildFunctionRow:(NSDictionary *)decl
+                        isOn:(BOOL)isOn
+                       saved:(NSDictionary<NSString *, NSString *> *)saved
+                       width:(CGFloat)pw
+                      switch:(UISwitch **)outSwitch
+                      height:(CGFloat *)outHeight {
+    NSString *funcName = decl[@"name"];
+    NSArray<NSString *> *keys = decl[@"paramOrder"] ?: @[];
+
+    CGFloat rowW = pw - 8;
+    CGFloat switchW = 51;
+    CGFloat nameH = 40.0f;
+    CGFloat fieldsH = (keys.count > 0) ? 48.0f : 0.0f;
+
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, nameH + fieldsH)];
+    row.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    row.layer.cornerRadius = 8;
+    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+
+    CGFloat labelW = MAX(rowW - 10 - switchW - 12, 60);
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, labelW, nameH)];
+    label.text = funcName;
+    label.font = [UIFont systemFontOfSize:14];
+    label.textColor = [UIColor labelColor];
+    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [row addSubview:label];
+
+    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(rowW - 10 - switchW, 5, switchW, 31)];
+    sw.on = isOn;
+    sw.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [row addSubview:sw];
+    if (outSwitch) *outSwitch = sw;
+
+    if (keys.count > 0) {
+        NSMutableDictionary<NSString *, NSString *> *store = _functionParamValues[funcName];
+        if (!store) {
+            store = [NSMutableDictionary dictionary];
+            _functionParamValues[funcName] = store;
+        }
+
+        CGFloat gap = 6.0f;
+        CGFloat fieldW = (rowW - 20 - gap * (keys.count - 1)) / (CGFloat)keys.count;
+        CGFloat fx = 10;
+        for (NSString *key in keys) {
+            NSString *value = saved[key];
+            if (value.length == 0) value = decl[@"params"][key];
+            if (value.length == 0) value = @"";
+            store[key] = value;
+
+            UILabel *cap = [[UILabel alloc] initWithFrame:CGRectMake(fx, nameH, fieldW, 13)];
+            cap.text = key;   // x / y / 延迟 / 次数
+            cap.font = [UIFont systemFontOfSize:10];
+            cap.textColor = [UIColor secondaryLabelColor];
+            cap.textAlignment = NSTextAlignmentCenter;
+            [row addSubview:cap];
+
+            UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(fx, nameH + 15, fieldW, 29)];
+            tf.font = [UIFont systemFontOfSize:13];
+            tf.textColor = [UIColor labelColor];
+            tf.backgroundColor = [UIColor systemBackgroundColor];
+            tf.layer.cornerRadius = 6;
+            tf.layer.borderColor = [UIColor separatorColor].CGColor;
+            tf.layer.borderWidth = 1;
+            tf.textAlignment = NSTextAlignmentCenter;
+            tf.keyboardType = UIKeyboardTypeDecimalPad;
+            tf.adjustsFontSizeToFitWidth = YES;
+            tf.minimumFontSize = 9;
+            tf.inputAccessoryView = [self optionKeyboardAccessory];
+            tf.text = value;
+            [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                store[key] = tf.text ?: @"";
+            }] forControlEvents:UIControlEventEditingChanged];
+            [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                [self persistAllValues];
+            }] forControlEvents:UIControlEventEditingDidEnd];
+            [row addSubview:tf];
+
+            fx += fieldW + gap;
+        }
+    }
+
+    if (outHeight) *outHeight = nameH + fieldsH;
+    return row;
+}
+
 - (void)addSectionLabel:(NSString *)text width:(CGFloat)pw atY:(CGFloat)y {
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, y, pw - 24, 18)];
     label.text = text;
@@ -391,13 +493,47 @@ static UIImage *fnSymbol(NSString *name) {
     for (UIView *v in _functionScrollView.subviews) [v removeFromSuperview];
     _functionSwitches = [NSMutableArray array];
     _functionOptionValues = [NSMutableDictionary dictionary];
+    _functionParamValues = [NSMutableDictionary dictionary];
 
     BOOL hasScript = _functionScriptPath.length > 0;
     NSArray<NSDictionary *> *decls = hasScript ? (ZXScriptOptionDeclarations(_functionScriptPath) ?: @[]) : @[];
-    _functionNames = hasScript ? (ZXScriptFunctionNames(_functionScriptPath) ?: @[]) : @[];
+    NSArray<NSDictionary *> *funcDecls = hasScript ? (ZXScriptFunctionDeclarations(_functionScriptPath) ?: @[]) : @[];
+    NSMutableArray<NSString *> *funcNames = [NSMutableArray array];
+    for (NSDictionary *d in funcDecls) [funcNames addObject:d[@"name"]];
+    _functionNames = funcNames;
     NSDictionary<NSString *, NSString *> *saved = hasScript ? ZXScriptOptionValues(_functionScriptPath) : @{};
+    NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *savedParams =
+        hasScript ? ZXScriptFunctionParams(_functionScriptPath) : @{};
 
     CGFloat y = 4;
+
+    // 用户要求：功能勾选区在上，选项区挪到面板最下面
+    if (_functionNames.count > 0) {
+        [self addSectionLabel:@"功能" width:pw atY:y];
+        y += 22;
+
+        NSArray<NSString *> *selected = hasScript ? ZXScriptFunctionSelection(_functionScriptPath) : nil;
+
+        for (NSDictionary *decl in funcDecls) {
+            NSString *funcName = decl[@"name"];
+            BOOL isOn = (selected == nil) ? YES : [selected containsObject:funcName];
+
+            UISwitch *sw = nil;
+            CGFloat rowH = 0;
+            UIView *row = [self buildFunctionRow:decl
+                                            isOn:isOn
+                                           saved:savedParams[funcName]
+                                           width:pw
+                                          switch:&sw
+                                          height:&rowH];
+            row.frame = CGRectMake(4, y, pw - 8, rowH);
+            [_functionScrollView addSubview:row];
+            [_functionSwitches addObject:sw];
+
+            y += rowH + 6;
+        }
+        y += 4;
+    }
 
     if (decls.count > 0) {
         [self addSectionLabel:@"选项" width:pw atY:y];
@@ -415,40 +551,6 @@ static UIImage *fnSymbol(NSString *name) {
             [_functionScrollView addSubview:row];
             y += 44 + 6;
         }
-        y += 4;
-    }
-
-    if (_functionNames.count > 0) {
-        [self addSectionLabel:@"功能" width:pw atY:y];
-        y += 22;
-
-        NSArray<NSString *> *selected = hasScript ? ZXScriptFunctionSelection(_functionScriptPath) : nil;
-        CGFloat rowW = pw - 8;
-        CGFloat switchW = 51;
-        CGFloat labelW = MAX(rowW - 10 - switchW - 12, 60);
-
-        for (NSString *funcName in _functionNames) {
-            UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, y, rowW, 46)];
-            row.backgroundColor = [UIColor secondarySystemBackgroundColor];
-            row.layer.cornerRadius = 8;
-            row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-
-            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, labelW, 46)];
-            label.text = funcName;
-            label.font = [UIFont systemFontOfSize:14];
-            label.textColor = [UIColor labelColor];
-            label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-            [row addSubview:label];
-
-            UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(rowW - 10 - switchW, 8, switchW, 31)];
-            sw.on = (selected == nil) ? YES : [selected containsObject:funcName];
-            sw.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-            [row addSubview:sw];
-            [_functionSwitches addObject:sw];
-
-            [_functionScrollView addSubview:row];
-            y += 46 + 6;
-        }
     }
 
     if (decls.count == 0 && _functionNames.count == 0) {
@@ -456,7 +558,7 @@ static UIImage *fnSymbol(NSString *name) {
         empty.numberOfLines = 0;
         empty.font = [UIFont systemFontOfSize:12];
         empty.textColor = [UIColor secondaryLabelColor];
-        empty.text = @"这个脚本还没有声明功能或选项。\n在脚本里加一行\n「# @功能 名称」或\n「# @选项 名称 数字 默认=0」\n就会出现。";
+        empty.text = @"这个脚本还没有声明功能或选项。\n在脚本里加一行\n「# @功能 攻击 x=100 y=200」或\n「# @选项 名称 数字 默认=0」\n就会出现（写了哪些参数就出几个输入框）。";
         empty.autoresizingMask = UIViewAutoresizingFlexibleWidth;
         [_functionScrollView addSubview:empty];
         y = 110;
@@ -529,7 +631,7 @@ static UIImage *fnSymbol(NSString *name) {
 
 - (void)selectFunctionScript:(NSString *)path {
     [_cardView endEditing:YES];
-    [self persistOptionValues];
+    [self persistAllValues];
     _pickingScript = NO;
     _functionScriptPath = [path copy];
     ZXSaveLastFunctionScriptPath(_functionScriptPath);
@@ -549,7 +651,7 @@ static UIImage *fnSymbol(NSString *name) {
     }
 
     [_cardView endEditing:YES];
-    [self persistOptionValues];
+    [self persistAllValues];
 
     NSMutableArray<NSString *> *picked = [NSMutableArray array];
     for (NSUInteger i = 0; i < _functionSwitches.count && i < _functionNames.count; i++) {
@@ -610,7 +712,7 @@ static UIImage *fnSymbol(NSString *name) {
     ZXSafeMainAsync(^{
         if (!self->_window) return;
         [self->_cardView endEditing:YES];
-        [self persistOptionValues];
+        [self persistAllValues];
         self->_window.hidden = YES;
     });
 }

@@ -98,10 +98,11 @@
 #define kFMPauseGrayMin      0.0f
 #define kFMPauseGrayMax      1.0f
 
-// 菜单按钮随脚本状态切换（「功能」和「返回」两个位置恒不变）：
+// 菜单按钮随脚本状态切换（数量也不同）：
 //   未运行 → 启动 / 功能 / 设置 / 返回
-//   运行中 → 暂停 / 功能 / 停止 / 返回
-//   已暂停 → 启动 / 功能 / 停止 / 返回（圆点同时变灰并叠加「已暂停」）
+//   运行中 → 暂停 / 停止 / 返回
+//   已暂停 → 启动 / 停止 / 返回（圆点同时变灰并叠加「已暂停」）
+// 具体表见 menuTableForState:，点击按 role 派发
 typedef NS_ENUM(NSInteger, FMScriptPlayState) {
     FMScriptPlayStateIdle    = 0,  // 未运行
     FMScriptPlayStateRunning = 1,  // 运行中
@@ -343,8 +344,9 @@ static void fmPersistKeys(NSDictionary *pairs)
     UIView                   *_pauseOverlay;     // 暂停时覆盖圆点的灰罩
     UILabel                  *_pauseLabel;       // 暂停时叠加在圆点上的文字
     UIView                   *_menuPanel;        // 白色半透明面板（菜单容器）
-    NSMutableArray<UIButton *> *_menuButtons; // 启动/暂停 / 功能 / 设置/停止 / 返回（圆形图标按钮）
+    NSMutableArray<UIButton *> *_menuButtons; // 菜单按钮（固定建 4 个槽位，用几个由 _menuTable 决定）
     NSMutableArray<UILabel *>  *_menuLabels;  // 对应下方文字标签
+    NSArray<NSDictionary *>  *_menuTable;     // 当前状态下要显示哪些按钮：@{role, symbol, title}
     NSTimer                  *_watchTimer;
 
     BOOL     _enabled;
@@ -381,6 +383,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 - (void)applyGeometry;
 - (void)applyDotIcon;
 - (void)applyPauseAppearance;
+- (NSArray<NSDictionary *> *)menuTableForState:(FMScriptPlayState)state;
 - (void)applyScriptPlayState:(FMScriptPlayState)state;
 - (void)expandMenu;
 - (void)collapseMenu;
@@ -650,8 +653,8 @@ static void fmPersistKeys(NSDictionary *pairs)
     [_dotButton addGestureRecognizer:pan];
     [_dotButton addGestureRecognizer:tap];
 
-    // 菜单：四个独立圆形按钮 + 下方文字标签（仿按键精灵，无容器面板）
-    // 顺序：启动/暂停、功能、设置/停止、返回（与 applyScriptPlayState / handleMenuIconTap 的下标约定一致）
+    // 菜单：独立圆形按钮 + 下方文字标签（仿按键精灵，无容器面板）
+    // 固定建 4 个槽位，每个状态实际显示几个 / 各是什么，由 _menuTable（applyScriptPlayState）决定
     _menuButtons = [NSMutableArray array];
     _menuLabels  = [NSMutableArray array];
     _menuPanel = nil;  // 不再需要白色容器面板
@@ -784,8 +787,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 #pragma mark 菜单三态
 
-// 按脚本当前状态刷新菜单按钮与圆点：未运行=启动/设置 / 运行中=暂停/停止 / 已暂停=启动/停止。
-// 「功能」（下标 1）与「返回」（下标 3）不随状态变。
+// 按脚本当前状态刷新菜单按钮与圆点。
 // 结果不缓存——暂停/停止可能由 App 端或脚本自然结束触发，缓存会显示过期状态。
 + (void)refreshScriptPlayState
 {
@@ -801,32 +803,40 @@ static void fmPersistKeys(NSDictionary *pairs)
     [[self shared] applyScriptPlayState:FMScriptPlayStateIdle];
 }
 
+// 当前状态该出哪些按钮：role 决定点击干什么（不看下标，按钮增减不会错位）
+//   未运行 → 启动 / 功能 / 设置 / 返回
+//   运行中 → 暂停 / 停止 / 返回     （用户要求：跑起来以后不再显示「功能」）
+//   已暂停 → 启动 / 停止 / 返回
+- (NSArray<NSDictionary *> *)menuTableForState:(FMScriptPlayState)state
+{
+    NSDictionary *play   = @{ @"role": @"start",    @"symbol": @"play.fill",  @"title": @"启动" };
+    NSDictionary *pause  = @{ @"role": @"start",    @"symbol": @"pause.fill", @"title": @"暂停" };
+    NSDictionary *stop   = @{ @"role": @"stop",     @"symbol": @"stop.fill",  @"title": @"停止" };
+    NSDictionary *func   = @{ @"role": @"function", @"symbol": @"checklist",  @"title": @"功能" };
+    NSDictionary *setup  = @{ @"role": @"settings", @"symbol": @"gearshape.fill", @"title": @"设置" };
+    NSDictionary *back   = @{ @"role": @"back",     @"symbol": @"arrow.uturn.backward.circle.fill", @"title": @"返回" };
+
+    if (state == FMScriptPlayStateRunning) return @[ pause, stop, back ];
+    if (state == FMScriptPlayStatePaused)  return @[ play,  stop, back ];
+    return @[ play, func, setup, back ];
+}
+
 - (void)applyScriptPlayState:(FMScriptPlayState)state
 {
     _playState = state;
 
-    // 下标约定：0 = 启动/暂停，1 = 功能（字形/文字都不变），2 = 设置⇄停止，3 = 返回（恒不变）
-    NSString *symbols[4] = { @"play.fill", @"checklist", @"gearshape.fill", @"arrow.uturn.backward.circle.fill" };
-    NSString *titles[4]  = { @"启动", @"功能", @"设置", @"返回" };
-    if (state == FMScriptPlayStateRunning) {
-        symbols[0] = @"pause.fill";
-        titles[0]  = @"暂停";
-        symbols[2] = @"stop.fill";
-        titles[2]  = @"停止";
-    } else if (state == FMScriptPlayStatePaused) {
-        symbols[0] = @"play.fill";
-        titles[0]  = @"启动";
-        symbols[2] = @"stop.fill";
-        titles[2]  = @"停止";
-    }
+    NSArray<NSDictionary *> *table = [self menuTableForState:state];
+    _menuTable = table;
 
-    for (NSUInteger i = 0; i < _menuButtons.count && i < 4; i++) {
+    for (NSUInteger i = 0; i < _menuButtons.count; i++) {
+        if (i >= table.count) continue;   // 这个状态下用不到的槽位，交给 applyGeometry 隐藏
+        NSDictionary *item = table[i];
         UIButton *button = _menuButtons[i];
         if (@available(iOS 13.0, *)) {
-            [button setImage:[UIImage systemImageNamed:symbols[i]] forState:UIControlStateNormal];
+            [button setImage:[UIImage systemImageNamed:item[@"symbol"]] forState:UIControlStateNormal];
         }
         if (i < _menuLabels.count) {
-            _menuLabels[i].text = titles[i];
+            _menuLabels[i].text = item[@"title"];
         }
     }
 
@@ -837,6 +847,11 @@ static void fmPersistKeys(NSDictionary *pairs)
         [self startRunningSpinner];
     } else {
         [self stopRunningSpinner];
+    }
+
+    // 菜单开着的时候状态变了（点了启动/暂停），按钮个数和内容要跟着重排
+    if (_expanded && !_menuAnimating) {
+        [self applyGeometry];
     }
 }
 
@@ -876,8 +891,8 @@ static void fmPersistKeys(NSDictionary *pairs)
         CGFloat btnGap   = _menuBtnGap;
         CGFloat labelH   = [self menuLabelHeight];
         CGFloat btnLabelGap = kFMMenuLabelGap;
-        // 按钮个数直接跟 _menuButtons 走，以后加减按钮不用改这里
-        NSUInteger btnCount = _menuButtons.count;
+        // 按钮个数跟当前状态的按钮表走（没表时退回全部槽位）
+        NSUInteger btnCount = _menuTable ? _menuTable.count : _menuButtons.count;
         CGFloat totalBtnW = btnSize * btnCount + btnGap * (btnCount > 0 ? btnCount - 1 : 0);
         CGFloat rowH      = btnSize + btnLabelGap + labelH;
 
@@ -892,20 +907,28 @@ static void fmPersistKeys(NSDictionary *pairs)
         // 纵向：整体居中对齐圆点中心
         CGFloat startY = dot.y - rowH / 2.0f;
 
-        for (NSUInteger i = 0; i < btnCount; i++) {
+        for (NSUInteger i = 0; i < _menuButtons.count; i++) {
+            UIButton *b = _menuButtons[i];
+            UILabel *l = (i < _menuLabels.count) ? _menuLabels[i] : nil;
+            if (i >= btnCount) {
+                // 当前状态不显示这个按钮（如运行中不显示「功能」）→ 收干净，别留残影
+                b.transform = CGAffineTransformIdentity;
+                b.alpha = 0.0f;
+                b.hidden = YES;
+                l.transform = CGAffineTransformIdentity;
+                l.alpha = 0.0f;
+                l.hidden = YES;
+                continue;
+            }
             CGFloat bx = firstBtnX + i * (btnSize + btnGap);
             CGFloat by = startY;
             CGFloat ly = by + btnSize + btnLabelGap;
-            if (i < _menuButtons.count) {
-                UIButton *b = _menuButtons[i];
-                // 先重置 transform（关键！transform 非 identity 时 frame 值不可靠）
-                b.transform = CGAffineTransformIdentity;
-                b.alpha = 1.0f;
-                b.frame = CGRectMake(bx, by, btnSize, btnSize);
-                b.hidden = NO;
-            }
-            if (i < _menuLabels.count) {
-                UILabel *l = _menuLabels[i];
+            // 先重置 transform（关键！transform 非 identity 时 frame 值不可靠）
+            b.transform = CGAffineTransformIdentity;
+            b.alpha = 1.0f;
+            b.frame = CGRectMake(bx, by, btnSize, btnSize);
+            b.hidden = NO;
+            if (l) {
                 l.transform = CGAffineTransformIdentity;
                 l.alpha = 1.0f;
                 l.frame = CGRectMake(bx, ly, btnSize, labelH);
@@ -939,10 +962,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     [self applyGeometry];  // 先让按钮/标签到正确位置
 
     CGPoint dotCenter = _dotButton.center;
+    NSUInteger total = _menuTable ? _menuTable.count : _menuButtons.count;
 
     // 先保存正确位置（关键！不能改 frame 后再存）
     NSMutableArray *targets = [NSMutableArray array];
-    for (NSUInteger i = 0; i < _menuButtons.count; i++) {
+    for (NSUInteger i = 0; i < total; i++) {
         UIButton *b = _menuButtons[i];
         UILabel *l = _menuLabels[i];
         [targets addObject:@{
@@ -954,7 +978,6 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
 
     // 瀑布流：每个按钮/标签从 dot 位置缩放淡入
-    NSUInteger total = _menuButtons.count;
     for (NSUInteger i = 0; i < total; i++) {
         UIButton *b = _menuButtons[i];
         UILabel *l = _menuLabels[i];
@@ -1007,10 +1030,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (!_expanded || !_window) return;
     _menuAnimating = YES;
     CGPoint dotCenter = _dotButton.center;
+    NSUInteger total = _menuTable ? _menuTable.count : _menuButtons.count;
 
     // 先保存当前位置（改 frame 之前）
     NSMutableArray *targets = [NSMutableArray array];
-    for (NSUInteger i = 0; i < _menuButtons.count; i++) {
+    for (NSUInteger i = 0; i < total; i++) {
         UIButton *b = _menuButtons[i];
         UILabel *l = _menuLabels[i];
         [targets addObject:@{
@@ -1022,7 +1046,6 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
 
     // 反向瀑布流：每个按钮/标签向 dot 位置缩小淡出，最后一个先收
-    NSUInteger total = _menuButtons.count;
     for (NSUInteger i = 0; i < total; i++) {
         UIButton *b = _menuButtons[i];
         UILabel *l = _menuLabels[i];
@@ -1157,18 +1180,20 @@ static void fmPersistKeys(NSDictionary *pairs)
 - (void)handleMenuIconTap:(UIButton *)sender
 {
     NSUInteger idx = [_menuButtons indexOfObject:sender];
-    if (idx == NSNotFound) return;
+    if (idx == NSNotFound || idx >= _menuTable.count) return;
+    // 按 role 派发，不看下标——各状态按钮个数不同也不会点错
+    NSString *role = _menuTable[idx][@"role"];
     // 不要在这里调 collapseMenu！每个 action 自己决定要不要收菜单：
     // actionStart 启动脚本后保持菜单打开（方便停止），其余 action 收菜单
-    if (idx == 0) {
+    if ([role isEqualToString:@"start"]) {
         [self actionStart];
-    } else if (idx == 1) {
+    } else if ([role isEqualToString:@"function"]) {
         [self actionFunction];
-    } else if (idx == 2) {
-        // 第 3 个按钮：脚本在跑（含暂停）时是「停止」，没跑时才是「设置」
-        if (isScriptPlaying()) [self actionStop];
-        else [self actionSettings];
-    } else if (idx == 3) {
+    } else if ([role isEqualToString:@"stop"]) {
+        [self actionStop];
+    } else if ([role isEqualToString:@"settings"]) {
+        [self actionSettings];
+    } else if ([role isEqualToString:@"back"]) {
         [self actionBack];
     }
 }
