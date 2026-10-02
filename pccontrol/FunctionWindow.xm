@@ -154,7 +154,7 @@ static UIImage *fnSymbol(NSString *name) {
     [_closeBtn setTitle:@"✕" forState:UIControlStateNormal];
     [_closeBtn setTitleColor:[UIColor secondaryLabelColor] forState:UIControlStateNormal];
     [_closeBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self hide];
+        [self hide];   // ✕：只关闭，不额外存盘
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_closeBtn];
 
@@ -181,7 +181,7 @@ static UIImage *fnSymbol(NSString *name) {
     _saveBtn = fnMakeButton(@"保存", [UIColor systemBlueColor]);
     _saveBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
     [_saveBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self hide];   // hide 里先存盘再关闭，就是「保存并关闭」
+        [self saveAndHide];   // 存「选项值 + 功能参数 + 功能勾选」再关闭
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_saveBtn];
 
@@ -283,6 +283,24 @@ static UIImage *fnSymbol(NSString *name) {
 - (void)persistAllValues {
     [self persistOptionValues];
     [self persistFunctionParamValues];
+}
+
+// 当前开关勾了哪些功能（下标与 _functionNames 一一对应）
+- (NSArray<NSString *> *)pickedFunctionNames {
+    NSMutableArray<NSString *> *picked = [NSMutableArray array];
+    for (NSUInteger i = 0; i < _functionSwitches.count && i < _functionNames.count; i++) {
+        if (_functionSwitches[i].isOn) [picked addObject:_functionNames[i]];
+    }
+    return picked;
+}
+
+// 「保存」按钮：选项值 + 功能参数 + 功能勾选 全部写盘，再关闭
+- (void)saveAndHide {
+    [self persistAllValues];
+    if (_functionScriptPath.length > 0 && _functionNames.count > 0) {
+        ZXSaveScriptFunctionSelection(_functionScriptPath, [self pickedFunctionNames]);
+    }
+    [self hide];
 }
 
 - (void)optionEditingEnded {
@@ -747,10 +765,7 @@ static UIImage *fnSymbol(NSString *name) {
     [_cardView endEditing:YES];
     [self persistAllValues];
 
-    NSMutableArray<NSString *> *picked = [NSMutableArray array];
-    for (NSUInteger i = 0; i < _functionSwitches.count && i < _functionNames.count; i++) {
-        if (_functionSwitches[i].isOn) [picked addObject:_functionNames[i]];
-    }
+    NSArray<NSString *> *picked = [self pickedFunctionNames];
     // 只有声明了功能的脚本才要求至少勾一个（只声明选项的脚本可以直接运行）
     if (_functionNames.count > 0 && picked.count == 0) {
         showAlertBox(@"提示", @"请至少勾选一个功能。", 2);
@@ -801,12 +816,12 @@ static UIImage *fnSymbol(NSString *name) {
     });
 }
 
+// 关闭面板。「保存」走 saveAndHide；✕ 直接调这里，不额外存盘
 - (void)hide {
     _shown = NO;
     ZXSafeMainAsync(^{
         if (!self->_window) return;
         [self->_cardView endEditing:YES];
-        [self persistAllValues];
         self->_window.hidden = YES;
     });
 }
