@@ -420,7 +420,7 @@ static UIImage *fnSymbol(NSString *name) {
 // 一行功能：名称（左，固定宽）+ 参数（在名称与开关之间居中）+ 开关（右，固定位）
 // 参数有两种，声明里就能看出来：
 //   数字     「x=333」        → 小字标签 + 输入框
-//   下拉     「蛋=全部提醒|仅提醒白蛋|仅提醒黑蛋」 → 一个下拉按钮（值里带 | 就是下拉）
+//   下拉     「范围=全部提醒|仅提醒白蛋|仅提醒黑蛋」 → 一个下拉按钮（值里带 | 就是下拉）
 // 参数区整体居中，所以每行的开关都落在同一条竖线上，参数也不会挤在名字旁边。
 - (UIView *)buildFunctionRow:(NSDictionary *)decl
                         isOn:(BOOL)isOn
@@ -470,7 +470,7 @@ static UIImage *fnSymbol(NSString *name) {
         }
 
         // 第一遍：定每个参数控件的宽度。数字框平分剩下的地方（封顶 56，够放 4 位数），下拉按最长选项定宽
-        NSMutableArray<NSString *> *choicesOf = [NSMutableArray array];
+        NSMutableArray<NSArray<NSString *> *> *choicesOf = [NSMutableArray array];
         NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
         CGFloat fixedW = 0;
         NSUInteger numCount = 0;
