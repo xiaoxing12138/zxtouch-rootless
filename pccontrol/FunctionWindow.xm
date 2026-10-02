@@ -417,7 +417,8 @@ static UIImage *fnSymbol(NSString *name) {
     return row;
 }
 
-// 一行功能：名称（左，固定宽）+ 参数（在名称与开关之间居中）+ 开关（右，固定位）
+// 一格功能：名称（左，固定宽）+ 参数（在名称与开关之间居中）+ 开关（右，固定位）
+// pw = 这一格的宽度（一行一个时是整张卡，一行两个时是半张卡），外面负责定位，这里不再加内缩
 // 参数有两种，声明里就能看出来：
 //   数字     「x=333」        → 小字标签 + 输入框
 //   下拉     「范围=全部提醒|仅提醒白蛋|仅提醒黑蛋」 → 一个下拉按钮（值里带 | 就是下拉）
@@ -431,7 +432,7 @@ static UIImage *fnSymbol(NSString *name) {
     NSString *funcName = decl[@"name"];
     NSArray<NSString *> *keys = decl[@"paramOrder"] ?: @[];
 
-    CGFloat rowW = pw - 8;
+    CGFloat rowW = pw;
     CGFloat rowH = 46.0f;
     CGFloat pad = 10.0f;
     CGFloat nameW = FN_NAME_W;    // 够放 7 个中文字
@@ -443,7 +444,7 @@ static UIImage *fnSymbol(NSString *name) {
     CGFloat midW = rowW - midX - switchW - pad - 10;  // 参数区可用宽度
     if (midW < 60.0f) midW = 60.0f;
 
-    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, rowH)];
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, rowW, rowH)];
     row.backgroundColor = [UIColor secondarySystemBackgroundColor];
     row.layer.cornerRadius = 8;
     row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
@@ -510,6 +511,10 @@ static UIImage *fnSymbol(NSString *name) {
             NSArray<NSString *> *choices = choicesOf[i];
             NSString *value = saved[key];
             CGFloat ctrlW = choices.count > 0 ? [widths[i] doubleValue] : fieldW;
+            // 一行两个时中间只剩 60~70pt，控件要缩到装得下，否则会压到右边的开关
+            CGFloat limit = (choices.count > 0) ? midW : (midW - capW - capGap);
+            if (ctrlW > limit) ctrlW = limit;
+            if (ctrlW < 20.0f) ctrlW = 20.0f;
 
             if (choices.count > 0) {
                 // 下拉参数：存的值得是候选项之一，不是就用第一个（声明里那串带 | 的只是候选表）
@@ -583,47 +588,6 @@ static UIImage *fnSymbol(NSString *name) {
     return row;
 }
 
-// 一行排 3 个「只有开关」的功能（名称 + 开关，没参数框），省地方
-- (UIView *)buildCompactFunctionRow:(NSArray<NSDictionary *> *)decls
-                               isOn:(NSArray<NSNumber *> *)isOn
-                              width:(CGFloat)pw
-                           switches:(NSMutableArray<UISwitch *> *)outSwitches
-                             height:(CGFloat *)outHeight {
-    CGFloat rowW = pw - 8;
-    CGFloat rowH = 44.0f;
-    CGFloat gap = 6.0f;
-    CGFloat cellW = (rowW - gap * 2) / 3.0f;
-
-    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, rowH)];
-    row.backgroundColor = [UIColor clearColor];
-    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-
-    for (NSUInteger i = 0; i < decls.count && i < 3; i++) {
-        NSDictionary *decl = decls[i];
-        UIView *cell = [[UIView alloc] initWithFrame:CGRectMake(i * (cellW + gap), 0, cellW, rowH)];
-        cell.backgroundColor = [UIColor secondarySystemBackgroundColor];
-        cell.layer.cornerRadius = 8;
-        cell.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [row addSubview:cell];
-
-        UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(8, 0, cellW - 8 - 51 - 6, rowH)];
-        label.text = decl[@"name"];
-        label.font = [UIFont systemFontOfSize:14];
-        label.textColor = [UIColor labelColor];
-        label.adjustsFontSizeToFitWidth = YES;   // 名字长了缩字号，不留省略号
-        label.minimumScaleFactor = 0.8;
-        [cell addSubview:label];
-
-        UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(cellW - 8 - 51, (rowH - 31) / 2.0f, 51, 31)];
-        sw.on = [isOn[i] boolValue];
-        [cell addSubview:sw];
-        [outSwitches addObject:sw];
-    }
-
-    if (outHeight) *outHeight = rowH;
-    return row;
-}
-
 - (void)addSectionLabel:(NSString *)text width:(CGFloat)pw atY:(CGFloat)y {
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, y, pw - 24, 18)];
     label.text = text;
@@ -670,48 +634,59 @@ static UIImage *fnSymbol(NSString *name) {
         NSArray<NSString *> *selected = hasScript ? ZXScriptFunctionSelection(_functionScriptPath) : nil;
 
         // 先把功能按行分组（顺序不变，勾选序号才对得上）：
-        // 带参数的自己占一整行；只有开关的攒够 3 个排一行
+        // 两个以上参数的自己占一整行（一行一个）；只有 0 或 1 个参数的攒够两个排一行
         NSMutableArray<NSArray<NSDictionary *> *> *rowGroups = [NSMutableArray array];
         NSMutableArray<NSDictionary *> *batch = [NSMutableArray array];
         for (NSDictionary *decl in funcDecls) {
-            BOOL hasParams = [(decl[@"paramOrder"] ?: @[]) count] > 0;
-            if (hasParams) {
+            BOOL wide = [(decl[@"paramOrder"] ?: @[]) count] >= 2;
+            if (wide) {
                 if (batch.count > 0) { [rowGroups addObject:[batch copy]]; [batch removeAllObjects]; }
                 [rowGroups addObject:@[decl]];
             } else {
                 [batch addObject:decl];
-                if (batch.count == 3) { [rowGroups addObject:[batch copy]]; [batch removeAllObjects]; }
+                if (batch.count == 2) { [rowGroups addObject:[batch copy]]; [batch removeAllObjects]; }
             }
         }
         if (batch.count > 0) [rowGroups addObject:[batch copy]];
 
+        CGFloat contentW = pw - 8;   // 卡片里能用的宽度（左右各留 4pt）
+        CGFloat rowGap = 6.0f;
         for (NSArray<NSDictionary *> *group in rowGroups) {
-            BOOL hasParams = [(group[0][@"paramOrder"] ?: @[]) count] > 0;
-            NSMutableArray<NSNumber *> *ons = [NSMutableArray array];
-            for (NSDictionary *decl in group) {
-                NSString *n = decl[@"name"];
-                [ons addObject:@((selected == nil) ? YES : [selected containsObject:n])];
-            }
-
-            UIView *row = nil;
             CGFloat rowH = 0;
-            if (hasParams) {
+            if (group.count == 1) {
+                NSString *n = group[0][@"name"];
                 UISwitch *sw = nil;
-                row = [self buildFunctionRow:group[0]
-                                        isOn:[ons[0] boolValue]
-                                       saved:savedParams[group[0][@"name"]]
-                                       width:pw
-                                      switch:&sw
-                                      height:&rowH];
+                UIView *cell = [self buildFunctionRow:group[0]
+                                                 isOn:(selected == nil ? YES : [selected containsObject:n])
+                                                saved:savedParams[n]
+                                                width:contentW
+                                               switch:&sw
+                                               height:&rowH];
                 [_functionSwitches addObject:sw];
+                cell.frame = CGRectMake(4, y, contentW, rowH);
+                [_functionScrollView addSubview:cell];
             } else {
-                NSMutableArray<UISwitch *> *sws = [NSMutableArray array];
-                row = [self buildCompactFunctionRow:group isOn:ons width:pw switches:sws height:&rowH];
-                [_functionSwitches addObjectsFromArray:sws];
+                CGFloat cellW = (contentW - rowGap) / 2.0f;
+                UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, y, contentW, 0)];
+                for (NSUInteger i = 0; i < group.count; i++) {
+                    NSString *n = group[i][@"name"];
+                    UISwitch *sw = nil;
+                    CGFloat cellH = 0;
+                    UIView *cell = [self buildFunctionRow:group[i]
+                                                     isOn:(selected == nil ? YES : [selected containsObject:n])
+                                                    saved:savedParams[n]
+                                                    width:cellW
+                                                   switch:&sw
+                                                   height:&cellH];
+                    cell.frame = CGRectMake(i * (cellW + rowGap), 0, cellW, cellH);
+                    [row addSubview:cell];
+                    [_functionSwitches addObject:sw];
+                    if (cellH > rowH) rowH = cellH;
+                }
+                row.frame = CGRectMake(4, y, contentW, rowH);
+                [_functionScrollView addSubview:row];
             }
-            row.frame = CGRectMake(4, y, pw - 8, rowH);
-            [_functionScrollView addSubview:row];
-            y += rowH + 6;
+            y += rowH + rowGap;
         }
         y += 4;
     }
