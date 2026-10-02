@@ -59,6 +59,10 @@
 		96A2BC382587C20A008DE91F /* ScriptListTableCell.m in Sources */ = {isa = PBXBuildFile; fileRef = 96A2BC372587C20A008DE91F /* ScriptListTableCell.m */; };
 		A0B1C2D3E4F5060708090A03 /* RemoteDashboardServer.m in Sources */ = {isa = PBXBuildFile; fileRef = A0B1C2D3E4F5060708090A02 /* RemoteDashboardServer.m */; };
 		A0B1C2D3E4F5060708090A06 /* RecordingEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A0B1C2D3E4F5060708090A05 /* RecordingEditorViewController.m */; };
+		F10A0001000000000000B102 /* FlowScript.m in Sources */ = {isa = PBXBuildFile; fileRef = F10A0001000000000000A102 /* FlowScript.m */; };
+		F10A0001000000000000B202 /* ScreenPickerViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = F10A0001000000000000A202 /* ScreenPickerViewController.m */; };
+		F10A0001000000000000B302 /* FlowEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = F10A0001000000000000A302 /* FlowEditorViewController.m */; };
+		F10A0001000000000000B402 /* ScheduleSettingsViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = F10A0001000000000000A402 /* ScheduleSettingsViewController.m */; };
 		96D3EE3A25C1C009002B0000 /* ScriptPlaySettingsActivatorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 96D3EE3825C1C009002B0000 /* ScriptPlaySettingsActivatorViewController.m */; };
 		96D3EE3B25C1C009002B0000 /* ScriptPlaySettingsActivatorViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = 96D3EE3925C1C009002B0000 /* ScriptPlaySettingsActivatorViewController.xib */; };
 		96D3EE4225C1C9FE002B0000 /* TableViewCellSingleChoice.m in Sources */ = {isa = PBXBuildFile; fileRef = 96D3EE4025C1C9FE002B0000 /* TableViewCellSingleChoice.m */; };
@@ -324,6 +328,14 @@
 		A0B1C2D3E4F5060708090A02 /* RemoteDashboardServer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RemoteDashboardServer.m; sourceTree = "<group>"; };
 		A0B1C2D3E4F5060708090A04 /* RecordingEditorViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RecordingEditorViewController.h; sourceTree = "<group>"; };
 		A0B1C2D3E4F5060708090A05 /* RecordingEditorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RecordingEditorViewController.m; sourceTree = "<group>"; };
+		F10A0001000000000000A101 /* FlowScript.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FlowScript.h; sourceTree = "<group>"; };
+		F10A0001000000000000A102 /* FlowScript.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FlowScript.m; sourceTree = "<group>"; };
+		F10A0001000000000000A201 /* ScreenPickerViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ScreenPickerViewController.h; sourceTree = "<group>"; };
+		F10A0001000000000000A202 /* ScreenPickerViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ScreenPickerViewController.m; sourceTree = "<group>"; };
+		F10A0001000000000000A301 /* FlowEditorViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FlowEditorViewController.h; sourceTree = "<group>"; };
+		F10A0001000000000000A302 /* FlowEditorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FlowEditorViewController.m; sourceTree = "<group>"; };
+		F10A0001000000000000A401 /* ScheduleSettingsViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ScheduleSettingsViewController.h; sourceTree = "<group>"; };
+		F10A0001000000000000A402 /* ScheduleSettingsViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ScheduleSettingsViewController.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -468,6 +480,21 @@
 			path = ScriptManagement;
 			sourceTree = "<group>";
 		};
+		F10A0001000000000000A001 /* Flow */ = {
+			isa = PBXGroup;
+			children = (
+				F10A0001000000000000A101 /* FlowScript.h */,
+				F10A0001000000000000A102 /* FlowScript.m */,
+				F10A0001000000000000A201 /* ScreenPickerViewController.h */,
+				F10A0001000000000000A202 /* ScreenPickerViewController.m */,
+				F10A0001000000000000A301 /* FlowEditorViewController.h */,
+				F10A0001000000000000A302 /* FlowEditorViewController.m */,
+				F10A0001000000000000A401 /* ScheduleSettingsViewController.h */,
+				F10A0001000000000000A402 /* ScheduleSettingsViewController.m */,
+			);
+			path = Flow;
+			sourceTree = "<group>";
+		};
 		966598CA25BD4DFB00F18DEB /* TableViewCells */ = {
 			isa = PBXGroup;
 			children = (
@@ -558,6 +585,7 @@
 				964DF0E825B9D87E006061B4 /* GCDWebServer */,
 				9684FF7225B58A1A00549FC8 /* Settings */,
 				965E8C8725B2BEB000FDD35C /* ScriptManagement */,
+				F10A0001000000000000A001 /* Flow */,
 				965E8C6D25B2A9DA00FDD35C /* Config.h */,
 				9666348725C41D7E0028A5A3 /* ZXTouchActivatorTaskTypes.h */,
 				965E8C9325B31DD100FDD35C /* Util.h */,
@@ -883,6 +911,10 @@
 				96F4696C258B24DA0052D78D /* ScriptEditorViewController.m in Sources */,
 				A0B1C2D3E4F5060708090A03 /* RemoteDashboardServer.m in Sources */,
 				A0B1C2D3E4F5060708090A06 /* RecordingEditorViewController.m in Sources */,
+				F10A0001000000000000B102 /* FlowScript.m in Sources */,
+				F10A0001000000000000B202 /* ScreenPickerViewController.m in Sources */,
+				F10A0001000000000000B302 /* FlowEditorViewController.m in Sources */,
+				F10A0001000000000000B402 /* ScheduleSettingsViewController.m in Sources */,
 				964DF10825B9D87E006061B4 /* GCDWebServerResponse.m in Sources */,
 				964DF10E25B9D87E006061B4 /* GCDWebServerFileResponse.m in Sources */,
 				96D3EE3A25C1C009002B0000 /* ScriptPlaySettingsActivatorViewController.m in Sources */,
@@ -1185,7 +1217,7 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/zxtouch/lib";
-				MARKETING_VERSION = 3.0.48;
+				MARKETING_VERSION = 3.0.49;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zjx.zxtouchasdfas;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1209,7 +1241,7 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/zxtouch/lib";
-				MARKETING_VERSION = 3.0.48;
+				MARKETING_VERSION = 3.0.49;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zjx.zxtouchasdfas;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1304,7 +1336,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.0.48;
+				MARKETING_VERSION = 3.0.49;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zjx.zxtouchasdfas.shortcutext;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1327,7 +1359,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.0.48;
+				MARKETING_VERSION = 3.0.49;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zjx.zxtouchasdfas.shortcutext;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

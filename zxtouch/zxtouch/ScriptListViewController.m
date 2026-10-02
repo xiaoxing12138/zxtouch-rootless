@@ -14,6 +14,8 @@
 #import "ImageViewerViewController.h"
 #include "Config.h"
 #import "ScriptManagement/MoreOptionsPopOverTableViewController.h"
+#import "Flow/FlowEditorViewController.h"
+#import "Flow/FlowScript.h"
 #import "Socket.h"
 #import "Util.h"
 
@@ -289,6 +291,12 @@
             if ([entry.pathExtension.lowercaseString isEqualToString:@"raw"]) {
                 RecordingEditorViewController *recordingEditor = [[RecordingEditorViewController alloc] initWithScriptBundlePath:path];
                 [self.navigationController pushViewController:recordingEditor animated:YES];
+                return;
+            }
+            // 可视化脚本：点一下直接进编辑器，跟录制脚本一个待遇
+            if ([FlowScript bundleHasFlow:path]) {
+                FlowEditorViewController *flowEditor = [[FlowEditorViewController alloc] initWithScriptBundlePath:path];
+                [self.navigationController pushViewController:flowEditor animated:YES];
                 return;
             }
         }

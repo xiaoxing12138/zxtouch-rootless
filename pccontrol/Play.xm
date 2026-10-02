@@ -118,6 +118,13 @@ void resumeScriptPlaying()
     [scriptPlayer resume];
 }
 
+NSString* ZXCurrentScriptBundlePath()
+{
+    if (!scriptPlayer) return nil;
+    if (![scriptPlayer isPlaying]) return nil;
+    return [scriptPlayer getCurrentBundlePath];
+}
+
 void playHasStoppedCallBack()
 {
     // 脚本结束 → 停旋转光圈（必须最先执行，确保任何提前 return 都不会漏掉）

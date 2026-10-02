@@ -1,6 +1,6 @@
 Package: com.zjx.ioscontrol
 Name: 小新Lap
-Version: 3.0.48
+Version: 3.0.49
 Depends: mobilesubstrate | ellekit, firmware (>= 15.0)
 Architecture: iphoneos-arm64
 Description: 小新Lap — 基于开源项目 ZXTouch 二次修改的触摸模拟工具（无根越狱，iOS 15-16）

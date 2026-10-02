@@ -1,4 +1,5 @@
 #import "TouchCoordinateIndicator.h"
+#import <math.h>
 #import "FloatingMenu.h"    // FMPassthroughWindow + preferredWindowScene
 #import "Screen.h"
 #import "Common.h"
@@ -106,7 +107,7 @@ static NSArray<NSString *> *coordDisplayLines(void)
     if (_cfgMultiMode == kCoordMultiAll) {
         for (NSNumber *key in keys) {
             CGPoint point = [_activeTouches[key] CGPointValue];
-            [lines addObject:[NSString stringWithFormat:@"(%d, %d)", (int)point.x, (int)point.y]];
+            [lines addObject:[NSString stringWithFormat:@"(%d, %d)", (int)llround(point.x), (int)llround(point.y)]];
         }
         return lines;
     }
@@ -127,7 +128,7 @@ static NSArray<NSString *> *coordDisplayLines(void)
         return lines;
     }
     CGPoint point = [value CGPointValue];
-    [lines addObject:[NSString stringWithFormat:@"(%d, %d)", (int)point.x, (int)point.y]];
+    [lines addObject:[NSString stringWithFormat:@"(%d, %d)", (int)llround(point.x), (int)llround(point.y)]];
     return lines;
 }
 

@@ -39,6 +39,7 @@
 #include "NetSpeedIndicator.h"
 #include "TouchCoordinateIndicator.h"
 #include "FloatingMenu.h"
+#include "Schedule.h"
 #include <roothide.h>
 
 #define IPHONE7P_HEIGHT 1920
@@ -372,6 +373,7 @@ Boolean init()
     [NetSpeedIndicator reloadConfig];
     [TouchCoordinateIndicator reloadConfig];
     [FloatingMenu reloadConfig];
+    ZXScheduleInit();
 
     return true;
 }

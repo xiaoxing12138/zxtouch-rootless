@@ -50,7 +50,9 @@ CGRect screenMatchFromRawData(UInt8 *eventData, NSError **error, float *outBestS
 
     CGRect result = [templateMatch templateMatchWithPixels:pixels stride:stride width:(size_t)screenWidth height:(size_t)screenHeight templatePath:templatePath error:err];
     if (outBestScore) *outBestScore = templateMatch.lastBestScore;
-    return result;
+    // 匹配结果原本是竖屏原始帧坐标，换回触摸指示器坐标，脚本拿到就能直接点（与点这里同一套坐标）
+    if (result.size.width <= 0 || result.size.height <= 0) return result;
+    return ZXIndicatorRectFromFrameRect(result);
 }
 
 

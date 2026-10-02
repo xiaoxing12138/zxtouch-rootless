@@ -78,6 +78,36 @@
     return [NSString stringWithUTF8String:buffer];
 }
 
+-(NSString*) recvLine
+{
+    NSMutableData *line = [NSMutableData data];
+    char c = 0;
+    while (1)
+    {
+        ssize_t n = recv(socketHandle, &c, 1, 0);
+        if (n <= 0) return nil;
+        [line appendBytes:&c length:1];
+        if (c == '\n') break;
+    }
+    return [[NSString alloc] initWithData:line encoding:NSUTF8StringEncoding];
+}
+
+-(NSData*) recvData:(NSInteger)length
+{
+    if (length <= 0) return [NSData data];
+    NSMutableData *data = [NSMutableData dataWithCapacity:(NSUInteger)length];
+    char buffer[16384];
+    while ((NSInteger)data.length < length)
+    {
+        NSInteger remain = length - (NSInteger)data.length;
+        ssize_t want = remain < (NSInteger)sizeof(buffer) ? remain : (NSInteger)sizeof(buffer);
+        ssize_t n = recv(socketHandle, buffer, (size_t)want, 0);
+        if (n <= 0) return nil;
+        [data appendBytes:buffer length:(NSUInteger)n];
+    }
+    return data;
+}
+
 -(void)close {
     if (!socketHandle)
         return;

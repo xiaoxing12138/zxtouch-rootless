@@ -391,6 +391,44 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             }
         }
     }
+    else if (taskType == TASK_SCREENSHOT_RAW)
+    {
+        @autoreleasepool {
+            if (!writeStreamRef) {
+                return;
+            }
+
+            CGImageRef screenshot = [Screen createScreenShotCGImageRef];
+            if (!screenshot) {
+                notifyClient((UInt8 *)"-1;;截图失败\r\n", writeStreamRef);
+                return;
+            }
+
+            // 与 TASK_SCREENSHOT 的区别：这里不做转正，直接给竖屏原始帧，
+            // 再多带一个当前方向，让 App 自己决定「显示转正 / 存盘按原帧抠」。
+            UIImage *image = [UIImage imageWithCGImage:screenshot
+                                                 scale:[Screen getScale]
+                                           orientation:UIImageOrientationUp];
+            NSData *jpegData = image ? UIImageJPEGRepresentation(image, 0.85) : nil;
+            if (!jpegData || [jpegData length] == 0) {
+                notifyClient((UInt8 *)"-1;;将截图编码为 JPEG 失败\r\n", writeStreamRef);
+                CGImageRelease(screenshot);
+                return;
+            }
+
+            NSString *header = [NSString stringWithFormat:@"0;;image/jpeg;;%lu;;%d\r\n",
+                                (unsigned long)[jpegData length], [Screen getScreenOrientation]];
+            NSData *headerData = [header dataUsingEncoding:NSUTF8StringEncoding];
+            if (headerData && notifyClientData((const UInt8 *)[headerData bytes],
+                                               (CFIndex)[headerData length],
+                                               writeStreamRef) == 0) {
+                notifyClientData((const UInt8 *)[jpegData bytes],
+                                 (CFIndex)[jpegData length],
+                                 writeStreamRef);
+            }
+            CGImageRelease(screenshot);
+        }
+    }
     else if (taskType == TASK_NET_SPEED_INDICATOR)
     {
         @autoreleasepool {

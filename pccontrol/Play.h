@@ -14,5 +14,7 @@ void pauseScriptPlaying();
 void resumeScriptPlaying();
 void playHasStoppedCallBack();
 void initScriptPlayer();
+// 当前正在播放的脚本包绝对路径；没在播放返回 nil。定时调度器靠它判断「该停谁」。
+NSString* ZXCurrentScriptBundlePath();
 
 #endif

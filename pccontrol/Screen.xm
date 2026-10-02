@@ -113,6 +113,67 @@ Get the size of the screen and set them.
     return [UIScreen mainScreen].bounds;
 }
 
+#pragma mark - 方向换算（唯一实现，见 Screen.h 注释）
+
+static int ZXEffectiveOrientation(void)
+{
+    int o = [Screen getScreenOrientation];
+    if (o == UIInterfaceOrientationPortrait ||
+        o == UIInterfaceOrientationPortraitUpsideDown ||
+        o == UIInterfaceOrientationLandscapeLeft ||
+        o == UIInterfaceOrientationLandscapeRight)
+    {
+        return o;
+    }
+    // 读不到方向（SpringBoard 早期、无前台 app）时按竖屏算，与触摸指示器的兜底一致
+    return UIInterfaceOrientationPortrait;
+}
+
+CGPoint ZXFramePointFromIndicatorPoint(CGPoint p)
+{
+    CGFloat w = device_screen_width, h = device_screen_height;  // w 短边、h 长边
+    if (w <= 0 || h <= 0) return p;
+
+    switch (ZXEffectiveOrientation())
+    {
+        case UIInterfaceOrientationPortraitUpsideDown: return CGPointMake(w - p.x, h - p.y);
+        case UIInterfaceOrientationLandscapeRight:     return CGPointMake(w - p.y, p.x);   // 3
+        case UIInterfaceOrientationLandscapeLeft:      return CGPointMake(p.y, h - p.x);   // 4
+        default:                                       return p;                           // 1
+    }
+}
+
+CGPoint ZXIndicatorPointFromFramePoint(CGPoint p)
+{
+    CGFloat w = device_screen_width, h = device_screen_height;
+    if (w <= 0 || h <= 0) return p;
+
+    switch (ZXEffectiveOrientation())
+    {
+        case UIInterfaceOrientationPortraitUpsideDown: return CGPointMake(w - p.x, h - p.y);
+        case UIInterfaceOrientationLandscapeRight:     return CGPointMake(p.y, w - p.x);
+        case UIInterfaceOrientationLandscapeLeft:      return CGPointMake(h - p.y, p.x);
+        default:                                       return p;
+    }
+}
+
+static CGRect ZXRectBetweenSpaces(CGRect r, CGPoint (*convert)(CGPoint))
+{
+    CGPoint a = convert(CGPointMake(CGRectGetMinX(r), CGRectGetMinY(r)));
+    CGPoint b = convert(CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r)));
+    return CGRectMake(MIN(a.x, b.x), MIN(a.y, b.y), fabs(b.x - a.x), fabs(b.y - a.y));
+}
+
+CGRect ZXFrameRectFromIndicatorRect(CGRect indicatorRect)
+{
+    return ZXRectBetweenSpaces(indicatorRect, ZXFramePointFromIndicatorPoint);
+}
+
+CGRect ZXIndicatorRectFromFrameRect(CGRect frameRect)
+{
+    return ZXRectBetweenSpaces(frameRect, ZXIndicatorPointFromFramePoint);
+}
+
 
 OBJC_EXTERN UIImage *_UICreateScreenUIImage(void);
 + (NSString*)screenShot

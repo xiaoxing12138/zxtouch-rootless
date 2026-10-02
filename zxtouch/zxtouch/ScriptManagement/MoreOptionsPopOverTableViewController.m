@@ -10,6 +10,9 @@
 #import "Util.h"
 #import "PlaySettingsViewController.h"
 #import "PlaySettingsNavigationController.h"
+#import "FlowEditorViewController.h"
+#import "FlowScript.h"
+#import "ScheduleSettingsViewController.h"
 
 @interface MoreOptionsPopOverTableViewController ()
 {
@@ -131,6 +134,76 @@
     
 }
 
+#pragma mark - 可视化脚本
+
+- (void)pushAfterDismiss:(UIViewController *)controller
+{
+    ScriptListViewController *upper = self->upperLevel;
+    void (^completion)(void) = ^{
+        [upper.navigationController pushViewController:controller animated:YES];
+    };
+    // 关的一定得是「弹层本身」：自己身上可能还挂着一层 alert，
+    // 直接对自己 dismiss 只会把 alert 关掉，弹层会赖在屏幕上。
+    UIViewController *host = self.presentingViewController;
+    if (!host) {
+        [self dismissViewControllerAnimated:YES completion:completion];
+        return;
+    }
+    // 等这一轮 runloop 走完再关：上面的 alert 正在收自己的动画，
+    // 同一时刻再发起一次模态变更会被 UIKit 丢掉
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [host dismissViewControllerAnimated:YES completion:completion];
+    });
+}
+
+- (void)openFlowEditor:(id)sender {
+    [self pushAfterDismiss:[[FlowEditorViewController alloc] initWithScriptBundlePath:currentFolder]];
+}
+
+- (void)openScheduleSettings:(id)sender {
+    [self pushAfterDismiss:[[ScheduleSettingsViewController alloc] initWithScriptBundlePath:currentFolder]];
+}
+
+- (void)createVisualScript:(id)sender {
+    ScriptListViewController *upper = self->upperLevel;
+    NSString *folder = currentFolder;
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"可视化脚本名称"
+                                                                  message:@"新建后直接用「加步骤」拼脚本，不用写代码。"
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.placeholder = @"例如：自动吃丹";
+        field.clearButtonMode = UITextFieldViewModeWhileEditing;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"创建" style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *action) {
+        UITextField *field = alert.textFields.firstObject;
+        NSString *name = [[field.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
+                          stringByReplacingOccurrencesOfString:@"/" withString:@"-"];
+        if (name.length == 0) {
+            [Util showAlertBoxWithOneOption:self title:@"错误" message:@"请输入脚本名称。" buttonString:@"确定"];
+            return;
+        }
+        NSString *bundlePath = [[folder stringByAppendingPathComponent:name] stringByAppendingPathExtension:@"bdl"];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:bundlePath]) {
+            [Util showAlertBoxWithOneOption:self title:@"错误" message:@"这个脚本已经存在了。" buttonString:@"确定"];
+            return;
+        }
+
+        NSError *error = nil;
+        if (![FlowScript createVisualScriptAtPath:bundlePath error:&error]) {
+            [Util showAlertBoxWithOneOption:self title:@"错误"
+                                    message:[NSString stringWithFormat:@"创建失败：%@", error.localizedDescription ?: @"未知错误"]
+                               buttonString:@"确定"];
+            return;
+        }
+        [upper refreshTable];
+        [self pushAfterDismiss:[[FlowEditorViewController alloc] initWithScriptBundlePath:bundlePath]];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
 - (id)initWithFolderPath:(NSString *)path
 {
     self = [super initWithNibName:@"MoreOptionsPopOverTableViewController" bundle:nil];
@@ -161,11 +234,11 @@
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if ([[currentFolder pathExtension] isEqualToString:@"bdl"])
     {
-        return 2;
+        return 4;      // 重命名 / 播放设置 / 可视化编辑 / 定时启动结束
     }
     else
     {
-        return 1;
+        return 2;      // 重命名 / 新建可视化脚本
     }
 }
 
@@ -182,6 +255,8 @@
         cell = [[TableViewCellWithSingleButton alloc]initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellID];
     }
     cell.button.titleLabel.font = [UIFont systemFontOfSize:21];
+    // cell 是复用的：不清掉上一次挂上去的 target，会出现「点一项触发两个动作」
+    [cell.button removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
 
     if (indexPath.row == 0)
     {
@@ -191,12 +266,36 @@
               action:@selector(changeName:)
               forControlEvents:UIControlEventTouchUpInside];
     }
-    else if (indexPath.row == 1)
+    else if (indexPath.row == 1 && [[currentFolder pathExtension] isEqualToString:@"bdl"])
     {
         [cell setButtonText:@"播放设置"];
         
         [cell.button addTarget:self
               action:@selector(changePlaySetting:)
+              forControlEvents:UIControlEventTouchUpInside];
+    }
+    else if (indexPath.row == 1)
+    {
+        [cell setButtonText:@"新建可视化脚本"];
+        
+        [cell.button addTarget:self
+              action:@selector(createVisualScript:)
+              forControlEvents:UIControlEventTouchUpInside];
+    }
+    else if (indexPath.row == 2)
+    {
+        [cell setButtonText:@"可视化编辑"];
+        
+        [cell.button addTarget:self
+              action:@selector(openFlowEditor:)
+              forControlEvents:UIControlEventTouchUpInside];
+    }
+    else if (indexPath.row == 3)
+    {
+        [cell setButtonText:@"启动 / 结束"];
+        
+        [cell.button addTarget:self
+              action:@selector(openScheduleSettings:)
               forControlEvents:UIControlEventTouchUpInside];
     }
     

@@ -19,6 +19,7 @@
 #include "../headers/IOHIDEventSystem.h"
 #pragma clang diagnostic pop
 #import <mach/mach.h>
+#import <math.h>
 
 #define HIDE 0
 #define SHOW 1
@@ -825,7 +826,8 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
         indicator.backgroundColor = indicatorColor;
 
         // create touch coordinate view
-        NSString *coordinateText = [NSString stringWithFormat:@"(%d, %d)", (int)(x * scale), (int)(y * scale)];
+        // 四舍五入而非截断：HID 归一化坐标乘回物理像素常是 399.9999，截断会少 1 个像素
+        NSString *coordinateText = [NSString stringWithFormat:@"(%d, %d)", (int)llround(x * scale), (int)llround(y * scale)];
         UIFont *font = [UIFont fontWithName: @"Trebuchet MS" size: 11.0f];
         CGSize stringSize = [coordinateText sizeWithFont:font]; 
         CGFloat stringWidth = stringSize.width;
@@ -929,7 +931,7 @@ static void IOHIDEventCallbackForTouchIndicator(void* target, void* refcon, IOHI
         touchIndicatorViewList[index-1].frame = CGRectMake(x - halfSize, y - halfSize, indicatorSize, indicatorSize);
         touchIndicatorViewList[index-1].layer.cornerRadius = halfSize;
 
-        NSString *coordinateText = [NSString stringWithFormat:@"(%d, %d)", (int)(x*scale), (int)(y*scale)];
+        NSString *coordinateText = [NSString stringWithFormat:@"(%d, %d)", (int)llround(x * scale), (int)llround(y * scale)];
         UIFont *font = [UIFont fontWithName: @"Trebuchet MS" size: 11.0f];
         CGSize stringSize = [coordinateText sizeWithFont:font]; 
         CGFloat stringWidth = stringSize.width;

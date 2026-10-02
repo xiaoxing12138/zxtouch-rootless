@@ -35,6 +35,9 @@
 #define TASK_DEBUG_INFO 40
 #define TASK_TAP_TEST 41
 #define TASK_TOUCH_COORDINATE_INDICATOR 42
+// 43：返回「未转正」的原始竖屏帧 JPEG + 当前方向，响应头 0;;image/jpeg;<字节数>;;<方向>\r\n
+// 给可视化编辑器截图框选识图模板用：显示时转正，抠模板时按原始帧抠（见 Screen.h 换算说明）
+#define TASK_SCREENSHOT_RAW 43
 
 #define TASK_UPDATE_CACHE 90
 

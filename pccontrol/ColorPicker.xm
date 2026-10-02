@@ -22,8 +22,10 @@ NSDictionary* getRGBFromRawData(UInt8 *eventData, NSError **error)
         return @{@"blue": @(-1), @"red": @(-1), @"green": @(-1)};
     }
 
-    int x = [data[0] intValue];
-    int y = [data[1] intValue];
+    // 脚本里写的是触摸指示器上看到的像素，这里读的是竖屏原始帧，先换算（全工程只此一份）
+    CGPoint framePoint = ZXFramePointFromIndicatorPoint(CGPointMake([data[0] intValue], [data[1] intValue]));
+    int x = (int)lround(framePoint.x);
+    int y = (int)lround(framePoint.y);
     // 越界不报错也不返回垃圾：夹到最近的合法像素，保证 24 小时跑不会因为一次越界读炸掉脚本
     if (x < 0) x = 0;
     if (y < 0) y = 0;
@@ -57,10 +59,13 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
         }
 
 
-        int x = [data[1] intValue];
-        int y = [data[2] intValue];
-        int width =  [data[3] intValue];
-        int height =  [data[4] intValue];
+        // 搜索区域按触摸指示器坐标写，换成竖屏原始帧的矩形再扫（全工程只此一份换算）
+        CGRect frameRect = ZXFrameRectFromIndicatorRect(CGRectMake([data[1] intValue], [data[2] intValue],
+                                                                  [data[3] intValue], [data[4] intValue]));
+        int x = (int)lround(CGRectGetMinX(frameRect));
+        int y = (int)lround(CGRectGetMinY(frameRect));
+        int width =  (int)lround(CGRectGetWidth(frameRect));
+        int height =  (int)lround(CGRectGetHeight(frameRect));
         int redMin = [data[5] intValue];
         int redMax = [data[6] intValue];
         int greenMin =  [data[7] intValue];
@@ -116,6 +121,15 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
         }
     
         NSString *result = [ColorPicker searchRGBFromBuffer:buffer stride:stride region:CGRectMake(x, y, width, height) redMin:redMin redMax:redMax greenMin:greenMin greenMax:greenMax blueMin:blueMin blueMax:blueMax skip:skip];
+
+        // 命中的坐标是竖屏原始帧坐标，换回触摸指示器坐标，脚本拿到就能直接点（与点这里同一套坐标）
+        NSArray *hit = [result componentsSeparatedByString:@";;"];
+        if ([hit count] >= 5 && [hit[0] intValue] >= 0)
+        {
+            CGPoint indicatorPoint = ZXIndicatorPointFromFramePoint(CGPointMake([hit[0] intValue], [hit[1] intValue]));
+            result = [NSString stringWithFormat:@"%.0f;;%.0f;;%@;;%@;;%@",
+                      indicatorPoint.x, indicatorPoint.y, hit[2], hit[3], hit[4]];
+        }
 
         return result;
     }
