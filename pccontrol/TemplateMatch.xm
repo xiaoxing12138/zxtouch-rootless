@@ -243,11 +243,18 @@ static float nccScoreFast(const float *img, size_t imgW,
         if (bestScore >= _acceptableValue) break;
     }
 
-    if (bestScore >= _acceptableValue) {
-        size_t rx = (best.origin.x > 4) ? (size_t)best.origin.x - 4 : 0;
-        size_t ry = (best.origin.y > 4) ? (size_t)best.origin.y - 4 : 0;
-        size_t rxMax = MIN(rx + bestTW + 8, imgW - bestTW);
-        size_t ryMax = MIN(ry + bestTH + 8, imgH - bestTH);
+    // 粗扫是跳着扫的（步长 = 模板边长/8），最优点最多离真峰一个 step。
+    // 而模板去掉均值后常常只剩尖锐边缘（平滑图标 + 纯色底），NCC 峰值极窄：
+    // 实测同一张图，step=14 只能扫到 0.583，真峰在 0.9998。所以必须无条件精修一遍，
+    // 不能像以前那样「分数够高才精修」——那恰好是最需要精修的时候把它跳过了。
+    if (bestTW <= imgW && bestTH <= imgH) {
+        size_t refineStep = MAX((size_t)1, MIN(bestTW, bestTH) / 8);
+        size_t bx = (size_t)best.origin.x;
+        size_t by = (size_t)best.origin.y;
+        size_t rx = (bx > refineStep) ? bx - refineStep : 0;
+        size_t ry = (by > refineStep) ? by - refineStep : 0;
+        size_t rxMax = MIN(bx + refineStep, imgW - bestTW);
+        size_t ryMax = MIN(by + refineStep, imgH - bestTH);
 
         float *tmplRefine = (bestTW == tmplW && bestTH == tmplH) ? tmplGray : resizeFloat(tmplGray, tmplW, tmplH, bestTW, bestTH);
         float tmplNorm = 0.0f;
