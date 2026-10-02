@@ -1,10 +1,11 @@
 Package: com.zjx.ioscontrol
 Name: 小新Lap
-Version: 3.0.47
+Version: 3.0.48
 Depends: mobilesubstrate | ellekit, firmware (>= 15.0)
 Architecture: iphoneos-arm64
 Description: 小新Lap — 基于开源项目 ZXTouch 二次修改的触摸模拟工具（无根越狱，iOS 15-16）
 Maintainer: 小新Lap
 Author: Jason Z / 小新Lap（二次修改）
 Section: Utilities
+Icon: https://cdn.jsdelivr.net/gh/xiaoxing12138/zxtouch-rootless@main/zxtouch/zxtouch/Assets.xcassets/AppIcon.appiconset/logo-180.png
 Tag: role::developer

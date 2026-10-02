@@ -780,14 +780,13 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             if ([v isKindOfClass:[UISegmentedControl class]]) [v removeFromSuperview];
         }
         [cell.contentView addSubview:seg];
-        // 居中对齐：原先按 tableView.bounds 算 x，分组表格的 contentView 比 tableView 窄，
-        // 最右侧「跟随系统」会超出 contentView 右边界跑到屏幕外。
-        // 左右两条「不许越界」都是必需约束，窄屏时分段控件会自动收窄而不是溢出。
+        // 右对齐：贴 contentView 右边界。原先按 tableView.bounds 算 x，分组表格的 contentView 比
+        // tableView 窄，最右侧「跟随系统」会超出屏幕；绑定到 contentView 才保证三段都在屏幕内。
+        // 左边这条「别压到标题」也是必需约束，窄屏时分段控件会自动收窄而不是溢出。
         [NSLayoutConstraint activateConstraints:@[
-            [seg.centerXAnchor constraintEqualToAnchor:cell.contentView.centerXAnchor],
+            [seg.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-14],
             [seg.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
-            [seg.leadingAnchor constraintGreaterThanOrEqualToAnchor:cell.title.trailingAnchor constant:12],
-            [seg.trailingAnchor constraintLessThanOrEqualToAnchor:cell.contentView.trailingAnchor constant:-14]
+            [seg.leadingAnchor constraintGreaterThanOrEqualToAnchor:cell.title.trailingAnchor constant:12]
         ]];
 
         result = cell;
