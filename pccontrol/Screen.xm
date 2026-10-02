@@ -13,7 +13,7 @@
 
 OBJC_EXTERN void CARenderServerRenderDisplay(kern_return_t a, CFStringRef b, IOSurfaceRef surface, int x, int y);
 OBJC_EXTERN kern_return_t IOSurfaceLock(IOSurfaceRef buffer, IOSurfaceLockOptions options, uint32_t *seed);
-OBJC_EXTERN kern_return_t IOSurfaceUnLock(IOSurfaceRef buffer, IOSurfaceLockOptions options, uint32_t *seed);
+OBJC_EXTERN kern_return_t IOSurfaceUnlock(IOSurfaceRef buffer, IOSurfaceLockOptions options, uint32_t *seed);
 OBJC_EXTERN IOSurfaceRef IOSurfaceCreate(CFDictionaryRef dictionary);
 OBJC_EXTERN void *IOSurfaceGetBaseAddress(IOSurfaceRef buffer);
 OBJC_EXTERN CGImageRef UICreateCGImageFromIOSurface(IOSurfaceRef surface);
@@ -193,7 +193,7 @@ CARenderServerRenderDisplay 会把整块竖屏帧缓冲按 1:1 画到 surface �
     CFAbsoluteTime startedAt = CFAbsoluteTimeGetCurrent();
     CARenderServerRenderDisplay(0, CFSTR("LCD"), gFrameSurface, 0, 0);
     gLastRenderSeconds = CFAbsoluteTimeGetCurrent() - startedAt;
-    IOSurfaceUnLock(gFrameSurface, 0, NULL);
+    IOSurfaceUnlock(gFrameSurface, 0, NULL);
     gFrameStamp = CFAbsoluteTimeGetCurrent();
     return YES;
 }
