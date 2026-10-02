@@ -18,6 +18,7 @@
 #include <TextRecognization/TextRecognizer.h>
 #include "UpdateCache.h"
 #include "Screen.h"
+#include "TemplateMatch.h"
 #include "NetSpeedIndicator.h"
 #include "TouchCoordinateIndicator.h"
 #include "FloatingMenu.h"
@@ -464,6 +465,10 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             } else if ([target isEqualToString:@"touch_coord"]) {
                 NSDictionary *info = [TouchCoordinateIndicator debugInfo];
                 if (info) root[@"touch_coord"] = info;
+            } else if ([target isEqualToString:@"perf"]) {
+                // 性能埋点：抓屏渲染耗时 + 匹配三段耗时，优化时按这几项定位瓶颈
+                root[@"perf"] = @{ @"screen_render_ms": @([Screen lastRenderMilliseconds]),
+                                   @"match": [TemplateMatch lastTiming] };
             } else {
                 NSDictionary *nsInfo = [NetSpeedIndicator debugInfo];
                 if (nsInfo) root[@"net_speed"] = nsInfo;

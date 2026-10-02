@@ -250,6 +250,9 @@ void performTouchFromRawData(UInt8 *eventData)
 
     postIOHIDEvent(parent);
     CFRelease(parent);
+
+    // 画面马上要变了，作废当前帧缓存，让下一次取色 / 匹配重新抓屏
+    [Screen invalidateFrame];
 }
 
 /**

@@ -13,16 +13,24 @@ NSDictionary* getRGBFromRawData(UInt8 *eventData, NSError **error)
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法取色，数据格式应为 \"x;;y\"（x、y 为坐标）\r\n"}];
         return @{@"blue": @(-1), @"red": @(-1), @"green": @(-1)};
     }
-    CGImageRef screen = [Screen createScreenShotCGImageRef];
-    
+
+    int stride = 0, width = 0, height = 0;
+    const UInt8 *buffer = [Screen framePixelsWithStride:&stride width:&width height:&height];
+    if (!buffer)
+    {
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法取色：内部错误，截图为空。\r\n"}];
+        return @{@"blue": @(-1), @"red": @(-1), @"green": @(-1)};
+    }
+
     int x = [data[0] intValue];
     int y = [data[1] intValue];
+    // 越界不报错也不返回垃圾：夹到最近的合法像素，保证 24 小时跑不会因为一次越界读炸掉脚本
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x >= width) x = width - 1;
+    if (y >= height) y = height - 1;
 
-    NSDictionary* result = [ColorPicker colorAtPositionFromCGImage:screen x:x andY:y];
-
-    CGImageRelease(screen);
-    return result;
-
+    return [ColorPicker colorAtPositionFromBuffer:buffer stride:stride x:x andY:y];
 }
 
 NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
@@ -39,16 +47,14 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
             *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法搜索颜色，数据格式应为 \"searchtype;;x;;y;;width;;height;;redMin;;redMax;;greenMin;;greenMax;;blueMin;;blueMax;;skip\"（搜索类型;;x 坐标;;y 坐标;;宽度;;高度;;红色最小值;;红色最大值;;绿色最小值;;绿色最大值;;蓝色最小值;;蓝色最大值;;步长）\r\n"}];
             return @"";
         }
-        CGImageRef screen = [Screen createScreenShotCGImageRef];
+        int stride = 0, screenWidth = 0, screenHeight = 0;
+        const UInt8 *buffer = [Screen framePixelsWithStride:&stride width:&screenWidth height:&screenHeight];
 
-        if (!screen)
+        if (!buffer)
         {
             *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;无法搜索颜色：内部错误，截图为空。\r\n"}];
             return @"";
         }
-
-        size_t screenWidth = CGImageGetWidth(screen);
-        size_t screenHeight = CGImageGetHeight(screen);
 
 
         int x = [data[1] intValue];
@@ -109,8 +115,7 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
             height = screenHeight - y;
         }
     
-        NSString *result = [ColorPicker searchRGBFromCGImageRef:screen region:CGRectMake(x, y, width, height) redMin:redMin redMax:redMax greenMin:greenMin greenMax:greenMax blueMin:blueMin blueMax:blueMax skip:skip];
-        CGImageRelease(screen);
+        NSString *result = [ColorPicker searchRGBFromBuffer:buffer stride:stride region:CGRectMake(x, y, width, height) redMin:redMin redMax:redMax greenMin:greenMin greenMax:greenMax blueMin:blueMin blueMax:blueMax skip:skip];
 
         return result;
     }
@@ -128,25 +133,11 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
 
 }
 
-+ (NSDictionary *)colorAtPositionFromCGImage:(CGImageRef)img x:(int)x andY:(int)y {
-    CGRect sourceRect = CGRectMake(x, y, 1.f, 1.f);
-    CGImageRef imageRef = CGImageCreateWithImageInRect(img, sourceRect);
-    
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    unsigned char *buffer = (unsigned char *)malloc(4);
-    CGBitmapInfo bitmapInfo = kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big;
-    CGContextRef context = CGBitmapContextCreate(buffer, 1, 1, 8, 4, colorSpace, bitmapInfo);
-    CGColorSpaceRelease(colorSpace);
-    CGContextDrawImage(context, CGRectMake(0.f, 0.f, 1.f, 1.f), imageRef);
-    CGImageRelease(imageRef);
-    CGContextRelease(context);
-    
-    unsigned char r = buffer[0];
-    unsigned char g = buffer[1];
-    unsigned char b = buffer[2];
-
-    free(buffer);
-    return @{@"blue": @(b), @"red": @(r), @"green": @(g)};
+// 旧路径是「整屏 CGImage → 裁 1x1 → 画进 1x1 上下文 → 读 4 字节」，整屏那一遍纯属浪费。
+// IOSurface 的像素格式是 'BGRA'，内存里就是 B,G,R,A，直接按这个顺序取即可。
++ (NSDictionary *)colorAtPositionFromBuffer:(const UInt8 *)buffer stride:(int)stride x:(int)x andY:(int)y {
+    const UInt8 *pixel = buffer + (size_t)y * stride + (size_t)x * 4;
+    return @{@"blue": @(pixel[0]), @"red": @(pixel[2]), @"green": @(pixel[1])};
 }
 
 /*
@@ -199,59 +190,30 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
 }
 */
 
-+ (NSString*)searchRGBFromCGImageRef:(CGImageRef)img region:(CGRect)region redMin:(int)redMin redMax:(int)redMax greenMin:(int)greenMin greenMax:(int)greenMax blueMin:(int)blueMin blueMax:(int)blueMax skip:(int)skip {
++ (NSString*)searchRGBFromBuffer:(const UInt8 *)buffer stride:(int)stride region:(CGRect)region redMin:(int)redMin redMax:(int)redMax greenMin:(int)greenMin greenMax:(int)greenMax blueMin:(int)blueMin blueMax:(int)blueMax skip:(int)skip {
     int x = region.origin.x;
     int y = region.origin.y; 
     
     int width = region.size.width;
     int height = region.size.height;
 
-    CGImageRef imageRef = CGImageCreateWithImageInRect(img, region);
-    
-    int bytesPerElement = 4;
-    int bytesPerRow = bytesPerElement * width;
-    int totalBufferBytes = bytesPerRow * height;
-
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-
-    unsigned char *buffer = (unsigned char *)malloc(totalBufferBytes);
-    memset(buffer, 0, totalBufferBytes);
-
-    CGBitmapInfo bitmapInfo = kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big;
-    CGContextRef context = CGBitmapContextCreate(buffer, width, height, 8, bytesPerRow, colorSpace, bitmapInfo);
-    CGColorSpaceRelease(colorSpace);
-    CGContextDrawImage(context, CGRectMake(0.f, 0.f, width, height), imageRef);
-    CGImageRelease(imageRef);
-    CGContextRelease(context);
-    
     for (int currentY = 0; currentY < height; currentY += skip + 1)
     {
+        const UInt8 *row = buffer + (size_t)(y + currentY) * stride + (size_t)x * 4;
         for (int currentX = 0; currentX < width; currentX += skip + 1)
         {
-            int baseAddress = (currentY * width + currentX) * 4;
+            const UInt8 *pixel = row + (size_t)currentX * 4;
+            unsigned char blue = pixel[0];
+            unsigned char green = pixel[1];
+            unsigned char red = pixel[2];
 
-            if (baseAddress >= totalBufferBytes-3)
-            {
-                NSLog(@"com.zjx.springboard: cannot search rgb from cgimage. Internal error. start coordinate on img: (%d, %d). current coordinate: (%d, %d), baseaddress: %d, totalBufferBytes: %d", x, y, currentX, currentY, baseAddress, totalBufferBytes);
-                return @"-1;;-1;;-1;;-1;;-1";
-            }
-
-            unsigned char red = buffer[baseAddress];
-            unsigned char green = buffer[baseAddress+1];
-            unsigned char blue = buffer[baseAddress+2];
-
-
-            //NSLog(@"com.zjx.springboard: x: %d, y: %d, blue: %u, green: %u, red: %u.", currentX, currentY, blue, green, red);
             if (red >= redMin && red <= redMax && green >= greenMin && green <= greenMax && blue >= blueMin && blue <= blueMax)
             {
-                free(buffer);
                 return [NSString stringWithFormat:@"%d;;%d;;%d;;%d;;%d", x+currentX, y+currentY, red, green, blue];
             }
         }
     }
-    
 
-    free(buffer);
     return @"-1;;-1;;-1;;-1;;-1";
 }
 

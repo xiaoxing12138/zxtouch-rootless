@@ -36,17 +36,20 @@ CGRect screenMatchFromRawData(UInt8 *eventData, NSError **error, float *outBestS
     [templateMatch setAcceptableValue:av];
     [templateMatch setMaxTryTimes:mtt];
     [templateMatch setScaleRation:sr];
-    CGImageRef screen = [Screen createScreenShotCGImageRef];
-    if (!screen)
+
+    int stride = 0;
+    int screenWidth = 0;
+    int screenHeight = 0;
+    const UInt8 *pixels = [Screen framePixelsWithStride:&stride width:&screenWidth height:&screenHeight];
+    if (!pixels)
     {
         *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;模板匹配时出错：截图为空。\r\n"}];
         NSLog(@"com.zjx.springboard: -1;;Error happens when template matching. Screenshot is nil.\r\n");
         return CGRect();
     }
 
-    CGRect result = [templateMatch templateMatchWithCGImage:screen templatePath:templatePath error:err];
+    CGRect result = [templateMatch templateMatchWithPixels:pixels stride:stride width:(size_t)screenWidth height:(size_t)screenHeight templatePath:templatePath error:err];
     if (outBestScore) *outBestScore = templateMatch.lastBestScore;
-    CGImageRelease(screen);
     return result;
 }
 

@@ -4,54 +4,113 @@
 #import <UIKit/UIKit.h>
 #include <math.h>
 
-// Convert a CGImage to a grayscale float buffer. Caller must free.
-static float* cgImageToGrayscaleFloat(CGImageRef img, size_t *outWidth, size_t *outHeight) {
-    size_t w = CGImageGetWidth(img);
-    size_t h = CGImageGetHeight(img);
-    *outWidth = w;
-    *outHeight = h;
+// 匹配分三段花时间：灰度化 / 建积分图 / 扫描。三段耗时记下来，用 socket 命令 40;;perf 读回，
+// 免得每次优化都靠猜瓶颈在哪一段。
+static double gGrayMilliseconds = 0;
+static double gIntegralMilliseconds = 0;
+static double gScanMilliseconds = 0;
 
-    size_t bytesPerRow = w * 4;
-    unsigned char *rgba = (unsigned char *)malloc(bytesPerRow * h);
-    if (!rgba) return NULL;
+// 灰度系数放大 8192 倍给 vImage 做整数矩阵乘（Rec.601，与旧实现同系数）
+#define GRAY_FIXED_SHIFT 8192
 
-    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    CGContextRef ctx = CGBitmapContextCreate(rgba, w, h, 8, bytesPerRow, cs,
-                                             kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
-    CGColorSpaceRelease(cs);
-    if (!ctx) {
-        free(rgba);
+// 4 通道交织像素 → 平面灰度，vImage 矩阵乘一次过整屏（NEON 加速），替代原来
+// 「先 CGContextDrawImage 画进 RGBA 上下文 + 387 万次标量乘法循环」。
+// 屏幕帧和模板图都走这一个函数（调用方把模板也解码成同一种内存序），所以 vImage 究竟
+// 按什么顺序解释这 4 个字节并不影响结果——两边解释一致，NCC 就对得上。
+static unsigned char* pixelsToGrayscale(const UInt8 *pixels, size_t stride, size_t w, size_t h) {
+    size_t grayStride = (w + 3) & ~(size_t)3;   // vImage 要求行跨距 4 字节对齐
+    unsigned char *gray = (unsigned char *)malloc(grayStride * h);
+    if (!gray) return NULL;
+
+    vImage_Buffer src = { (void *)pixels, h, w, stride };
+    vImage_Buffer dst = { gray, h, w, grayStride };
+    const int16_t matrix[4] = { (int16_t)lroundf(0.114f * GRAY_FIXED_SHIFT),
+                                (int16_t)lroundf(0.587f * GRAY_FIXED_SHIFT),
+                                (int16_t)lroundf(0.299f * GRAY_FIXED_SHIFT),
+                                0 };
+    vImage_Error error = vImageMatrixMultiply_ARGB8888ToPlanar8(&src, &dst, matrix, GRAY_FIXED_SHIFT, NULL, 0, kvImageNoFlags);
+    if (error != kvImageNoError) {
+        NSLog(@"com.zjx.springboard: image_match 灰度转换失败：%ld", (long)error);
+        free(gray);
         return NULL;
     }
-    CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), img);
-    CGContextRelease(ctx);
-
-    float *gray = (float *)malloc(w * h * sizeof(float));
-    if (!gray) {
-        free(rgba);
-        return NULL;
+    // 调用方（整数积分图 + vDSP）都按紧凑排布寻址，把行尾的对齐填充压掉。
+    // 真实机型屏幕宽度都是 4 的倍数，这里通常一次都不搬。
+    if (grayStride != w) {
+        for (size_t row = 1; row < h; row++) memmove(gray + row * w, gray + row * grayStride, w);
     }
-
-    for (size_t i = 0; i < w * h; i++) {
-        gray[i] = 0.299f * rgba[i * 4] + 0.587f * rgba[i * 4 + 1] + 0.114f * rgba[i * 4 + 2];
-    }
-    free(rgba);
     return gray;
 }
 
-static float* loadImageToGrayscaleFloat(NSString *path, size_t *outWidth, size_t *outHeight) {
-    UIImage *ui = [UIImage imageWithContentsOfFile:path];
-    if (!ui || !ui.CGImage) return NULL;
-    return cgImageToGrayscaleFloat(ui.CGImage, outWidth, outHeight);
+// 模板灰度图缓存：模板图每次匹配都从磁盘解码 + 灰度化是白花的开销，
+// 按「路径 + 修改时间」缓存，换图（mtime 变）自动失效。
+@interface ZXGrayTemplate : NSObject
+@property (nonatomic) size_t width;
+@property (nonatomic) size_t height;
+@property (nonatomic) unsigned char *gray;
+@end
+
+@implementation ZXGrayTemplate
+- (void)dealloc { if (_gray) free(_gray); }
+@end
+
+static ZXGrayTemplate* cachedTemplateGray(NSString *path) {
+    NSDate *modified = [[[NSFileManager defaultManager] attributesOfItemAtPath:path error:NULL] fileModificationDate];
+    NSString *key = [NSString stringWithFormat:@"%@|%.0f", path, modified ? modified.timeIntervalSince1970 : 0];
+
+    // 脚本线程和多个 socket 客户端可能同时匹配，缓存字典必须互斥；返回的对象由调用方的
+    // 强引用持住，所以这里清缓存也不会把别人正在用的模板灰度图释放掉。
+    @synchronized ([TemplateMatch class]) {
+        static NSMutableDictionary<NSString *, ZXGrayTemplate *> *cache = nil;
+        if (!cache) cache = [NSMutableDictionary dictionary];
+        ZXGrayTemplate *cached = cache[key];
+        if (cached) return cached;
+        if (cache.count >= 8) [cache removeAllObjects];   // 只留最近几个，别一直涨
+
+        UIImage *image = [UIImage imageWithContentsOfFile:path];
+        if (!image || !image.CGImage) return nil;
+
+        size_t w = CGImageGetWidth(image.CGImage);
+        size_t h = CGImageGetHeight(image.CGImage);
+        if (w == 0 || h == 0) return nil;
+
+        // 解码成与屏幕帧同一种内存序（BGRA，4 字节步长），再走同一个灰度函数，保证两边口径一致
+        size_t rowBytes = ((w * 4) + 31) & ~(size_t)31;
+        unsigned char *rgba = (unsigned char *)calloc(rowBytes * h, 1);
+        if (!rgba) return nil;
+
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+        CGContextRef context = CGBitmapContextCreate(rgba, w, h, 8, rowBytes, colorSpace,
+                                                     kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+        CGColorSpaceRelease(colorSpace);
+        if (!context) {
+            free(rgba);
+            return nil;
+        }
+        CGContextDrawImage(context, CGRectMake(0, 0, w, h), image.CGImage);
+        CGContextRelease(context);
+
+        unsigned char *gray = pixelsToGrayscale(rgba, rowBytes, w, h);
+        free(rgba);
+        if (!gray) return nil;
+
+        ZXGrayTemplate *entry = [ZXGrayTemplate new];
+        entry.width = w;
+        entry.height = h;
+        entry.gray = gray;
+        cache[key] = entry;
+        return entry;
+    }
 }
 
-static float* resizeFloat(const float *src, size_t srcW, size_t srcH, size_t dstW, size_t dstH) {
+// 模板缩放（灰度 → 灰度 float）
+static float* resizeGrayToFloat(const unsigned char *src, size_t srcW, size_t srcH, size_t dstW, size_t dstH) {
     float *dst = (float *)malloc(dstW * dstH * sizeof(float));
     if (!dst) return NULL;
 
-    vImage_Buffer srcBuf = { (void*)src, srcH, srcW, srcW * sizeof(float) };
+    vImage_Buffer srcBuf = { (void*)src, srcH, srcW, srcW };
     vImage_Buffer dstBuf = { dst, dstH, dstW, dstW * sizeof(float) };
-    vImage_Error error = vImageScale_PlanarF(&srcBuf, &dstBuf, NULL, kvImageEdgeExtend);
+    vImage_Error error = vImageScale_Planar8(&srcBuf, &dstBuf, NULL, kvImageEdgeExtend);
     if (error != kvImageNoError) {
         free(dst);
         return NULL;
@@ -148,6 +207,12 @@ static float nccScoreFast(const float *img, size_t imgW,
 
 @synthesize lastBestScore = _lastBestScore;
 
++ (NSDictionary *)lastTiming {
+    return @{ @"gray_ms": @(gGrayMilliseconds),
+              @"integral_ms": @(gIntegralMilliseconds),
+              @"scan_ms": @(gScanMilliseconds) };
+}
+
 - (instancetype)init {
     self = [super init];
     _maxTryTimes = 4;
@@ -160,26 +225,49 @@ static float nccScoreFast(const float *img, size_t imgW,
 - (void)setMaxTryTimes:(int)mtt     { _maxTryTimes = MAX(0, MIN(mtt, 8)); }
 - (void)setScaleRation:(float)sr    { _scaleRation = (sr > 0.05f && sr < 1.0f) ? sr : 0.8f; }
 
-- (CGRect)templateMatchWithCGImage:(CGImageRef)img templatePath:(NSString*)templatePath error:(NSError**)err {
+- (CGRect)templateMatchWithPixels:(const UInt8 *)pixels stride:(int)stride width:(size_t)imgW height:(size_t)imgH templatePath:(NSString*)templatePath error:(NSError**)err {
     CFAbsoluteTime startedAt = CFAbsoluteTimeGetCurrent();
-    size_t imgW = 0, imgH = 0;
-    float *imgGray = cgImageToGrayscaleFloat(img, &imgW, &imgH);
-    if (!imgGray) {
+
+    // 一、灰度化：vImage 出平面灰度，再用 vDSP 整批转 float（扫描要用 float 做点积）
+    CFAbsoluteTime tGray = CFAbsoluteTimeGetCurrent();
+    unsigned char *grayBytes = pixelsToGrayscale(pixels, stride, imgW, imgH);
+    if (!grayBytes) {
         *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
                 userInfo:@{NSLocalizedDescriptionKey:@"-1;;图像匹配：截图转换为灰度图失败\r\n"}];
         return CGRectZero;
     }
+    float *imgGray = (float *)malloc(imgW * imgH * sizeof(float));
+    if (imgGray) vDSP_vfltu8(grayBytes, 1, imgGray, 1, (vDSP_Length)(imgW * imgH));
+    free(grayBytes);
+    if (!imgGray) {
+        *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+                userInfo:@{NSLocalizedDescriptionKey:@"-1;;图像匹配：分配灰度图内存缓冲区失败\r\n"}];
+        return CGRectZero;
+    }
+    gGrayMilliseconds = (CFAbsoluteTimeGetCurrent() - tGray) * 1000.0;
 
-    size_t tmplW = 0, tmplH = 0;
-    float *tmplGray = loadImageToGrayscaleFloat(templatePath, &tmplW, &tmplH);
-    if (!tmplGray) {
+    // 二、模板：命中缓存就不再重新解码
+    ZXGrayTemplate *tpl = cachedTemplateGray(templatePath);
+    if (!tpl) {
         free(imgGray);
         *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
                 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:
                     @"-1;;图像匹配：加载模板图片失败：%@\r\n", templatePath]}];
         return CGRectZero;
     }
+    size_t tmplW = tpl.width;
+    size_t tmplH = tpl.height;
+    float *tmplGray = (float *)malloc(tmplW * tmplH * sizeof(float));
+    if (!tmplGray) {
+        free(imgGray);
+        *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+                userInfo:@{NSLocalizedDescriptionKey:@"-1;;图像匹配：分配模板内存缓冲区失败\r\n"}];
+        return CGRectZero;
+    }
+    for (size_t i = 0; i < tmplW * tmplH; i++) tmplGray[i] = (float)tpl.gray[i];
 
+    // 三、积分图（求每块区域的和 / 平方和，定好分母）
+    CFAbsoluteTime tIntegral = CFAbsoluteTimeGetCurrent();
     double *integral = NULL;
     double *sqIntegral = NULL;
     if (!buildIntegralImages(imgGray, imgW, imgH, &integral, &sqIntegral)) {
@@ -189,7 +277,10 @@ static float nccScoreFast(const float *img, size_t imgW,
                 userInfo:@{NSLocalizedDescriptionKey:@"-1;;图像匹配：分配积分图内存缓冲区失败\r\n"}];
         return CGRectZero;
     }
+    gIntegralMilliseconds = (CFAbsoluteTimeGetCurrent() - tIntegral) * 1000.0;
 
+    // 四、逐档缩放粗扫 + ±step 精修
+    CFAbsoluteTime tScan = CFAbsoluteTimeGetCurrent();
     CGRect best = CGRectZero;
     float bestScore = -1.0f;
     size_t bestTW = tmplW;
@@ -212,7 +303,7 @@ static float nccScoreFast(const float *img, size_t imgW,
         if (fabsf(scale - 1.0f) < 0.0001f) {
             tmplScaled = tmplGray;
         } else {
-            tmplScaled = resizeFloat(tmplGray, tmplW, tmplH, tw, th);
+            tmplScaled = resizeGrayToFloat(tpl.gray, tmplW, tmplH, tw, th);
             if (!tmplScaled) continue;
         }
 
@@ -256,7 +347,7 @@ static float nccScoreFast(const float *img, size_t imgW,
         size_t rxMax = MIN(bx + refineStep, imgW - bestTW);
         size_t ryMax = MIN(by + refineStep, imgH - bestTH);
 
-        float *tmplRefine = (bestTW == tmplW && bestTH == tmplH) ? tmplGray : resizeFloat(tmplGray, tmplW, tmplH, bestTW, bestTH);
+        float *tmplRefine = (bestTW == tmplW && bestTH == tmplH) ? tmplGray : resizeGrayToFloat(tpl.gray, tmplW, tmplH, bestTW, bestTH);
         float tmplNorm = 0.0f;
         float *tmplCentered = tmplRefine ? centeredTemplate(tmplRefine, bestTW, bestTH, &tmplNorm) : NULL;
         if (tmplCentered && tmplNorm > 1e-6f) {
@@ -273,6 +364,7 @@ static float nccScoreFast(const float *img, size_t imgW,
         if (tmplCentered) free(tmplCentered);
         if (tmplRefine && tmplRefine != tmplGray) free(tmplRefine);
     }
+    gScanMilliseconds = (CFAbsoluteTimeGetCurrent() - tScan) * 1000.0;
 
     _lastBestScore = bestScore;   // 最高分写回，成功失败都留着给调用方
 
