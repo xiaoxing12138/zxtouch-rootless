@@ -83,9 +83,12 @@
 #define kFMCfgPauseGray    @"floating_menu_pause_gray_alpha"  // 圆点变灰深度（灰罩不透明度）0..1
 #define kFMCfgAutoEdge     @"floating_menu_auto_edge"          // 菜单收起后是否自动收边（露出比例）
 #define kFMCfgEdgeVisible  @"floating_menu_edge_visible_ratio" // 收边后圆点可见比例 0.1..1.0
+#define kFMCfgEdgeDelay    @"floating_menu_auto_edge_delay"    // 收起后延迟多少秒收边 0..7
 
 // 自动收边：菜单收起（或失去焦点）后延迟多久收边，以及圆点可见比例范围
-#define kFMAutoEdgeDelay          4.0f
+#define kFMAutoEdgeDelayDefault   4.0f
+#define kFMAutoEdgeDelayMin       0.0f
+#define kFMAutoEdgeDelayMax       7.0f
 #define kFMAutoEdgeVisibleDefault 0.6f
 #define kFMAutoEdgeVisibleMin     0.1f
 #define kFMAutoEdgeVisibleMax     1.0f
@@ -387,6 +390,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 
     BOOL     _autoEdge;       // 菜单收起后自动收边
     CGFloat  _edgeVisible;    // 收边后圆点可见比例 0.1..1.0
+    CGFloat  _edgeDelay;      // 收起后延迟多少秒收边 0..7
     BOOL     _tucked;         // 已收边（半隐藏在屏幕边缘）
     NSTimer *_autoEdgeTimer;  // 收边倒计时
 
@@ -427,6 +431,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         _pauseGrayAlpha = kFMPauseGrayDefault;
         _autoEdge = YES;
         _edgeVisible = kFMAutoEdgeVisibleDefault;
+        _edgeDelay = kFMAutoEdgeDelayDefault;
         _playState = FMScriptPlayStateIdle;
     }
     return self;
@@ -582,7 +587,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (!_window || !_autoEdge || _expanded || _dragging) {
         return;
     }
-    _autoEdgeTimer = [NSTimer scheduledTimerWithTimeInterval:kFMAutoEdgeDelay
+    _autoEdgeTimer = [NSTimer scheduledTimerWithTimeInterval:_edgeDelay
                                                      target:self
                                                    selector:@selector(autoEdgeTimerFired:)
                                                    userInfo:nil
@@ -1581,6 +1586,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             CGFloat pauseGrayAlpha = kFMPauseGrayDefault;
             BOOL autoEdge = YES;
             CGFloat edgeVisible = kFMAutoEdgeVisibleDefault;
+            CGFloat edgeDelay = kFMAutoEdgeDelayDefault;
 
             NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
             if ([config isKindOfClass:[NSDictionary class]]) {
@@ -1662,6 +1668,10 @@ static void fmPersistKeys(NSDictionary *pairs)
                 if ([edgeVisibleValue isKindOfClass:[NSNumber class]]) {
                     edgeVisible = [edgeVisibleValue doubleValue];
                 }
+                NSNumber *edgeDelayValue = config[kFMCfgEdgeDelay];
+                if ([edgeDelayValue isKindOfClass:[NSNumber class]]) {
+                    edgeDelay = [edgeDelayValue doubleValue];
+                }
                 if (!hasEdge) {
                     NSNumber *xValue = config[@"floating_menu_x"];
                     CGFloat pw, ph;
@@ -1692,6 +1702,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             self->_pauseGrayAlpha = MIN(MAX(pauseGrayAlpha, kFMPauseGrayMin), kFMPauseGrayMax);
             self->_autoEdge = autoEdge;
             self->_edgeVisible = MIN(MAX(edgeVisible, kFMAutoEdgeVisibleMin), kFMAutoEdgeVisibleMax);
+            self->_edgeDelay = MIN(MAX(edgeDelay, kFMAutoEdgeDelayMin), kFMAutoEdgeDelayMax);
 
             // 彻底照搬 NetSpeedIndicator.reloadAppearance 模式：
             // 先 destroy 再 create——确保 SpringBoard 重启后 window 一定能显示

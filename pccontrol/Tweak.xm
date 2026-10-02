@@ -31,7 +31,7 @@
 #include "Common.h"
 #include "Screen.h"
 #include "AlertBox.h"
-#include "Popup.h"
+#include "FunctionWindow.h"
 #include "Record.h"
 #include "Toast.h"
 #include "Play.h"
@@ -104,7 +104,6 @@ BOOL openPopUpByDoubleVolumnDown = true;
 
 // -------------
 IOHIDEventSystemClientRef ioHIDEventSystemForPopupDectect = NULL;
-PopupWindow *popupWindow;
 
 #define ZX_ACTION_SMART_TOGGLE @"smart_toggle"
 #define ZX_ACTION_TOGGLE_PANEL @"toggle_panel"
@@ -161,12 +160,13 @@ void repoNameIsIOS13SimulateTouch()
 Get the sender id and unregister itself.
 */
 static NSMutableDictionary *triggerClickState = nil;
-static void showOrHidePopup()
+static void showOrHideOptionPanel()
 {
-    if (![popupWindow isShown])
-        [popupWindow show];
+    FunctionWindow *panel = [FunctionWindow shared];
+    if (![panel isShown])
+        [panel show];
     else
-        [popupWindow hide];
+        [panel hide];
 }
 
 static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
@@ -215,7 +215,7 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
 
     if ([action isEqualToString:ZX_ACTION_TOGGLE_PANEL])
     {
-        showOrHidePopup();
+        showOrHideOptionPanel();
         return;
     }
 
@@ -230,10 +230,10 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
     {
         stopRecording();
         showAlertBox(@"小新Lap", @"录制已停止并保存。", 1);
-        [popupWindow show];
+        [[FunctionWindow shared] show];
         return;
     }
-    showOrHidePopup();
+    showOrHideOptionPanel();
 }
 
 static NSString *triggerKeyForKeyboardUsage(long usage)
@@ -391,9 +391,6 @@ Boolean init()
             CGFloat height = nativeBounds.size.height;
             [Screen setScreenSize:(width<height?width:height) height:(width>height?width:height)];
             [@"3-screen-set" writeToFile:@"/var/mobile/d3.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
-
-            popupWindow = [[PopupWindow alloc] init];
-            [@"4-popup-init" writeToFile:@"/var/mobile/d4.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
             initSenderId();
             startPopupListeningCallBack();

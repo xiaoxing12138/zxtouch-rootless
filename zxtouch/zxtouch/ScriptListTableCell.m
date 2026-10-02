@@ -60,13 +60,19 @@
 
 - (IBAction)playButtonClick:(id)sender {
     Socket *springBoardSocket = [[Socket alloc] init];
-    [springBoardSocket connect:@"127.0.0.1" byPort:6000];
-    
-    [springBoardSocket send:[NSString stringWithFormat:@"19%@", filePath]];
-    NSString* result = [springBoardSocket recv:1024];
-    if ([result characterAtIndex:0] != '0')
+    if ([springBoardSocket connect:@"127.0.0.1" byPort:6000] != 0)
     {
-        [Util showAlertBoxWithOneOption:_parentViewController title:@"错误" message:[NSString stringWithFormat:@"无法运行脚本。错误：%@", result] buttonString:@"确定"];
+        [Util showAlertBoxWithOneOption:_parentViewController title:@"错误" message:@"小新Lap 服务不可用。" buttonString:@"确定"];
+        [springBoardSocket close];
+        return;
+    }
+
+    // 命令必须以 \r\n 结尾，否则 socket server 不派发，recv 会一直阻塞把 App 卡死
+    [springBoardSocket send:[NSString stringWithFormat:@"19%@\r\n", filePath]];
+    NSString* result = [springBoardSocket recv:1024];
+    if (result.length == 0 || [result characterAtIndex:0] != '0')
+    {
+        [Util showAlertBoxWithOneOption:_parentViewController title:@"错误" message:[NSString stringWithFormat:@"无法运行脚本。错误：%@", result.length ? result : @"服务无响应"] buttonString:@"确定"];
     }
     [springBoardSocket close];
 }

@@ -163,7 +163,7 @@
         [self showError:@"小新Lap 服务不可用。"];
         return;
     }
-    [socket send:[@"19" stringByAppendingString:self.scriptBundlePath]];
+    [socket send:[@"19" stringByAppendingFormat:@"%@\r\n", self.scriptBundlePath]];
     NSString *result = [socket recv:1024];
     [socket close];
     if (![result hasPrefix:@"0"]) [self showError:result.length ? result : @"无法运行此录制。"];

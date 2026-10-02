@@ -3,14 +3,13 @@
 #include "../Config.h"
 #import "../ScriptPlayer.h"
 #import "../Play.h"
-#import "../Popup.h"
+#import "../FunctionWindow.h"
 
 #define AUTORUN 1
 #define SHOW_POPUP 2
 #define STOP_PLAYING_ALL 3
 
 extern ScriptPlayer* scriptPlayer;
-extern PopupWindow *popupWindow;
 
 
 
@@ -58,13 +57,14 @@ extern PopupWindow *popupWindow;
     }
     else if (type == SHOW_POPUP)
     {
-        if (![popupWindow isShown])
+        FunctionWindow *panel = [FunctionWindow shared];
+        if (![panel isShown])
         {
-            [popupWindow show];
+            [panel show];
         }
         else
         {
-            [popupWindow hide];
+            [panel hide];
         }
     }
     else if (type == STOP_PLAYING_ALL)

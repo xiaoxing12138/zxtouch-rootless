@@ -44,6 +44,14 @@
         return -1;
     }
     socketHandle = sock;
+
+    // 兜底：读超时必须设。命令若没带 \r\n，socket server 不会派发，
+    // 没有超时的 recv 会永久阻塞主线程，最后被看门狗杀掉（表现为 App 卡死）。
+    struct timeval tv;
+    tv.tv_sec = 8;
+    tv.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
     return 0;
 }
 

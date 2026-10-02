@@ -53,6 +53,21 @@ static UIImage *fnSymbol(NSString *name) {
     return nil;
 }
 
+// 界面外观：0跟随系统 1浅色 2深色。旧配置只有 dark_mode 布尔值，按 深色/浅色 迁移。
+NSInteger ZXAppearanceModeFromConfig(NSDictionary *config) {
+    if (config[@"appearance_mode"]) {
+        return [config[@"appearance_mode"] integerValue];
+    }
+    if (config[@"dark_mode"]) {
+        return [config[@"dark_mode"] boolValue] ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+    }
+    return UIUserInterfaceStyleUnspecified;
+}
+
+void applyPanelAppearanceMode(NSInteger mode) {
+    [[FunctionWindow shared] setAppearanceMode:mode];
+}
+
 @implementation FunctionWindow
 {
     UIWindow        *_window;
@@ -71,6 +86,7 @@ static UIImage *fnSymbol(NSString *name) {
     NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *_functionParamValues;
     BOOL                        _pickingScript;   // 正在挑「功能」页要用的脚本
     BOOL                        _shown;
+    NSInteger                   _appearanceMode;  // 0 跟随系统 1 浅色 2 深色
     CGFloat                     _contentHeight;   // 卡片中间滚动区的内容高度（用于自适应卡片高度）
 }
 
@@ -90,6 +106,7 @@ static UIImage *fnSymbol(NSString *name) {
         _functionParamValues = [NSMutableDictionary dictionary];
         _pickingScript = NO;
         _shown = NO;
+        _appearanceMode = ZXAppearanceModeFromConfig([[NSDictionary alloc] initWithContentsOfFile:getCommonConfigFilePath()]);
         _contentHeight = 0;
     }
     return self;
@@ -112,6 +129,7 @@ static UIImage *fnSymbol(NSString *name) {
     }
     _window.windowLevel = UIWindowLevelAlert + 1;
     _window.backgroundColor = [UIColor clearColor];
+    _window.overrideUserInterfaceStyle = _appearanceMode;
 
     _window.rootViewController = [[FNRootViewController alloc] init];
     UIView *root = _window.rootViewController.view;
@@ -875,5 +893,12 @@ static UIImage *fnSymbol(NSString *name) {
 }
 
 - (BOOL)isShown { return _shown; }
+
+- (void)setAppearanceMode:(NSInteger)mode {
+    _appearanceMode = mode;
+    ZXSafeMainAsync(^{
+        if (self->_window) self->_window.overrideUserInterfaceStyle = mode;
+    });
+}
 
 @end

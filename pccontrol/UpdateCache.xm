@@ -1,6 +1,6 @@
 #include "UpdateCache.h"
 #include "Common.h"
-#include "Popup.h"
+#include "FunctionWindow.h"
 
 #define UPDATE_POPUP_WINDOW_VOLUMN_DOWN_OPEN_FROM_CONFIG 1
 #define UPDATE_SWITCH_APP_BEFORE_RUN_SCRIPT 2

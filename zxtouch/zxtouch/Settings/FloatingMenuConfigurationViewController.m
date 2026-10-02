@@ -20,6 +20,7 @@ static NSString *kCfgMenuBgAlpha = @"floating_menu_menu_bg_alpha"; // 0..1
 static NSString *kCfgDotIcon = @"floating_menu_dot_icon"; // 0=字母Z 1=App图标 2=自定义图片
 static NSString *kCfgAutoEdge    = @"floating_menu_auto_edge";           // 菜单收起后自动收边
 static NSString *kCfgEdgeVisible = @"floating_menu_edge_visible_ratio";  // 收边后圆点可见比例 0.1..1.0
+static NSString *kCfgEdgeDelay   = @"floating_menu_auto_edge_delay";     // 收起后延迟多少秒收边 0..7
 
 // 圆点图标来源（与 tweak 端 kFMDotIconMode* 保持一致）
 static const NSInteger kDotIconModeZ      = 0;
@@ -57,6 +58,7 @@ typedef NS_ENUM(NSInteger, FMSection) {
 // 「自动收边」分组行号
 typedef NS_ENUM(NSInteger, AutoEdgeRow) {
     AutoEdgeRowSwitch = 0,  // 菜单收起后自动收边
+    AutoEdgeRowDelay,       // 收起后延迟秒数 0..7
     AutoEdgeRowVisible      // 收边后圆点可见比例
 };
 
@@ -237,6 +239,21 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
     }
     // 拖动过程中只写 plist，松手才 reload
     _config[kCfgEdgeVisible] = @(stepped);
+    [self saveConfig];
+}
+
+- (void)autoEdgeDelayValueChanged:(UISlider *)slider {
+    float stepped = roundf(slider.value * 10.0f) / 10.0f;   // 0.1 秒一档
+    [slider setValue:stepped animated:NO];
+    UIView *view = slider;
+    while (view && ![view isKindOfClass:[TableViewCellWithSlider class]]) {
+        view = view.superview;
+    }
+    if ([view isKindOfClass:[TableViewCellWithSlider class]]) {
+        ((TableViewCellWithSlider *)view).value.text = [NSString stringWithFormat:@"%.1f秒", stepped];
+    }
+    // 拖动过程中只写 plist，松手才 reload
+    _config[kCfgEdgeDelay] = @(stepped);
     [self saveConfig];
 }
 
@@ -643,7 +660,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     switch (section) {
         case FMSectionSwitch:     return 1;  // 开关
         case FMSectionPosition:   return 2;  // 吸附边 + 纵向位置
-        case FMSectionAutoEdge:   return [_config[kCfgAutoEdge] boolValue] ? 2 : 1;  // 开关（+ 显示比例）
+        case FMSectionAutoEdge:   return [_config[kCfgAutoEdge] boolValue] ? 3 : 1;  // 开关（+ 延迟 + 显示比例）
         case FMSectionAppearance: return 2;  // 圆点大小 + 菜单黑底透明度
         case FMSectionDotIcon:    return ([self dotIconMode] == kDotIconModeCustom) ? 2 : 1;
         case FMSectionColors:     return (NSInteger)FMColorSpecs().count;
@@ -711,6 +728,23 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             [cell.switchBtn removeTarget:nil action:NULL forControlEvents:UIControlEventValueChanged];
             [cell.switchBtn addTarget:self action:@selector(autoEdgeSwitchChanged:) forControlEvents:UIControlEventValueChanged];
             [cell.switchBtn setOn:[_config[kCfgAutoEdge] boolValue]];
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            return cell;
+        }
+        if (indexPath.row == AutoEdgeRowDelay) {
+            TableViewCellWithSlider *cell = [tableView dequeueReusableCellWithIdentifier:@"SliderCell" forIndexPath:indexPath];
+            cell.slideBar.continuous = YES;
+            [cell.slideBar removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+            [cell.slideBar addTarget:self action:@selector(autoEdgeDelayValueChanged:) forControlEvents:UIControlEventValueChanged];
+            [cell.slideBar addTarget:self action:@selector(sliderTouchUp:)
+                    forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+            float delay = _config[kCfgEdgeDelay] ? [_config[kCfgEdgeDelay] floatValue] : 4.0f;
+            if (delay < 0.0f || delay > 7.0f) delay = 4.0f;
+            cell.title.text = @"收起后延迟";
+            cell.slideBar.minimumValue = 0.0f;
+            cell.slideBar.maximumValue = 7.0f;
+            cell.slideBar.value = delay;
+            cell.value.text = [NSString stringWithFormat:@"%.1f秒", delay];
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
             return cell;
         }

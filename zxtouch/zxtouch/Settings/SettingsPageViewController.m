@@ -101,7 +101,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 }
 
 - (NSString *)triggerActionTitle:(NSString *)action {
-    if ([action isEqualToString:ZX_ACTION_TOGGLE_PANEL]) return @"显示/隐藏控制面板";
+    if ([action isEqualToString:ZX_ACTION_TOGGLE_PANEL]) return @"显示/隐藏选项面板";
     if ([action isEqualToString:ZX_ACTION_STOP_SCRIPT]) return @"终止脚本";
     if ([action isEqualToString:ZX_ACTION_TOGGLE_RECORDING]) return @"开始/停止录制";
     if ([action isEqualToString:ZX_ACTION_RUN_SCRIPT]) return @"运行默认脚本";
@@ -480,7 +480,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [sheet addAction:[UIAlertAction actionWithTitle:@"运行脚本..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self chooseScriptForTrigger:triggerKey fromCell:cell];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"显示/隐藏控制面板" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"显示/隐藏选项面板" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setAction:ZX_ACTION_TOGGLE_PANEL forTrigger:triggerKey];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"终止脚本" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
@@ -510,7 +510,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [sheet addAction:[UIAlertAction actionWithTitle:@"智能切换" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setVolumeAction:ZX_ACTION_SMART_TOGGLE];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"显示/隐藏控制面板" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+    [sheet addAction:[UIAlertAction actionWithTitle:@"显示/隐藏选项面板" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self setVolumeAction:ZX_ACTION_TOGGLE_PANEL];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"终止脚本" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
@@ -774,13 +774,21 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         if (mode < 0 || mode > 2) mode = 0;   // 0跟随系统 1浅色 2深色
         UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:cellInfo[@"segment_titles"]];
         seg.selectedSegmentIndex = 2 - mode;  // 段序：深色 / 浅色 / 跟随系统
-        seg.frame = CGRectMake(self.tableView.bounds.size.width - 232, 6, 220, 32);
-        seg.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        seg.translatesAutoresizingMaskIntoConstraints = NO;
         [seg addTarget:self action:NSSelectorFromString(cellInfo[@"segment_click_handler"]) forControlEvents:UIControlEventValueChanged];
         for (UIView *v in cell.contentView.subviews) {
             if ([v isKindOfClass:[UISegmentedControl class]]) [v removeFromSuperview];
         }
         [cell.contentView addSubview:seg];
+        // 居中对齐：原先按 tableView.bounds 算 x，分组表格的 contentView 比 tableView 窄，
+        // 最右侧「跟随系统」会超出 contentView 右边界跑到屏幕外。
+        // 左右两条「不许越界」都是必需约束，窄屏时分段控件会自动收窄而不是溢出。
+        [NSLayoutConstraint activateConstraints:@[
+            [seg.centerXAnchor constraintEqualToAnchor:cell.contentView.centerXAnchor],
+            [seg.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+            [seg.leadingAnchor constraintGreaterThanOrEqualToAnchor:cell.title.trailingAnchor constant:12],
+            [seg.trailingAnchor constraintLessThanOrEqualToAnchor:cell.contentView.trailingAnchor constant:-14]
+        ]];
 
         result = cell;
     }
