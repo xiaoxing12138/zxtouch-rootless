@@ -573,7 +573,9 @@ static UIImage *fnSymbol(NSString *name) {
                 [row addSubview:tf];
             }
 
-            fx += ctrlW + gap;
+            // 数字参数占的是「小字标签 + 输入框」，推进量必须把标签那一段算进去，
+            // 否则下一个标签会压在上一个输入框上（4 个参数能压掉 90pt）
+            fx += (choices.count > 0 ? ctrlW : capW + capGap + ctrlW) + gap;
         }
     }
 

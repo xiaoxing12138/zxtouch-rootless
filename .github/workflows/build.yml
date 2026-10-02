@@ -1,5 +1,10 @@
 name: Build ZXTouch Package
 
+# Actions 列表里显示的名字 = 提交信息首行。
+# 约定：发版提交的首行必须以 vX.Y.Z 开头（如 "v3.0.43 fix(function): …"），
+# 这样在 Actions 页面一眼就能看出哪个构建是哪个版本。
+run-name: ${{ github.event.head_commit.message || github.ref_name }}
+
 on:
   push:
     branches: [ main ]
