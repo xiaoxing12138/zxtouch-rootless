@@ -3,7 +3,7 @@
 //  zxtouch
 //
 //  悬浮窗调试信息页面 —— 通过 socket 命令 40 实时查询 SpringBoard 端
-//  两个悬浮窗（网速窗 + 悬浮控制按钮）的位置、尺寸、方向、窗口状态等。
+//  三个悬浮窗（网速窗 + 悬浮控制按钮 + 触摸坐标窗）的位置、尺寸、方向、窗口状态等。
 //
 
 #import "DebugFloatWindowViewController.h"
@@ -12,7 +12,7 @@
 @interface DebugFloatWindowViewController () <UITableViewDataSource, UITableViewDelegate>
 
 @property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) NSMutableArray<NSMutableArray<NSDictionary *> *> *sections; // 两个 section，每个 section 是可变的 key-value 行数组
+@property (nonatomic, strong) NSMutableArray<NSMutableArray<NSDictionary *> *> *sections; // 三个 section，每个 section 是可变的 key-value 行数组
 @property (nonatomic, strong) UILabel *statusLabel;      // 顶部状态提示（"上次刷新时间 / 刷新失败"）
 @property (nonatomic, strong) UISwitch *autoRefreshSwitch;
 @property (nonatomic, strong) NSTimer *refreshTimer;
@@ -27,7 +27,7 @@
     self.title = @"悬浮窗调试";
     self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
 
-    _sections = [NSMutableArray arrayWithObjects:[NSMutableArray array], [NSMutableArray array], nil];
+    _sections = [NSMutableArray arrayWithObjects:[NSMutableArray array], [NSMutableArray array], [NSMutableArray array], nil];
     _lastRawJSON = nil;
 
     // 顶部工具栏
@@ -226,11 +226,13 @@
 #pragma mark - 数据格式化
 
 - (void)rebuildSectionsFromJSON:(NSDictionary *)json {
-    [_sections[0] removeAllObjects];
-    [_sections[1] removeAllObjects];
+    for (NSMutableArray *rows in _sections) {
+        [rows removeAllObjects];
+    }
 
     NSDictionary *ns = json[@"net_speed"];
     NSDictionary *fm = json[@"floating_menu"];
+    NSDictionary *tc = json[@"touch_coord"];
 
     if ([ns isKindOfClass:[NSDictionary class]]) {
         [_sections[0] addObjectsFromArray:[self netSpeedRows:ns]];
@@ -242,6 +244,12 @@
         [_sections[1] addObjectsFromArray:[self floatingMenuRows:fm]];
     } else {
         [_sections[1] addObject:@{@"k": @"状态", @"v": @"未开启 / 未创建"}];
+    }
+
+    if ([tc isKindOfClass:[NSDictionary class]]) {
+        [_sections[2] addObjectsFromArray:[self touchCoordRows:tc]];
+    } else {
+        [_sections[2] addObject:@{@"k": @"状态", @"v": @"未开启 / 未创建"}];
     }
 }
 
@@ -344,6 +352,59 @@
     return rows;
 }
 
+- (NSArray<NSDictionary *> *)touchCoordRows:(NSDictionary *)d {
+    NSMutableArray *rows = [NSMutableArray array];
+
+    [rows addObject:@{@"k": @"启用", @"v": [self boolText:d[@"enabled"]]}];
+    [rows addObject:@{@"k": @"活跃触点数", @"v": [NSString stringWithFormat:@"%@", d[@"active_touch_count"] ?: @"?"]}];
+    [rows addObject:@{@"k": @"屏幕分辨率", @"v": [NSString stringWithFormat:@"%@ × %@ pt",
+                                                    d[@"screen_bounds_w"] ?: @"?",
+                                                    d[@"screen_bounds_h"] ?: @"?"]}];
+    [rows addObject:@{@"k": @"配置角点", @"v": [self cornerName:[d[@"cfg_corner"] integerValue]]}];
+    [rows addObject:@{@"k": @"水平边距", @"v": [NSString stringWithFormat:@"%@ pt", d[@"cfg_margin_x"] ?: @"?"]}];
+    [rows addObject:@{@"k": @"垂直边距", @"v": [NSString stringWithFormat:@"%@ pt", d[@"cfg_margin_y"] ?: @"?"]}];
+    [rows addObject:@{@"k": @"字号", @"v": [NSString stringWithFormat:@"%@", d[@"cfg_font_size"] ?: @"?"]}];
+    [rows addObject:@{@"k": @"背景颜色", @"v": [NSString stringWithFormat:@"%@ (α %@)",
+                                                  d[@"cfg_bg_color"] ?: @"?",
+                                                  d[@"cfg_bg_alpha"] ?: @"?"]}];
+    [rows addObject:@{@"k": @"文字颜色", @"v": d[@"cfg_text_color"] ?: @"?"}];
+    [rows addObject:@{@"k": @"无触碰时隐藏", @"v": [self boolText:d[@"cfg_hide_when_idle"]]}];
+    [rows addObject:@{@"k": @"多点显示模式", @"v": [self multiModeName:[d[@"cfg_multi_mode"] integerValue]]}];
+
+    if (![d[@"window_exists"] boolValue]) {
+        [rows addObject:@{@"k": @"—", @"v": d[@"note"] ?: @"window 未创建"}];
+        return rows;
+    }
+
+    [rows addObject:@{@"k": @"window hidden", @"v": [self boolText:d[@"window_hidden"]]}];
+    [rows addObject:@{@"k": @"window frame", @"v": [NSString stringWithFormat:@"(%@, %@, %@, %@)",
+                                                     d[@"window_frame_x"] ?: @"?", d[@"window_frame_y"] ?: @"?",
+                                                     d[@"window_frame_w"] ?: @"?", d[@"window_frame_h"] ?: @"?"]}];
+    [rows addObject:@{@"k": @"content 变换", @"v": [self matrixText:d prefix:@"content_transform_"]}];
+    [rows addObject:@{@"k": @"content bounds", @"v": [NSString stringWithFormat:@"%@ × %@",
+                                                       d[@"content_bounds_w"] ?: @"?",
+                                                       d[@"content_bounds_h"] ?: @"?"]}];
+    [rows addObject:@{@"k": @"label frame", @"v": [NSString stringWithFormat:@"(%@, %@, %@, %@)",
+                                                    d[@"label_frame_x"] ?: @"?", d[@"label_frame_y"] ?: @"?",
+                                                    d[@"label_frame_w"] ?: @"?", d[@"label_frame_h"] ?: @"?"]}];
+    [rows addObject:@{@"k": @"label center(窗口坐标)", @"v": [NSString stringWithFormat:@"(%@, %@)",
+                                                               d[@"label_center_x_in_window"] ?: @"?",
+                                                               d[@"label_center_y_in_window"] ?: @"?"]}];
+    [rows addObject:@{@"k": @"label hidden", @"v": [self boolText:d[@"label_hidden"]]}];
+    [rows addObject:@{@"k": @"文字", @"v": d[@"label_text"] ?: @"-"}];
+
+    return rows;
+}
+
+- (NSString *)multiModeName:(int)mode {
+    switch (mode) {
+        case 0: return @"第一个触点";
+        case 1: return @"最后一个触点";
+        case 2: return @"全部触点";
+        default: return [NSString stringWithFormat:@"?(%d)", mode];
+    }
+}
+
 - (NSString *)boolText:(id)val {
     if ([val respondsToSelector:@selector(boolValue)]) {
         return [val boolValue] ? @"是" : @"否";
@@ -384,11 +445,13 @@
 #pragma mark - Table view
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 2;
+    return 3;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return section == 0 ? @"网速悬浮窗" : @"悬浮控制按钮";
+    if (section == 0) return @"网速悬浮窗";
+    if (section == 1) return @"悬浮控制按钮";
+    return @"触摸坐标悬浮窗";
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {

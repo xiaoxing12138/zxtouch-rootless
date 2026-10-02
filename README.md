@@ -1,4 +1,7 @@
-# ZXTouch 无根版（Rootless）
+# 小新Lap（ZXTouch 无根版二次修改）
+
+> **本软件是二次修改版，二改名称：小新Lap。** 基于开源项目 ZXTouch 修改，非原作者发布。
+> 原项目：[Epic0001/zxtouchrootless](https://github.com/Epic0001/zxtouchrootless)　最初来源：xuan32546 的 [IOS13-SimulateTouch](https://github.com/xuan32546/IOS13-SimulateTouch)
 
 适用于 iOS 15 至 17 的 ZXTouch 无根版（rootless）与 roothide 移植版本，基于 [Epic0001](https://github.com/Epic0001/zxtouchrootless) 的移植工作。
 
@@ -115,7 +118,7 @@ dpkg -i <文件>.deb && killall -9 SpringBoard
 
 ### 脚本与示例
 
-示例脚本随 `.deb` 安装在 `/var/mobile/Library/ZXTouch/scripts/examples/`。
+内置示例脚本随 `.deb` 安装在 `/var/mobile/Library/ZXTouch/scripts/示例/`。
 
 App 的脚本注册表位于 `/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist`，用于保存脚本元数据、图标、说明预览和触发脚本选择。
 

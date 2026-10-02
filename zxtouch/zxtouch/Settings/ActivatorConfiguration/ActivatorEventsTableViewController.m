@@ -32,7 +32,7 @@
     self.tableView.tableFooterView = [[UIView alloc] init];
     
     titleArray = @[@"运行脚本", @"显示/隐藏控制面板", @"终止运行脚本"];
-    subtitleArray = @[@"在脚本列表界面配置此项", @"显示或隐藏 ZXTouch 后台弹出窗口", @"立刻终止运行所有脚本"];
+    subtitleArray = @[@"在脚本列表界面配置此项", @"显示或隐藏 小新Lap 后台弹出窗口", @"立刻终止运行所有脚本"];
 
     UINib *singleChoiceCellNib = [UINib nibWithNibName:@"TableViewCellSingleChoice" bundle:nil];
     [self.tableView registerNib:singleChoiceCellNib forCellReuseIdentifier:@"singleChoiceCell"];

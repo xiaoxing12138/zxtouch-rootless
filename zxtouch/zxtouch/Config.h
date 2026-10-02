@@ -9,7 +9,7 @@
 #define Config_h
 
 #define SCRIPTS_PATH @"/var/mobile/Library/ZXTouch/scripts/"
-#define EXAMPLE_SCRIPTS_PATH @"/var/mobile/Library/ZXTouch/scripts/examples/"
+#define EXAMPLE_SCRIPTS_PATH @"/var/mobile/Library/ZXTouch/scripts/示例/"
 #define SCRIPT_REGISTRY_PATH @"/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist"
 #define RUNTIME_OUTPUT_PATH @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output"
 

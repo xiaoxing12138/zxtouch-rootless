@@ -3,7 +3,7 @@ from zxtouch.toasttypes import *
 import time
 
 device = zxtouch("127.0.0.1")
-template = "/var/mobile/Library/ZXTouch/scripts/examples/Image Matching.bdl/examples_folder.jpg"
+template = "/var/mobile/Library/ZXTouch/scripts/示例/图片匹配.bdl/examples_folder.jpg"
 
 toast_result = device.show_toast(TOAST_WARNING, "Matching the visible word: examples", 2, TOAST_TOP)
 print("start toast result:", toast_result)

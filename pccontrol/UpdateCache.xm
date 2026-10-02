@@ -4,10 +4,9 @@
 
 #define UPDATE_POPUP_WINDOW_VOLUMN_DOWN_OPEN_FROM_CONFIG 1
 #define UPDATE_SWITCH_APP_BEFORE_RUN_SCRIPT 2
-#define UPDATE_DARK_MODE 3
+#define UPDATE_APPEARANCE_MODE 3
 
 void updateSwtichAppBeforeRunScript(BOOL value);
-void applyPanelDarkMode(BOOL dark);
 
 extern BOOL openPopUpByDoubleVolumnDown;
 
@@ -37,12 +36,11 @@ void updateCacheFromRawData(UInt8* eventData, NSError **error)
             updateSwtichAppBeforeRunScript([config[@"switch_app_before_run_script"] boolValue]);
         }
     }
-    if (type == UPDATE_DARK_MODE)
+    if (type == UPDATE_APPEARANCE_MODE)
     {
         NSString *configFilePath = getCommonConfigFilePath();
         NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:configFilePath];
-        BOOL dark = config[@"dark_mode"] ? [config[@"dark_mode"] boolValue] : NO;
-        applyPanelDarkMode(dark);
+        applyPanelAppearanceMode(ZXAppearanceModeFromConfig(config));
     }
     else
     {

@@ -18,6 +18,8 @@ static NSString *kCfgYRatio  = @"floating_menu_y_ratio"; // 0..1
 static NSString *kCfgDotSize = @"floating_menu_dot_size"; // 32..80 pt
 static NSString *kCfgMenuBgAlpha = @"floating_menu_menu_bg_alpha"; // 0..1
 static NSString *kCfgDotIcon = @"floating_menu_dot_icon"; // 0=字母Z 1=App图标 2=自定义图片
+static NSString *kCfgAutoEdge    = @"floating_menu_auto_edge";           // 菜单收起后自动收边
+static NSString *kCfgEdgeVisible = @"floating_menu_edge_visible_ratio";  // 收边后圆点可见比例 0.1..1.0
 
 // 圆点图标来源（与 tweak 端 kFMDotIconMode* 保持一致）
 static const NSInteger kDotIconModeZ      = 0;
@@ -44,11 +46,18 @@ static const float kMenuBgAlphaDefault = 0.92f;
 typedef NS_ENUM(NSInteger, FMSection) {
     FMSectionSwitch         = 0,  // 开关
     FMSectionPosition       = 1,  // 吸附边 + 纵向位置
-    FMSectionAppearance     = 2,  // 圆点大小 + 菜单黑底透明度
-    FMSectionMenuAppearance = 3,  // 菜单按钮大小/间距/标签字号/图标留白/圆点-菜单间距
-    FMSectionDotIcon        = 4,  // 圆点图标来源
-    FMSectionColors         = 5,  // 颜色（圆点/按钮背景、图标、标签文字）
-    FMSectionPause          = 6   // 暂停显示（文字/字号/颜色/变灰深度）
+    FMSectionAutoEdge       = 2,  // 自动收边 + 收边后可见比例
+    FMSectionAppearance     = 3,  // 圆点大小 + 菜单黑底透明度
+    FMSectionMenuAppearance = 4,  // 菜单按钮大小/间距/标签字号/图标留白/圆点-菜单间距
+    FMSectionDotIcon        = 5,  // 圆点图标来源
+    FMSectionColors         = 6,  // 颜色（圆点/按钮背景、图标、标签文字）
+    FMSectionPause          = 7   // 暂停显示（文字/字号/颜色/变灰深度）
+};
+
+// 「自动收边」分组行号
+typedef NS_ENUM(NSInteger, AutoEdgeRow) {
+    AutoEdgeRowSwitch = 0,  // 菜单收起后自动收边
+    AutoEdgeRowVisible      // 收边后圆点可见比例
 };
 
 // 「暂停显示」分组行号
@@ -203,6 +212,32 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
     int action = [s isOn] ? 1 : 0;
     NSString *cmd = [NSString stringWithFormat:@"32;;%d\r\n", action];
     [_springBoardSocket send:cmd];
+    // 关闭时只保留开关这一行，其余参数分组整段隐藏
+    [_tableView reloadData];
+}
+
+#pragma mark - 自动收边
+
+- (void)autoEdgeSwitchChanged:(UISwitch *)s {
+    _config[kCfgAutoEdge] = @([s isOn]);
+    [self saveConfig];
+    [_tableView reloadData];   // 关闭时把「显示比例」滑块一起收掉
+    [self reloadTweak];
+}
+
+- (void)edgeVisibleValueChanged:(UISlider *)slider {
+    float stepped = roundf(slider.value * 100.0f) / 100.0f;
+    [slider setValue:stepped animated:NO];
+    UIView *view = slider;
+    while (view && ![view isKindOfClass:[TableViewCellWithSlider class]]) {
+        view = view.superview;
+    }
+    if ([view isKindOfClass:[TableViewCellWithSlider class]]) {
+        ((TableViewCellWithSlider *)view).value.text = [NSString stringWithFormat:@"%.0f%%", stepped * 100.0f];
+    }
+    // 拖动过程中只写 plist，松手才 reload
+    _config[kCfgEdgeVisible] = @(stepped);
+    [self saveConfig];
 }
 
 #pragma mark - 吸附边
@@ -361,11 +396,12 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)pickPauseTextColor {
+- (void)pickPauseTextColorAtIndexPath:(NSIndexPath *)indexPath {
     NSDictionary *spec = FMPauseSpecs()[PauseRowColor];
     NSString *current = [self colorHexForKey:spec[@"key"] defaultHex:spec[@"default"]];
     __weak FloatingMenuConfigurationViewController *weakSelf = self;
     [self presentColorPickerForTitle:spec[@"title"] current:current presets:FMColorPresets()
+                              anchor:[self.tableView cellForRowAtIndexPath:indexPath]
                             onPicked:^(NSString *hex) {
         FloatingMenuConfigurationViewController *strongSelf = weakSelf;
         if (!strongSelf) return;
@@ -531,6 +567,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 - (void)presentColorPickerForTitle:(NSString *)title
                            current:(NSString *)current
                           presets:(NSArray<NSArray<NSString *> *> *)presets
+                            anchor:(UIView *)anchor
                          onPicked:(void (^)(NSString *))onPicked {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:title
         message:[NSString stringWithFormat:@"当前：%@", current]
@@ -571,8 +608,10 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 
     UIPopoverPresentationController *pop = sheet.popoverPresentationController;
     if (pop) {
-        pop.sourceView = self.tableView;
-        pop.sourceRect = self.tableView.bounds;
+        // iPad 上必须锚在被点的那个 cell：锚到 tableView.bounds 时会带上滚动偏移，
+        // 锚点跑到可视区外，action sheet 弹不出来（表现为「点颜色没反应」）
+        pop.sourceView = anchor ?: self.tableView;
+        pop.sourceRect = anchor ? anchor.bounds : self.tableView.bounds;
     }
     [self presentViewController:sheet animated:YES completion:nil];
 }
@@ -582,6 +621,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     NSString *current = [self colorHexForKey:spec[@"key"] defaultHex:spec[@"default"]];
     __weak FloatingMenuConfigurationViewController *weakSelf = self;
     [self presentColorPickerForTitle:spec[@"title"] current:current presets:FMColorPresets()
+                              anchor:[self.tableView cellForRowAtIndexPath:indexPath]
                             onPicked:^(NSString *hex) {
         FloatingMenuConfigurationViewController *strongSelf = weakSelf;
         if (!strongSelf) return;
@@ -595,13 +635,15 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 #pragma mark - UITableView
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 7;
+    // 关掉开关时整页只留开关行
+    return [_config[kCfgEnabled] boolValue] ? 8 : 1;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
         case FMSectionSwitch:     return 1;  // 开关
         case FMSectionPosition:   return 2;  // 吸附边 + 纵向位置
+        case FMSectionAutoEdge:   return [_config[kCfgAutoEdge] boolValue] ? 2 : 1;  // 开关（+ 显示比例）
         case FMSectionAppearance: return 2;  // 圆点大小 + 菜单黑底透明度
         case FMSectionDotIcon:    return ([self dotIconMode] == kDotIconModeCustom) ? 2 : 1;
         case FMSectionColors:     return (NSInteger)FMColorSpecs().count;
@@ -615,6 +657,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     switch (section) {
         case FMSectionSwitch:     return @"开关";
         case FMSectionPosition:   return @"位置";
+        case FMSectionAutoEdge:   return @"自动收边";
         case FMSectionAppearance: return @"外观";
         case FMSectionMenuAppearance: return @"菜单外观";
         case FMSectionDotIcon:    return @"圆点图标";
@@ -657,6 +700,34 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             if ([v isKindOfClass:[UISegmentedControl class]]) [v removeFromSuperview];
         }
         [cell.contentView addSubview:seg];
+        return cell;
+    }
+
+    // 「自动收边」：开关 + 收边后圆点可见比例（关掉开关时比例行隐藏）
+    if (indexPath.section == FMSectionAutoEdge) {
+        if (indexPath.row == AutoEdgeRowSwitch) {
+            TableViewCellWithSwitch *cell = [tableView dequeueReusableCellWithIdentifier:@"SwitchCell" forIndexPath:indexPath];
+            [cell setTitleText:@"菜单收起后自动收边"];
+            [cell.switchBtn removeTarget:nil action:NULL forControlEvents:UIControlEventValueChanged];
+            [cell.switchBtn addTarget:self action:@selector(autoEdgeSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            [cell.switchBtn setOn:[_config[kCfgAutoEdge] boolValue]];
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            return cell;
+        }
+        TableViewCellWithSlider *cell = [tableView dequeueReusableCellWithIdentifier:@"SliderCell" forIndexPath:indexPath];
+        cell.slideBar.continuous = YES;
+        [cell.slideBar removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+        [cell.slideBar addTarget:self action:@selector(edgeVisibleValueChanged:) forControlEvents:UIControlEventValueChanged];
+        [cell.slideBar addTarget:self action:@selector(sliderTouchUp:)
+                forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+        float visible = _config[kCfgEdgeVisible] ? [_config[kCfgEdgeVisible] floatValue] : 0.6f;
+        if (visible < 0.1f || visible > 1.0f) visible = 0.6f;
+        cell.title.text = @"贴边后显示比例";
+        cell.slideBar.minimumValue = 0.1f;
+        cell.slideBar.maximumValue = 1.0f;
+        cell.slideBar.value = visible;
+        cell.value.text = [NSString stringWithFormat:@"%.0f%%", visible * 100.0f];
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
         return cell;
     }
 
@@ -795,7 +866,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         if (indexPath.row == PauseRowText) {
             [self presentPauseTextEditor];
         } else if (indexPath.row == PauseRowColor) {
-            [self pickPauseTextColor];
+            [self pickPauseTextColorAtIndexPath:indexPath];
         }
     }
 }

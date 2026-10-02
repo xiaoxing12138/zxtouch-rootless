@@ -177,7 +177,7 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
     {
         NSError *err = nil;
         stopScriptPlaying(&err);
-        showAlertBox(@"ZXTouch", @"脚本已停止。", 1);
+        showAlertBox(@"小新Lap", @"脚本已停止。", 1);
         return;
     }
 
@@ -186,14 +186,14 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
         if (isRecordingStart())
         {
             stopRecording();
-            showAlertBox(@"ZXTouch", @"录制已停止并保存。", 1);
+            showAlertBox(@"小新Lap", @"录制已停止并保存。", 1);
         }
         else
         {
             NSError *err = nil;
             startRecording(0, &err);
             if (err) showAlertBox(@"错误", [NSString stringWithFormat:@"无法开始录制：%@", [err localizedDescription]], 999);
-            else showAlertBox(@"ZXTouch", @"录制已开始。", 1);
+            else showAlertBox(@"小新Lap", @"录制已开始。", 1);
         }
         return;
     }
@@ -208,7 +208,7 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
         }
         else
         {
-            showAlertBox(@"ZXTouch", @"未设置默认触发脚本。", 2);
+            showAlertBox(@"小新Lap", @"未设置默认触发脚本。", 2);
         }
         return;
     }
@@ -223,13 +223,13 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
     {
         NSError *err = nil;
         stopScriptPlaying(&err);
-        showAlertBox(@"ZXTouch", @"脚本已停止。", 1);
+        showAlertBox(@"小新Lap", @"脚本已停止。", 1);
         return;
     }
     if (isRecordingStart())
     {
         stopRecording();
-        showAlertBox(@"ZXTouch", @"录制已停止并保存。", 1);
+        showAlertBox(@"小新Lap", @"录制已停止并保存。", 1);
         [popupWindow show];
         return;
     }

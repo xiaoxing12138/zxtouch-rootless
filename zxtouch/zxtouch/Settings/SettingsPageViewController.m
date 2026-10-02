@@ -9,7 +9,6 @@
 #import "ScriptListTableCell.h"
 #import "TouchIndicatorConfigurationViewController.h"
 #import "NetSpeedConfigurationViewController.h"
-#import "TouchCoordinateConfigurationViewController.h"
 #import "DebugFloatWindowViewController.h"
 #import "FloatingMenuConfigurationViewController.h"
 #import "Util.h"
@@ -30,6 +29,7 @@
 
 #define SETTING_CELL_SWITCH 0
 #define SETTING_CELL_ENTRY 1
+#define SETTING_CELL_SEGMENT 2
 
 #define ZX_ACTION_SMART_TOGGLE @"smart_toggle"
 #define ZX_ACTION_TOGGLE_PANEL @"toggle_panel"
@@ -61,15 +61,43 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     ConfigManager *configManager;
 }
 
-- (BOOL)darkModeEnabled {
-    id configValue = [configManager getValueFromKey:@"dark_mode"];
+// 界面外观：直接存 UIUserInterfaceStyle（0跟随系统 1浅色 2深色）
+- (UIUserInterfaceStyle)savedAppearanceMode {
+    id configValue = [configManager getValueFromKey:@"appearance_mode"];
     if (configValue) {
-        return [configValue boolValue];
+        return (UIUserInterfaceStyle)[configValue integerValue];
     }
-    BOOL legacyValue = [[NSUserDefaults standardUserDefaults] boolForKey:@"dark_mode"];
-    [configManager updateKey:@"dark_mode" forValue:@(legacyValue)];
+
+    // 旧版本只有「深色模式」开关，迁移成 深色/浅色 两档
+    id legacyValue = [configManager getValueFromKey:@"dark_mode"];
+    BOOL dark = legacyValue ? [legacyValue boolValue]
+                            : [[NSUserDefaults standardUserDefaults] boolForKey:@"dark_mode"];
+    UIUserInterfaceStyle mode = dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+    [configManager updateKey:@"appearance_mode" forValue:@(mode)];
     [configManager save];
-    return legacyValue;
+    return mode;
+}
+
+- (void)applyAppearanceMode:(UIUserInterfaceStyle)mode {
+    if (@available(iOS 13.0, *)) {
+        for (UIWindowScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            for (UIWindow *win in ((UIWindowScene *)scene).windows) {
+                win.overrideUserInterfaceStyle = mode;
+            }
+        }
+    }
+}
+
+// 命令必须以 \r\n 结尾，否则 tweak 端不会派发；也不在主线程等回复（会卡死被系统杀掉）
+- (void)sendTweakCommandAsync:(NSString *)command {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        Socket *socket = [[Socket alloc] init];
+        if ([socket connect:@"127.0.0.1" byPort:6000] == 0) {
+            [socket send:[command stringByAppendingString:@"\r\n"]];
+            [socket close];
+        }
+    });
 }
 
 - (NSString *)triggerActionTitle:(NSString *)action {
@@ -147,6 +175,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 
 - (NSString *)iconNameForCellTitle:(NSString *)title {
     if ([title containsString:@"服务器"]) return @"globe";
+    if ([title containsString:@"网速"]) return @"speedometer";
     if ([title containsString:@"触摸"]) return @"hand.tap";
     if ([title containsString:@"双击"]) return @"bolt.badge.clock";
     if ([title containsString:@"音量"]) return @"speaker.wave.2";
@@ -154,9 +183,9 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([title containsString:@"切换App"]) return @"arrow.triangle.2.circlepath";
     if ([title containsString:@"示例"]) return @"folder";
     if ([title containsString:@"注册表"]) return @"list.bullet.rectangle";
-    if ([title containsString:@"深色"]) return @"moon";
+    if ([title containsString:@"外观"]) return @"circle.lefthalf.filled";
     if ([title containsString:@"调试"]) return @"wrench.and.screwdriver";
-    if ([title containsString:@"ZXTouch"]) return @"info.circle";
+    if ([title containsString:@"小新"]) return @"info.circle";
     return @"gearshape";
 }
 
@@ -184,7 +213,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     // Do any additional setup after loading the view.
     self.title = @"设置";
     
-    sections = @[@"远程管理", @"控制", @"自动操作", @"脚本", @"外观", @"关于"];
+    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"关于"];
     configManager = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
     BOOL doubleClickPopup = YES;
     if ([configManager getValueFromKey:@"double_click_volume_show_popup"])
@@ -204,7 +233,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         showFinishedPopup = [[configManager getValueFromKey:@"show_script_finished_popup"] boolValue];
     }
 
-    BOOL darkMode = [self darkModeEnabled];
+    UIUserInterfaceStyle appearanceMode = [self savedAppearanceMode];
 
     BOOL netSpeedIndicator = NO;
     if ([configManager getValueFromKey:@"net_speed_indicator_enabled"])
@@ -223,12 +252,13 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     cellsForEachSection = @[
         [self remoteManagementCells],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 边距", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸坐标悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 颜色 / 多点模式", @"row_click_handler": NSStringFromSelector(@selector(handleTouchCoordinateSettingsTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"圆点与坐标悬浮窗", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"控制按钮悬浮窗", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))}
+        ],
+        @[
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 边距", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))}
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
@@ -242,10 +272,10 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"脚本注册表", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"深色模式", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
+            @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": [NSString stringWithFormat:@"ZXTouch %@", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"]], @"secondary_title": @"iOS 15-17 移植版，作者 Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": [NSString stringWithFormat:@"小新Lap %@", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"]], @"secondary_title": @"基于开源 ZXTouch 二次修改", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
         ]
     ];
      
@@ -254,6 +284,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 
     UINib *entryCellNib = [UINib nibWithNibName:@"TableViewCellWithEntry" bundle:nil];
     [_tableView registerNib:entryCellNib forCellReuseIdentifier:@"EntryCell"];
+    [_tableView registerNib:entryCellNib forCellReuseIdentifier:@"SegmentCell"];
     
     _tableView.backgroundColor = [UIColor systemGroupedBackgroundColor];
     _tableView.tableFooterView = [[UIView alloc] init];
@@ -282,7 +313,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         showFinishedPopup = [[configManager getValueFromKey:@"show_script_finished_popup"] boolValue];
     }
 
-    BOOL darkMode = [self darkModeEnabled];
+    UIUserInterfaceStyle appearanceMode = [self savedAppearanceMode];
 
     BOOL netSpeedIndicator = NO;
     if ([configManager getValueFromKey:@"net_speed_indicator_enabled"])
@@ -292,16 +323,17 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([configManager getValueFromKey:@"floating_menu_enabled"])
         floatingMenu = [[configManager getValueFromKey:@"floating_menu_enabled"] boolValue];
 
-    sections = @[@"远程管理", @"控制", @"自动操作", @"脚本", @"外观", @"关于"];
+    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"关于"];
     cellsForEachSection = @[
         [self remoteManagementCells],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 边距", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸坐标悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 颜色 / 多点模式", @"row_click_handler": NSStringFromSelector(@selector(handleTouchCoordinateSettingsTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"圆点与坐标悬浮窗", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"控制按钮悬浮窗", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))}
+        ],
+        @[
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 边距", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))}
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
@@ -315,10 +347,10 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"脚本注册表", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"深色模式", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
+            @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": [NSString stringWithFormat:@"ZXTouch %@", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"]], @"secondary_title": @"iOS 15-17 移植版，作者 Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": [NSString stringWithFormat:@"小新Lap %@", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"]], @"secondary_title": @"基于开源 ZXTouch 二次修改", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
         ]
     ];
     [_tableView reloadData];
@@ -336,11 +368,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         [configManager save];
     }
     
-    Socket *socket = [[Socket alloc] init];
-    [socket connect:@"127.0.0.1" byPort:6000];
-    [socket send:@"902"];
-    [socket recv:1024];
-    [socket close];
+    [self sendTweakCommandAsync:@"902"];
 }
 
 - (void)handleScriptFinishedPopupToggle:(UISwitch*)s {
@@ -362,11 +390,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         [configManager updateKey:@"double_click_volume_show_popup" forValue:@(false)];
         [configManager save];
     }
-    Socket *socket = [[Socket alloc] init];
-    [socket connect:@"127.0.0.1" byPort:6000];
-    [socket send:@"901"];
-    [socket recv:1024];
-    [socket close];
+    [self sendTweakCommandAsync:@"901"];
 }
 
 - (void)setVolumeAction:(NSString *)action {
@@ -586,11 +610,6 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [self.navigationController pushViewController:vc animated:YES];
 }
 
-- (void)handleTouchCoordinateSettingsTap:(TableViewCellWithEntry *)cell {
-    TouchCoordinateConfigurationViewController *vc = [[TouchCoordinateConfigurationViewController alloc] init];
-    [self.navigationController pushViewController:vc animated:YES];
-}
-
 - (void)handleFloatingMenuEntryTap:(TableViewCellWithEntry *)cell {
     FloatingMenuConfigurationViewController *vc = [[FloatingMenuConfigurationViewController alloc] init];
     [self.navigationController pushViewController:vc animated:YES];
@@ -608,8 +627,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         [socket send:@"41;;1\r\n"];
         [socket close];
         [Util showAlertBoxWithOneOption:self
-            title:@"坐标测试窗口已打开"
-            message:@"全屏淡红色背景窗口已出现。\n旋转屏幕后点击四角，记录每个方向下的屏幕坐标、window 坐标、root 坐标，用于验证悬浮窗坐标系映射是否正确。\n\n再次点'坐标测试'可关闭。"
+            title:@"屏幕坐标测试窗口已打开"
+            message:@"全屏淡红色背景窗口已出现。\n旋转屏幕后点击四角，记录每个方向下的屏幕坐标、window 坐标、root 坐标，用于验证悬浮窗坐标系映射是否正确。\n\n再次点'屏幕坐标测试'可关闭。"
             buttonString:@"确定"];
     } else {
         [Util showAlertBoxWithOneOption:self
@@ -619,38 +638,25 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     }
 }
 
-- (void)handleDarkModeToggle:(UISwitch*)s {
-    BOOL dark = [s isOn];
-    [configManager updateKey:@"dark_mode" forValue:@(dark)];
+- (void)handleAppearanceChanged:(UISegmentedControl *)seg {
+    // 段序 深色 / 浅色 / 跟随系统 对应 UIUserInterfaceStyle 2 / 1 / 0
+    UIUserInterfaceStyle mode = (UIUserInterfaceStyle)(2 - seg.selectedSegmentIndex);
+    [configManager updateKey:@"appearance_mode" forValue:@(mode)];
     [configManager save];
 
-    [[NSUserDefaults standardUserDefaults] setBool:dark forKey:@"dark_mode"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
+    [self applyAppearanceMode:mode];
 
-    // Apply to all app windows immediately (iOS 13+)
-    if (@available(iOS 13.0, *)) {
-        UIUserInterfaceStyle style = dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
-        for (UIWindowScene *scene in UIApplication.sharedApplication.connectedScenes) {
-            if ([scene isKindOfClass:[UIWindowScene class]]) {
-                for (UIWindow *win in ((UIWindowScene *)scene).windows) {
-                    win.overrideUserInterfaceStyle = style;
-                }
-            }
-        }
-    }
-
-    // Notify SpringBoard to apply dark mode to the panel (command 903)
-    Socket *socket = [[Socket alloc] init];
-    [socket connect:@"127.0.0.1" byPort:6000];
-    [socket send:@"903"];
-    [socket recv:1024];
-    [socket close];
+    // 通知 SpringBoard 让控制面板一起切换（命令 903）
+    [self sendTweakCommandAsync:@"903"];
 }
 
 - (void)handleCreditsTap:(TableViewCellWithEntry*)cell {
     // Show a brief about alert
-    [Util showAlertBoxWithOneOption:self title:@"ZXTouch Rootless"
-        message:@"iOS 16 Rootless（Dopamine 越狱）移植版，作者 Epic0001\nhttps://github.com/Epic0001/zxtouchrootless"
+    [Util showAlertBoxWithOneOption:self title:@"小新Lap"
+        message:@"本软件基于开源项目 ZXTouch 二次修改，非原作者发布。\n"
+                @"原项目：https://github.com/Epic0001/zxtouchrootless\n"
+                @"最初来源：xuan32546/IOS13-SimulateTouch\n\n"
+                @"二改版本名：小新Lap（iOS 15-17 无根越狱移植）"
         buttonString:@"确定"];
 }
 
@@ -670,14 +676,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 }
 
 - (void)handleTouchIndicatorWithEntryCellInstance:(TableViewCellWithEntry*)cell {
-    if ([cell isSelected])
-    {
-        UIStoryboard *sb = [UIStoryboard storyboardWithName:@"SettingPages" bundle:nil];
-        TouchIndicatorConfigurationViewController *touchIndicatorConfigurationViewController = [sb instantiateViewControllerWithIdentifier:@"TouchIndicatorConfigurationPage"];
-        [self.navigationController pushViewController:touchIndicatorConfigurationViewController animated:YES];
-        //[self.navigationController setTitle:@"Touch Indicator"];
-    }
-
+    TouchIndicatorConfigurationViewController *vc = [[TouchIndicatorConfigurationViewController alloc] init];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 
@@ -754,6 +754,36 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         
         result = cell;
     }
+    else if ([cellInfo[@"type"] intValue] == SETTING_CELL_SEGMENT)
+    {
+        static NSString *cellID = @"SegmentCell";
+
+        TableViewCellWithEntry *cell = [tableView dequeueReusableCellWithIdentifier:cellID];
+
+        cell.title.text = cellInfo[@"title"];
+        cell.subTitle.text = @"";
+        cell.title.font = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
+        cell.iconView.image = ZXSettingsSymbol([self iconNameForCellTitle:cellInfo[@"title"]]);
+        cell.iconView.tintColor = [UIColor systemBlueColor];
+        cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.clickHandler = nil;
+
+        NSInteger mode = [cellInfo[@"segment_selected"] integerValue];
+        if (mode < 0 || mode > 2) mode = 0;   // 0跟随系统 1浅色 2深色
+        UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:cellInfo[@"segment_titles"]];
+        seg.selectedSegmentIndex = 2 - mode;  // 段序：深色 / 浅色 / 跟随系统
+        seg.frame = CGRectMake(self.tableView.bounds.size.width - 232, 6, 220, 32);
+        seg.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        [seg addTarget:self action:NSSelectorFromString(cellInfo[@"segment_click_handler"]) forControlEvents:UIControlEventValueChanged];
+        for (UIView *v in cell.contentView.subviews) {
+            if ([v isKindOfClass:[UISegmentedControl class]]) [v removeFromSuperview];
+        }
+        [cell.contentView addSubview:seg];
+
+        result = cell;
+    }
     
     
     return result;
@@ -765,7 +795,9 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([cell isKindOfClass:[TableViewCellWithEntry class]])
     {
         TableViewCellWithEntry *entry = (TableViewCellWithEntry*)cell;
-        [self performSelector:NSSelectorFromString(entry.clickHandler) withObject:entry];
+        if (entry.clickHandler.length > 0) {
+            [self performSelector:NSSelectorFromString(entry.clickHandler) withObject:entry];
+        }
     }
 }
 

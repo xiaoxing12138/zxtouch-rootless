@@ -81,6 +81,14 @@
 #define kFMCfgPauseFont    @"floating_menu_pause_font_size"   // 暂停文字字号 6..16
 #define kFMCfgPauseColor   @"floating_menu_pause_text_color"  // 暂停文字颜色 #RRGGBB
 #define kFMCfgPauseGray    @"floating_menu_pause_gray_alpha"  // 圆点变灰深度（灰罩不透明度）0..1
+#define kFMCfgAutoEdge     @"floating_menu_auto_edge"          // 菜单收起后是否自动收边（露出比例）
+#define kFMCfgEdgeVisible  @"floating_menu_edge_visible_ratio" // 收边后圆点可见比例 0.1..1.0
+
+// 自动收边：菜单收起（或失去焦点）后延迟多久收边，以及圆点可见比例范围
+#define kFMAutoEdgeDelay          4.0f
+#define kFMAutoEdgeVisibleDefault 0.6f
+#define kFMAutoEdgeVisibleMin     0.1f
+#define kFMAutoEdgeVisibleMax     1.0f
 
 // 颜色默认值：圆点沿用旧硬编码色 (20,20,28)，菜单底沿用 white 0.12 (≈#1F1F1F)
 #define kFMDotBgColorDefault   @"#14141C"
@@ -377,6 +385,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     FMScriptPlayState _playState; // 当前脚本状态（驱动菜单按钮 + 圆点暂停外观）
     int      _lastOrientation;
 
+    BOOL     _autoEdge;       // 菜单收起后自动收边
+    CGFloat  _edgeVisible;    // 收边后圆点可见比例 0.1..1.0
+    BOOL     _tucked;         // 已收边（半隐藏在屏幕边缘）
+    NSTimer *_autoEdgeTimer;  // 收边倒计时
+
     CGPoint  _dragStartVisual;
 }
 
@@ -412,6 +425,8 @@ static void fmPersistKeys(NSDictionary *pairs)
         _pauseFont = kFMPauseFontDefault;
         _pauseTextColorHex = kFMPauseColorDefault;
         _pauseGrayAlpha = kFMPauseGrayDefault;
+        _autoEdge = YES;
+        _edgeVisible = kFMAutoEdgeVisibleDefault;
         _playState = FMScriptPlayStateIdle;
     }
     return self;
@@ -534,9 +549,66 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat radius = [self dotRadius];
     CGFloat y = _yRatio * visH;
     y = MIN(MAX(y, radius + 2.0f), visH - radius - 2.0f);
-    // 中心距边缘 = 半径 → 圆点完全贴边且完整显示
-    CGFloat x = (_edge == 0) ? radius : (visW - radius);
-    return CGPointMake(x, y);
+    return CGPointMake([self edgeCenterX:visW], y);
+}
+
+// 圆点中心距屏幕边缘的距离。
+// 未收边 = 半径（完全贴边、整圆可见）；收边时按可见比例算：
+// 可见 f（0.1..1.0）→ 中心距边缘 = 半径*(2f-1)，f=1 完全贴边，f=0.5 露一半，f<0.5 中心在屏幕外。
+- (CGFloat)edgeCenterX:(CGFloat)visW
+{
+    CGFloat radius = [self dotRadius];
+    CGFloat offset = radius;
+    if (_tucked && _autoEdge) {
+        offset = radius * (2.0f * _edgeVisible - 1.0f);
+    }
+    return (_edge == 0) ? offset : (visW - offset);
+}
+
+#pragma mark 自动收边
+
+- (void)cancelAutoEdgeTimer
+{
+    if (_autoEdgeTimer) {
+        [_autoEdgeTimer invalidate];
+        _autoEdgeTimer = nil;
+    }
+}
+
+// 菜单收起/失去焦点后延迟收边；展开中、拖动中不收
+- (void)scheduleAutoEdgeTimer
+{
+    [self cancelAutoEdgeTimer];
+    if (!_window || !_autoEdge || _expanded || _dragging) {
+        return;
+    }
+    _autoEdgeTimer = [NSTimer scheduledTimerWithTimeInterval:kFMAutoEdgeDelay
+                                                     target:self
+                                                   selector:@selector(autoEdgeTimerFired:)
+                                                   userInfo:nil
+                                                    repeats:NO];
+}
+
+- (void)autoEdgeTimerFired:(NSTimer *)timer
+{
+    _autoEdgeTimer = nil;
+    if (!_window || !_autoEdge || _expanded || _dragging || _tucked) {
+        return;
+    }
+    _tucked = YES;
+    [UIView animateWithDuration:0.25f
+                          delay:0
+                        options:UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionBeginFromCurrentState
+                     animations:^{
+        [self applyGeometry];
+    } completion:nil];
+}
+
+// 展开菜单/开始拖动时取消收边并弹回完全贴边
+- (void)untuck
+{
+    [self cancelAutoEdgeTimer];
+    _tucked = NO;
 }
 
 // rootView 坐标系下的位移 → 视觉坐标系下的位移
@@ -716,6 +788,9 @@ static void fmPersistKeys(NSDictionary *pairs)
             ZXLogUIException(exception);
         }
     });
+
+    _tucked = NO;
+    [self scheduleAutoEdgeTimer];   // 首次显示也按「菜单收起」处理
 }
 
 #pragma mark 圆点图标
@@ -955,6 +1030,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     if (_expanded || !_window) return;
     _expanded = YES;
     _menuAnimating = YES;
+    [self untuck];   // 展开时圆点弹回完全贴边，菜单才有地方摆
     // 展开是唯一能看到按钮的时机：此处按真实状态刷新「启动/暂停/继续」，
     // 避免脚本被 App 端或自然结束后这里还显示「暂停」
     [FloatingMenu refreshScriptPlayState];
@@ -1076,6 +1152,7 @@ static void fmPersistKeys(NSDictionary *pairs)
                 self->_expanded = NO;
                 self->_menuAnimating = NO;  // 最后一个（最早开始的）结束才解锁
                 [self applyGeometry];
+                [self scheduleAutoEdgeTimer];   // 收起后 4s 自动收边
             }
         }];
     }
@@ -1117,7 +1194,9 @@ static void fmPersistKeys(NSDictionary *pairs)
 
     if (pan.state == UIGestureRecognizerStateBegan) {
         _dragging = YES;
-        _dragStartVisual = [self dotVisualPoint];
+        // 用实际位置做基准：收边时圆点中心在屏幕外，dotVisualPoint 会算成完全贴边导致跳一下
+        _dragStartVisual = _dotButton.center;
+        [self untuck];
         // 注意：拖动时菜单保持展开，实时跟随（按键精灵行为）
     } else if (pan.state == UIGestureRecognizerStateChanged) {
         CGPoint t = [pan translationInView:rootView];
@@ -1171,6 +1250,7 @@ static void fmPersistKeys(NSDictionary *pairs)
                 [self applyGeometry];
             }
         } completion:nil];
+        [self scheduleAutoEdgeTimer];   // 松手后若菜单是收起的，4s 再自动收边
     }
 }
 
@@ -1452,6 +1532,8 @@ static void fmPersistKeys(NSDictionary *pairs)
                 [self startWatchers];
             } else {
                 [self stopWatchers];
+                [self cancelAutoEdgeTimer];
+                self->_tucked = NO;
                 if (self->_window) {
                     self->_window.hidden = YES;
                     self->_window.rootViewController = nil;
@@ -1497,6 +1579,8 @@ static void fmPersistKeys(NSDictionary *pairs)
             CGFloat pauseFont = kFMPauseFontDefault;
             NSString *pauseColorHex = kFMPauseColorDefault;
             CGFloat pauseGrayAlpha = kFMPauseGrayDefault;
+            BOOL autoEdge = YES;
+            CGFloat edgeVisible = kFMAutoEdgeVisibleDefault;
 
             NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
             if ([config isKindOfClass:[NSDictionary class]]) {
@@ -1570,6 +1654,14 @@ static void fmPersistKeys(NSDictionary *pairs)
                 if ([pauseGrayValue isKindOfClass:[NSNumber class]]) {
                     pauseGrayAlpha = [pauseGrayValue doubleValue];
                 }
+                NSNumber *autoEdgeValue = config[kFMCfgAutoEdge];
+                if ([autoEdgeValue isKindOfClass:[NSNumber class]]) {
+                    autoEdge = [autoEdgeValue boolValue];
+                }
+                NSNumber *edgeVisibleValue = config[kFMCfgEdgeVisible];
+                if ([edgeVisibleValue isKindOfClass:[NSNumber class]]) {
+                    edgeVisible = [edgeVisibleValue doubleValue];
+                }
                 if (!hasEdge) {
                     NSNumber *xValue = config[@"floating_menu_x"];
                     CGFloat pw, ph;
@@ -1598,6 +1690,8 @@ static void fmPersistKeys(NSDictionary *pairs)
             self->_pauseFont = MIN(MAX(pauseFont, kFMPauseFontMin), kFMPauseFontMax);
             self->_pauseTextColorHex = pauseColorHex;
             self->_pauseGrayAlpha = MIN(MAX(pauseGrayAlpha, kFMPauseGrayMin), kFMPauseGrayMax);
+            self->_autoEdge = autoEdge;
+            self->_edgeVisible = MIN(MAX(edgeVisible, kFMAutoEdgeVisibleMin), kFMAutoEdgeVisibleMax);
 
             // 彻底照搬 NetSpeedIndicator.reloadAppearance 模式：
             // 先 destroy 再 create——确保 SpringBoard 重启后 window 一定能显示
@@ -1619,6 +1713,8 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 - (void)destroyWindow
 {
+    [self cancelAutoEdgeTimer];
+    _tucked = NO;
     _window.hidden = YES;
     _window.rootViewController = nil;
     _window = nil;
@@ -1664,6 +1760,9 @@ static void fmPersistKeys(NSDictionary *pairs)
     info[@"pause_font"] = @(_pauseFont);
     info[@"pause_text_color"] = _pauseTextColorHex ?: @"";
     info[@"pause_gray_alpha"] = @(_pauseGrayAlpha);
+    info[@"auto_edge"] = @(_autoEdge);
+    info[@"edge_visible_ratio"] = @(_edgeVisible);
+    info[@"tucked"] = @(_tucked);
     info[@"play_state"] = @(_playState);
     info[@"last_orientation"] = @(_lastOrientation);
 

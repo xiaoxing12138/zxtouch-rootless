@@ -9,9 +9,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// 触摸指示器 + 坐标悬浮窗合并设置页（tableView 全部由代码搭建，不再走 storyboard）
 @interface TouchIndicatorConfigurationViewController : UIViewController<UITableViewDelegate, UITableViewDataSource>
-- (void)switchTouchIndicatorStatus:(id)cell;
-@property (weak, nonatomic) IBOutlet UITableView *tableView;
+@property (strong, nonatomic) UITableView *tableView;
 
 @end
 

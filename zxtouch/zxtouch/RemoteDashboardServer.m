@@ -251,8 +251,8 @@ static NSString *ZXDashboardAppVersion(void)
         result = [self sendSocketCommandOnce:command expectsReply:expectsReply];
     }
     if (result == nil) {
-        self.lastError = @"本机 ZXTouch 服务没有返回响应。";
-        return @"-1;;ZXTouch 服务不可用。";
+        self.lastError = @"本机 小新Lap 服务没有返回响应。";
+        return @"-1;;小新Lap 服务不可用。";
     }
     self.lastError = [result hasPrefix:@"-1"] ? result : @"";
     return result;
@@ -321,7 +321,7 @@ static NSString *ZXDashboardAppVersion(void)
     NSString *path = @"/var/jb/Applications/zxtouch.app/index.html";
     if (![[NSFileManager defaultManager] fileExistsAtPath:path]) path = nil;
     NSString *html = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] : nil;
-    return html ?: @"<h1>ZXTouch Dashboard is unavailable.</h1>";
+    return html ?: @"<h1>小新Lap 控制台不可用。</h1>";
 }
 
 - (void)configureHandlers
@@ -397,24 +397,18 @@ static NSString *ZXDashboardAppVersion(void)
         return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
     }];
 
-    [self.server addHandlerForMethod:@"GET" path:@"/api/floating-menu" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+    // 救急用：某个脚本/功能把屏幕点击占住、设备点不动时，从这里一键全停。
+    [self.server addHandlerForMethod:@"POST" path:@"/api/stop-all" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
-        NSString *result = [strongSelf sendSocketCommand:@"32;;2" expectsReply:YES];
-        NSString *payload = [strongSelf payloadFromSocketReply:result];
-        BOOL enabled = [payload isEqualToString:@"1"];
-        return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"enabled": @(enabled), @"result": result ?: @"" } status:200];
-    }];
-
-    [self.server addHandlerForMethod:@"POST" path:@"/api/floating-menu" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
-        ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
-        NSDictionary *body = [request.jsonObject isKindOfClass:[NSDictionary class]] ? request.jsonObject : @{};
-        BOOL enabled = [body[@"enabled"] boolValue];
-        NSString *command = enabled ? @"32;;1" : @"32;;0";
-        NSString *result = [strongSelf sendSocketCommand:command expectsReply:YES];
-        if ([result hasPrefix:@"0"]) strongSelf.lastAction = enabled ? @"开启悬浮按钮" : @"关闭悬浮按钮";
-        return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
+        // 停脚本 → 关三个悬浮窗（网速 / 控制按钮 / 触摸坐标）→ 停屏幕坐标测试
+        NSString *result = [strongSelf sendSocketCommand:@"20" expectsReply:YES];
+        [strongSelf sendSocketCommand:@"31;;0" expectsReply:NO];
+        [strongSelf sendSocketCommand:@"32;;0" expectsReply:NO];
+        [strongSelf sendSocketCommand:@"42;;0" expectsReply:NO];
+        [strongSelf sendSocketCommand:@"41;;0" expectsReply:NO];
+        strongSelf.lastAction = @"停止所有功能";
+        return [strongSelf jsonResponse:@{ @"ok": @(![result hasPrefix:@"-1"]), @"result": result ?: @"" } status:200];
     }];
 
     [self.server addHandlerForMethod:@"POST" path:@"/api/assets" requestClass:[GCDWebServerMultiPartFormRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerMultiPartFormRequest *request) {
@@ -469,7 +463,7 @@ static NSString *ZXDashboardAppVersion(void)
             [fileManager removeItemAtPath:bundlePath error:nil];
             return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"无法写入 info.plist。" } status:500];
         }
-        NSString *template = @"# -*- coding: utf-8 -*-\n# ZXTouch 脚本\n\n";
+        NSString *template = @"# -*- coding: utf-8 -*-\n# 小新Lap 脚本\n\n";
         if (![template writeToFile:[bundlePath stringByAppendingPathComponent:@"main.py"] atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
             [fileManager removeItemAtPath:bundlePath error:nil];
             return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"无法写入 main.py。" } status:500];

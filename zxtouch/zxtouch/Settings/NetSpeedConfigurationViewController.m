@@ -166,6 +166,8 @@ static NSString * const kAboutText = @"修改后立即生效。关闭总开关�
         [socket send:cmd];
         [socket close];
     }
+    // 关闭时只保留开关这一行，其余参数分组整段隐藏
+    [_tableView reloadData];
 }
 
 - (void)pauseScreenOffChanged:(UISwitch *)s {
@@ -218,7 +220,8 @@ static NSString * const kAboutText = @"修改后立即生效。关闭总开关�
 #pragma mark - Table view data source
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 4;  // 开关 / 显示 / 省电 / 关于
+    // 开关关闭时只留「开关」段
+    return enabled ? 4 : 1;  // 开关 / 显示 / 省电 / 关于
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {

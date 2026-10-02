@@ -104,7 +104,7 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
 
         // Header
         UILabel *ttl = [[UILabel alloc] initWithFrame:CGRectMake(12,8,pw-176,30)];
-        ttl.text = @"ZXTouch 控制面板"; ttl.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+        ttl.text = @"小新Lap 控制面板"; ttl.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
         ttl.textColor = [UIColor labelColor]; [cv addSubview:ttl];
 
         // 功能勾选页入口：关闭本面板，改为弹出独立的功能页窗口
@@ -198,11 +198,20 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
         [UIColor secondarySystemBackgroundColor];
 }
 
-void applyPanelDarkMode(BOOL dark) {
+// 界面外观：0跟随系统 1浅色 2深色。旧配置只有 dark_mode 布尔值，按 深色/浅色 迁移。
+NSInteger ZXAppearanceModeFromConfig(NSDictionary *config) {
+    if (config[@"appearance_mode"]) {
+        return [config[@"appearance_mode"] integerValue];
+    }
+    return config[@"dark_mode"] ? ([config[@"dark_mode"] boolValue] ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight)
+                                : UIUserInterfaceStyleLight;
+}
+
+void applyPanelAppearanceMode(NSInteger mode) {
     extern PopupWindow *popupWindow;
     if (popupWindow) {
         ZXSafeMainAsync(^{
-            [popupWindow setDarkMode:dark];
+            [popupWindow setAppearanceMode:mode];
         });
     }
 }
@@ -405,7 +414,7 @@ void applyPanelDarkMode(BOOL dark) {
     {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
             stopRecording();
-            showAlertBox(@"ZXTouch", @"录制已停止并保存。", 1);
+            showAlertBox(@"小新Lap", @"录制已停止并保存。", 1);
         });
         return;
     }
@@ -413,9 +422,9 @@ void applyPanelDarkMode(BOOL dark) {
     [self stopPlaying];
 }
 
-- (void) setDarkMode:(BOOL)dark {
+- (void) setAppearanceMode:(NSInteger)mode {
     ZXSafeMainAsync(^{
-        _window.overrideUserInterfaceStyle = dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+        _window.overrideUserInterfaceStyle = (UIUserInterfaceStyle)mode;
     });
 }
 
@@ -441,8 +450,8 @@ void applyPanelDarkMode(BOOL dark) {
         NSString *configFilePath = [NSString stringWithFormat:@"/var/mobile/Library/ZXTouch/config/tweak/config.plist"];
         if ([[NSFileManager defaultManager] fileExistsAtPath:configFilePath])
             tweakCfg = [[NSDictionary alloc] initWithContentsOfFile:configFilePath];
-        BOOL dark = tweakCfg[@"dark_mode"] ? [tweakCfg[@"dark_mode"] boolValue] : NO;
-        _window.overrideUserInterfaceStyle = dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+        NSInteger appearanceMode = ZXAppearanceModeFromConfig(tweakCfg);
+        _window.overrideUserInterfaceStyle = (UIUserInterfaceStyle)appearanceMode;
         _window.hidden = NO;
     });
     isShown = YES;

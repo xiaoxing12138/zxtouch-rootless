@@ -5,21 +5,22 @@
     <key>version</key>
     <string>1</string>
     <key>examplesPath</key>
-    <string>/var/mobile/Library/ZXTouch/scripts/examples</string>
+    <string>/var/mobile/Library/ZXTouch/scripts/示例</string>
     <key>scripts</key>
     <array>
-        <dict><key>name</key><string>Toast</string><key>type</key><string>python</string><key>path</key><string>examples/Toast.bdl</string><key>entry</key><string>toast.py</string></dict>
-        <dict><key>name</key><string>Touch Simulation</string><key>type</key><string>python</string><key>path</key><string>examples/Touch Simulation.bdl</string><key>entry</key><string>simulate_touch.py</string></dict>
-        <dict><key>name</key><string>Touch Simulation From Raw Data</string><key>type</key><string>raw</string><key>path</key><string>examples/Touch Simulation From Raw Data.bdl</string><key>entry</key><string>210102110339.raw</string></dict>
-        <dict><key>name</key><string>Image Matching</string><key>type</key><string>python</string><key>path</key><string>examples/Image Matching.bdl</string><key>entry</key><string>im.py</string></dict>
-        <dict><key>name</key><string>Text Input and MORE</string><key>type</key><string>python</string><key>path</key><string>examples/Text Input and MORE.bdl</string><key>entry</key><string>keyboard-test.py</string></dict>
-        <dict><key>name</key><string>Color Picker</string><key>type</key><string>python</string><key>path</key><string>examples/Color Picker.bdl</string><key>entry</key><string>color_picker.py</string></dict>
-        <dict><key>name</key><string>Find Color</string><key>type</key><string>python</string><key>path</key><string>examples/Find Color.bdl</string><key>entry</key><string>color_searcher.py</string></dict>
-        <dict><key>name</key><string>Device Info</string><key>type</key><string>python</string><key>path</key><string>examples/Device Info.bdl</string><key>entry</key><string>device_info.py</string></dict>
-        <dict><key>name</key><string>Alert Box</string><key>type</key><string>python</string><key>path</key><string>examples/Alert Box.bdl</string><key>entry</key><string>alertbox.py</string></dict>
-        <dict><key>name</key><string>Prompt Input</string><key>type</key><string>python</string><key>path</key><string>examples/Prompt Input.bdl</string><key>entry</key><string>prompt_input.py</string></dict>
-        <dict><key>name</key><string>Screen Info</string><key>type</key><string>python</string><key>path</key><string>examples/Screen Info.bdl</string><key>entry</key><string>screen_info.py</string></dict>
-        <dict><key>name</key><string>Tap Corners</string><key>type</key><string>python</string><key>path</key><string>examples/Tap Corners.bdl</string><key>entry</key><string>tap_corners.py</string></dict>
+        <dict><key>name</key><string>提示气泡</string><key>type</key><string>python</string><key>path</key><string>示例/提示气泡.bdl</string><key>entry</key><string>toast.py</string></dict>
+        <dict><key>name</key><string>模拟触摸</string><key>type</key><string>python</string><key>path</key><string>示例/模拟触摸.bdl</string><key>entry</key><string>simulate_touch.py</string></dict>
+        <dict><key>name</key><string>原始数据模拟触摸</string><key>type</key><string>raw</string><key>path</key><string>示例/原始数据模拟触摸.bdl</string><key>entry</key><string>210102110339.raw</string></dict>
+        <dict><key>name</key><string>图片匹配</string><key>type</key><string>python</string><key>path</key><string>示例/图片匹配.bdl</string><key>entry</key><string>im.py</string></dict>
+        <dict><key>name</key><string>文本输入与更多</string><key>type</key><string>python</string><key>path</key><string>示例/文本输入与更多.bdl</string><key>entry</key><string>keyboard-test.py</string></dict>
+        <dict><key>name</key><string>屏幕取色</string><key>type</key><string>python</string><key>path</key><string>示例/屏幕取色.bdl</string><key>entry</key><string>color_picker.py</string></dict>
+        <dict><key>name</key><string>查找颜色</string><key>type</key><string>python</string><key>path</key><string>示例/查找颜色.bdl</string><key>entry</key><string>color_searcher.py</string></dict>
+        <dict><key>name</key><string>设备信息</string><key>type</key><string>python</string><key>path</key><string>示例/设备信息.bdl</string><key>entry</key><string>device_info.py</string></dict>
+        <dict><key>name</key><string>弹窗提示</string><key>type</key><string>python</string><key>path</key><string>示例/弹窗提示.bdl</string><key>entry</key><string>alertbox.py</string></dict>
+        <dict><key>name</key><string>输入框</string><key>type</key><string>python</string><key>path</key><string>示例/输入框.bdl</string><key>entry</key><string>prompt_input.py</string></dict>
+        <dict><key>name</key><string>屏幕信息</string><key>type</key><string>python</string><key>path</key><string>示例/屏幕信息.bdl</string><key>entry</key><string>screen_info.py</string></dict>
+        <dict><key>name</key><string>点击四角</string><key>type</key><string>python</string><key>path</key><string>示例/点击四角.bdl</string><key>entry</key><string>tap_corners.py</string></dict>
+        <dict><key>name</key><string>面板语法示例</string><key>type</key><string>python</string><key>path</key><string>示例/面板语法示例.bdl</string><key>entry</key><string>main.py</string></dict>
     </array>
 </dict>
 </plist>

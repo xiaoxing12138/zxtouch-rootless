@@ -341,7 +341,7 @@ static NSString *ZXPythonModulePath(void)
 
     if (!file)
     {
-        showAlertBox(@"错误", [NSString stringWithFormat:@"无法播放此脚本，ZXTouch 无法打开该文件。文件路径：%@", filePath], 999);
+        showAlertBox(@"错误", [NSString stringWithFormat:@"无法播放此脚本，小新Lap 无法打开该文件。文件路径：%@", filePath], 999);
         isPlaying = false;
         return;
     }
@@ -414,7 +414,7 @@ static NSString *ZXPythonModulePath(void)
     if (!pythonPath)
     {
         showAlertBox(@"未安装 Python",
-                     @"ZXTouch 在此设备上找不到可用的 python3。\n\n请打开 Sileo，安装 Procursus 源中的“python3”软件包，然后重新安装 ZXTouch，以便注册新的解释器。",
+                     @"小新Lap 在此设备上找不到可用的 python3。\n\n请打开 Sileo，安装 Procursus 源中的“python3”软件包，然后重新安装 小新Lap，以便注册新的解释器。",
                      999);
         isPlaying = false;
         return;
@@ -476,13 +476,13 @@ static NSString *ZXPythonModulePath(void)
             // shell was unusable. Common on semi-jailbreaks with stripped
             // entitlements. Check Console.app for `system2` NSLog output.
             title = @"脚本无法启动";
-            message = @"ZXTouch 无法启动 shell 来运行脚本（posix_spawn 失败）。\n\n请打开 Console.app（或 `oslog`），搜索 `com.zjx.springboard: system2` 查看具体错误。";
+            message = @"小新Lap 无法启动 shell 来运行脚本（posix_spawn 失败）。\n\n请打开 Console.app（或 `oslog`），搜索 `com.zjx.springboard: system2` 查看具体错误。";
         } else if (pythonExitCode == 134 && dyldLibpythonMissing) {
             // 134 = SIGABRT. Dyld couldn't find libpython — the interpreter
             // was linked against a path that doesn't exist on this JB (classic
             // Procursus python3.7 on rootless).
             title = @"Python 解释器已损坏";
-            message = @"已安装的 python3 启动时中止，因为 dyld 找不到它的 libpython 动态库。\n\n请在 Sileo（Procursus）中安装“python3”软件包（3.9 或更新版本），然后重新安装 ZXTouch，使其重新选择可用的解释器。";
+            message = @"已安装的 python3 启动时中止，因为 dyld 找不到它的 libpython 动态库。\n\n请在 Sileo（Procursus）中安装“python3”软件包（3.9 或更新版本），然后重新安装 小新Lap，使其重新选择可用的解释器。";
         } else {
             message = [NSString stringWithFormat:@"Python 脚本异常退出，退出码 %d。请打开日志查看详细报错。", pythonExitCode];
         }

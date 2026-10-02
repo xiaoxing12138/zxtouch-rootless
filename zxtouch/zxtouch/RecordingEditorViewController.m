@@ -160,7 +160,7 @@
     [self saveRecording];
     Socket *socket = [[Socket alloc] init];
     if ([socket connect:@"127.0.0.1" byPort:6000] != 0) {
-        [self showError:@"ZXTouch 服务不可用。"];
+        [self showError:@"小新Lap 服务不可用。"];
         return;
     }
     [socket send:[@"19" stringByAppendingString:self.scriptBundlePath]];

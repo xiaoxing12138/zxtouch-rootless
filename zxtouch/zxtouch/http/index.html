@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
-  <title>ZXTouch 控制台</title>
+  <title>小新Lap 控制台</title>
   <style>
     :root {
       color-scheme: dark;
@@ -276,21 +276,21 @@
 </head>
 <body>
   <header class="appbar">
-    <div class="brand"><div class="brand-mark" aria-hidden="true">ZX</div><h1 class="brand-title">ZXTouch</h1></div>
+    <div class="brand"><div class="brand-mark" aria-hidden="true">小新</div><h1 class="brand-title">小新Lap</h1></div>
     <div class="appbar-state" id="recStateWrap" title="空闲"><span class="rec-dot" id="recDot" aria-hidden="true"></span><span id="activity">空闲</span><span id="recordingState" hidden>录制器空闲</span><span id="lastAction" hidden>就绪</span></div>
     <div class="appbar-actions">
       <button class="topbar-btn" id="recordStart" type="button" title="开始触摸录制">录制</button>
       <button class="topbar-btn" id="recordStop" type="button" title="停止并保存本次录制">保存</button>
       <button class="topbar-btn danger" id="stop" type="button" title="停止当前运行的脚本">停止</button>
-      <button class="topbar-btn toggle-off" id="floatingMenu" type="button" title="切换 iPad 上的悬浮控制按钮" disabled>悬浮按钮：—</button>
+      <button class="topbar-btn danger" id="stopAll" type="button" title="停止所有脚本、关闭三个悬浮窗、停止屏幕坐标测试" disabled>停止所有功能</button>
       <button class="icon-button" id="refresh" title="刷新控制台" aria-label="刷新控制台">&#8635;</button>
       <div class="connection"><span class="status-dot" id="serviceDot"></span><span class="connection-text" id="connectionText">连接中</span></div>
-      <span class="appbar-version" id="versionText" title="ZXTouch 版本">v—</span>
+      <span class="appbar-version" id="versionText" title="小新Lap 版本">v—</span>
     </div>
   </header>
 
   <div class="app-body">
-    <div class="offline-banner" id="offlineBanner" hidden><strong>ZXTouch 服务不可用。</strong>本地服务重新连接后，控制功能将自动恢复。</div>
+    <div class="offline-banner" id="offlineBanner" hidden><strong>小新Lap 服务不可用。</strong>本地服务重新连接后，控制功能将自动恢复。</div>
 
     <main>
       <section class="view" id="view-scripts" role="tabpanel">
@@ -366,7 +366,10 @@
     const token = new URLSearchParams(location.search).get('token') || '';
     const query = path => `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
     const elements = Object.fromEntries(Array.from(document.querySelectorAll('[id]')).map(element => [element.id, element]));
-    const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, prompting: null, collapsed: new Set(), editing: null, floatingMenu: null };
+    const COLLAPSE_KEY = 'zxtouch.collapsed_folders';
+    function loadCollapsed() { try { const raw = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]'); return new Set(Array.isArray(raw) ? raw : []); } catch (_) { return new Set(); } }
+    function saveCollapsed() { try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(Array.from(state.collapsed))); } catch (_) { } }
+    const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, prompting: null, collapsed: loadCollapsed(), editing: null };
     const orientationNames = { '1': '竖屏', '2': '竖屏（倒置）', '3': '横屏（右）', '4': '横屏（左）' };
     const viewNames = { scripts: '脚本', assets: '资源', logs: '日志', device: '设备' };
 
@@ -434,7 +437,7 @@
       if (searching) visible.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN')).forEach(script => html.push(renderScriptRow(script, 0)));
       else { const tree = buildScriptTree(visible); sortTree(tree); renderFolderRows(tree, '', 0, html); }
       elements.scripts.innerHTML = html.join('');
-      elements.scripts.querySelectorAll('.folder-row').forEach(row => { const toggle = () => { const path = row.dataset.folder; if (state.collapsed.has(path)) state.collapsed.delete(path); else state.collapsed.add(path); renderScripts(); }; row.addEventListener('click', event => { if (event.target.closest('.folder-tools')) return; toggle(); }); row.addEventListener('keydown', event => { if (event.target !== row) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } }); });
+      elements.scripts.querySelectorAll('.folder-row').forEach(row => { const toggle = () => { const path = row.dataset.folder; if (state.collapsed.has(path)) state.collapsed.delete(path); else state.collapsed.add(path); saveCollapsed(); renderScripts(); }; row.addEventListener('click', event => { if (event.target.closest('.folder-tools')) return; toggle(); }); row.addEventListener('keydown', event => { if (event.target !== row) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } }); });
       elements.scripts.querySelectorAll('.open-script').forEach(button => button.addEventListener('click', () => openEditor(decodeURIComponent(button.dataset.path))));
       elements.scripts.querySelectorAll('.rename-script').forEach(button => button.addEventListener('click', () => renameScript(decodeURIComponent(button.dataset.path), decodeURIComponent(button.dataset.name))));
       elements.scripts.querySelectorAll('.rename-folder').forEach(button => button.addEventListener('click', () => renameFolder(decodeURIComponent(button.dataset.folder), decodeURIComponent(button.dataset.name))));
@@ -563,6 +566,10 @@
       if (newName === name) return;
       try {
         await postJSON('/api/script/rename', { path: folder, newName });
+        const newFolder = folder.includes('/') ? `${folder.slice(0, folder.lastIndexOf('/'))}/${newName}` : newName;
+        Array.from(state.collapsed).forEach(key => { if (key === folder || key.startsWith(`${folder}/`)) state.collapsed.add(newFolder + key.slice(folder.length)); });
+        Array.from(state.collapsed).forEach(key => { if (key === folder || key.startsWith(`${folder}/`)) state.collapsed.delete(key); });
+        saveCollapsed();
         showToast(`文件夹已重命名为「${newName}」。`);
         await loadScripts(); pruneEditing();
       } catch (error) { showToast(error.message, true); }
@@ -575,6 +582,7 @@
       try {
         await postJSON('/api/script/delete', { path: folder });
         Array.from(state.collapsed).forEach(key => { if (key === folder || key.startsWith(`${folder}/`)) state.collapsed.delete(key); });
+        saveCollapsed();
         showToast(`文件夹「${folder}」已删除。`);
         await loadScripts(); pruneEditing();
       } catch (error) { showToast(error.message, true); }
@@ -600,57 +608,28 @@
       elements.recStateWrap.title = `${activity} · ${status.lastAction || '就绪'}`;
       elements.stop.disabled = !online || !playing; elements.recordStart.disabled = !online || recording; elements.recordStop.disabled = !online || !recording;
       if (elements.runEditor.dataset.busy !== '1') elements.runEditor.disabled = !online || !state.editing;
-      if (elements.floatingMenu.dataset.busy !== '1') elements.floatingMenu.disabled = !online || state.floatingMenu === null;
+      if (elements.stopAll.dataset.busy !== '1') elements.stopAll.disabled = !online;
     }
 
     async function loadStatus() { const payload = await api('/api/status'); renderStatus(payload.status); }
     function renderLogs() { const filter = elements.logFilter.value.trim().toLowerCase(); const lines = state.rawLogs ? state.rawLogs.split(/\r?\n/) : []; const visible = filter ? lines.filter(line => line.toLowerCase().includes(filter)) : lines; const stick = elements.autoFollow.checked || elements.logs.scrollTop + elements.logs.clientHeight >= elements.logs.scrollHeight - 16; elements.logs.textContent = visible.join('\n') || '暂无运行时日志输出。'; elements.logSummary.textContent = `${visible.length} 条可见日志`; if (stick) elements.logs.scrollTop = elements.logs.scrollHeight; }
     async function loadLogs() { const payload = await api('/api/logs'); state.rawLogs = payload.logs || ''; renderLogs(); }
 
-    function renderFloatingMenu() {
-      const btn = elements.floatingMenu;
-      const enabled = state.floatingMenu;
-      if (enabled === true) { btn.textContent = '悬浮按钮：开'; btn.className = 'topbar-btn toggle-on'; }
-      else if (enabled === false) { btn.textContent = '悬浮按钮：关'; btn.className = 'topbar-btn toggle-off'; }
-      else { btn.textContent = '悬浮按钮：—'; btn.className = 'topbar-btn toggle-off'; }
-    }
-    async function loadFloatingMenu() {
-      try { const payload = await api('/api/floating-menu'); state.floatingMenu = Boolean(payload.enabled); }
-      catch (_) { state.floatingMenu = null; }
-      renderFloatingMenu();
-      if (state.status) renderStatus(state.status);
-    }
-    async function toggleFloatingMenu() {
-      if (elements.floatingMenu.dataset.busy === '1' || state.floatingMenu === null) return;
-      const previous = state.floatingMenu;
-      const next = !previous;
-      const btn = elements.floatingMenu;
-      btn.dataset.busy = '1';
-      btn.disabled = true;
-      btn.textContent = '切换中…';
-      try {
-        await postJSON('/api/floating-menu', { enabled: next });
-        state.floatingMenu = next;
-        showToast(next ? '悬浮按钮已开启。' : '悬浮按钮已关闭。');
-        await loadStatus();
-      } catch (error) {
-        showToast(error.message, true);
-        try { const payload = await api('/api/floating-menu'); state.floatingMenu = Boolean(payload.enabled); }
-        catch (_) { state.floatingMenu = previous; }
-      } finally {
-        btn.dataset.busy = '0';
-        renderFloatingMenu();
-        if (state.status) renderStatus(state.status);
-      }
+    async function stopAll() {
+      if (!await ask('停止所有功能？', '将停止所有脚本、关闭三个悬浮窗，并停止屏幕坐标测试。设备被点击占用、点不动时可用来救急。', '全部停止', true)) return;
+      setButtonBusy(elements.stopAll, true, '停止中…');
+      try { await api('/api/stop-all', { method: 'POST' }); showToast('已停止所有功能。'); await loadStatus(); }
+      catch (error) { showToast(error.message, true); }
+      finally { setButtonBusy(elements.stopAll, false); if (state.status) renderStatus(state.status); }
     }
 
     async function stopScript() { if (!await ask('停止当前脚本？', '当前脚本将立即停止。', '停止脚本', true)) return; setButtonBusy(elements.stop, true, '停止中…'); try { await api('/api/stop', { method: 'POST' }); showToast('已请求停止。'); await loadStatus(); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.stop, false); if (state.status) renderStatus(state.status); } }
-    async function changeRecording(start) { const title = start ? '开始触摸录制？' : '停止并保存录制？'; const message = start ? 'ZXTouch 将持续录制触摸输入，直到你停止。' : '当前录制内容将保存到脚本库。'; if (!await ask(title, message, start ? '开始录制' : '停止并保存', !start)) return; const button = start ? elements.recordStart : elements.recordStop; setButtonBusy(button, true, start ? '启动中…' : '保存中…'); try { await api(start ? '/api/record/start' : '/api/record/stop', { method: 'POST' }); showToast(start ? '录制已开始。' : '录制已保存。'); await Promise.all([loadStatus(), start ? Promise.resolve() : loadScripts()]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(button, false); if (state.status) renderStatus(state.status); } }
+    async function changeRecording(start) { const title = start ? '开始触摸录制？' : '停止并保存录制？'; const message = start ? '将持续录制触摸输入，直到你停止。' : '当前录制内容将保存到脚本库。'; if (!await ask(title, message, start ? '开始录制' : '停止并保存', !start)) return; const button = start ? elements.recordStart : elements.recordStop; setButtonBusy(button, true, start ? '启动中…' : '保存中…'); try { await api(start ? '/api/record/start' : '/api/record/stop', { method: 'POST' }); showToast(start ? '录制已开始。' : '录制已保存。'); await Promise.all([loadStatus(), start ? Promise.resolve() : loadScripts()]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(button, false); if (state.status) renderStatus(state.status); } }
 
     async function uploadAsset(event) { event.preventDefault(); const file = elements.assetFile.files[0]; const scriptName = elements.assetScript.options[elements.assetScript.selectedIndex]?.textContent || '所选脚本'; if (!file) { showToast('请先选择资源文件。', true); return; } if (file.size > 25 * 1024 * 1024) { showToast('资源文件不能超过 25 MB。', true); return; } if (file.name.toLowerCase() === 'info.plist') { showToast('info.plist 不能被覆盖。', true); return; } if (!await ask('上传资源？', `${file.name} 将被添加到 ${scriptName}。`, '上传资源')) return; setButtonBusy(elements.uploadButton, true, '上传中…'); try { const payload = await api('/api/assets', { method: 'POST', body: new FormData(event.currentTarget) }); showToast(`${payload.file} 已上传。`); elements.assetFile.value = ''; elements.assetFileName.textContent = '选择资源文件'; await loadStatus(); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.uploadButton, false); } }
     function copyText(text) { if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text); const area = document.createElement('textarea'); area.value = text; area.style.position = 'fixed'; area.style.opacity = '0'; document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove(); return Promise.resolve(); }
     async function clearLogs() { if (!await ask('清空运行时日志？', '这将从设备上移除当前日志输出。', '清空日志', true)) return; try { await api('/api/logs/clear', { method: 'POST' }); state.rawLogs = ''; renderLogs(); showToast('运行时日志已清空。'); await loadStatus(); } catch (error) { showToast(error.message, true); } }
-    async function refreshAll() { setButtonBusy(elements.refresh, true, '&#8230;'); try { await Promise.all([loadScripts(), loadStatus(), loadLogs(), loadFloatingMenu()]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.refresh, false); } }
+    async function refreshAll() { setButtonBusy(elements.refresh, true, '&#8230;'); try { await Promise.all([loadScripts(), loadStatus(), loadLogs()]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.refresh, false); } }
 
     elements.confirmCancel.addEventListener('click', () => closeConfirmation(false)); elements.confirmAccept.addEventListener('click', () => closeConfirmation(true)); elements.confirmModal.addEventListener('click', event => { if (event.target === elements.confirmModal) closeConfirmation(false); });
     elements.inputCancel.addEventListener('click', () => closeInput(null)); elements.inputAccept.addEventListener('click', () => closeInput({ name: elements.inputName.value, folder: elements.inputFolder.value })); elements.inputModal.addEventListener('click', event => { if (event.target === elements.inputModal) closeInput(null); });
@@ -658,7 +637,7 @@
     elements.createScript.addEventListener('click', createScript); elements.createFolder.addEventListener('click', createFolder);
     elements.saveScript.addEventListener('click', saveEditor); elements.editorBack.addEventListener('click', closeEditor); elements.runEditor.addEventListener('click', runCurrentScript); elements.deleteEditor.addEventListener('click', deleteCurrentScript); elements.scriptEditor.addEventListener('input', syncEditorMeta);
     document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { if (state.editing && !elements.editorBody.hidden) { event.preventDefault(); saveEditor(); } return; } if (event.key === 'Escape') { if (!elements.confirmModal.hidden) closeConfirmation(false); else if (!elements.inputModal.hidden) closeInput(null); } });
-    elements.refresh.addEventListener('click', refreshAll); elements.stop.addEventListener('click', stopScript); elements.floatingMenu.addEventListener('click', toggleFloatingMenu); elements.recordStart.addEventListener('click', () => changeRecording(true)); elements.recordStop.addEventListener('click', () => changeRecording(false)); elements.assetForm.addEventListener('submit', uploadAsset); elements.assetFile.addEventListener('change', () => { elements.assetFileName.textContent = elements.assetFile.files[0]?.name || '选择资源文件'; }); elements.scriptSearch.addEventListener('input', renderScripts); elements.logFilter.addEventListener('input', renderLogs);
+    elements.refresh.addEventListener('click', refreshAll); elements.stop.addEventListener('click', stopScript); elements.stopAll.addEventListener('click', stopAll); elements.recordStart.addEventListener('click', () => changeRecording(true)); elements.recordStop.addEventListener('click', () => changeRecording(false)); elements.assetForm.addEventListener('submit', uploadAsset); elements.assetFile.addEventListener('change', () => { elements.assetFileName.textContent = elements.assetFile.files[0]?.name || '选择资源文件'; }); elements.scriptSearch.addEventListener('input', renderScripts); elements.logFilter.addEventListener('input', renderLogs);
     document.querySelectorAll('.view-menu-item').forEach(item => item.addEventListener('click', () => { selectView(item.dataset.view); }));
     document.querySelectorAll('.segment').forEach(button => button.addEventListener('click', () => { state.scriptFilter = button.dataset.filter; document.querySelectorAll('.segment').forEach(segment => segment.classList.toggle('active', segment === button)); renderScripts(); }));
     elements.copyLogs.addEventListener('click', async () => { try { await copyText(state.rawLogs); showToast('日志已复制。'); } catch (_) { showToast('无法复制日志。', true); } });

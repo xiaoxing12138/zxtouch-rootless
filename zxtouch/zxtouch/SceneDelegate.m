@@ -14,22 +14,26 @@
 
 @implementation SceneDelegate
 
-- (BOOL)darkModeEnabled {
+// 界面外观：直接存 UIUserInterfaceStyle（0跟随系统 1浅色 2深色）
+- (UIUserInterfaceStyle)appearanceMode {
     NSDictionary *config = [NSDictionary dictionaryWithContentsOfFile:SPRINGBOARD_CONFIG_PATH];
-    id configValue = config[@"dark_mode"];
-    if (configValue) {
-        BOOL dark = [configValue boolValue];
-        [[NSUserDefaults standardUserDefaults] setBool:dark forKey:@"dark_mode"];
-        [[NSUserDefaults standardUserDefaults] synchronize];
-        return dark;
+    id configValue = config[@"appearance_mode"];
+    if (!configValue) {
+        // 旧版本只有「深色模式」开关，迁移成 深色/浅色 两档
+        id legacyValue = config[@"dark_mode"];
+        BOOL dark = legacyValue ? [legacyValue boolValue]
+                                : [[NSUserDefaults standardUserDefaults] boolForKey:@"dark_mode"];
+        configValue = @(dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight);
     }
-    return [[NSUserDefaults standardUserDefaults] boolForKey:@"dark_mode"];
+    NSInteger mode = [configValue integerValue];
+    [[NSUserDefaults standardUserDefaults] setInteger:mode forKey:@"appearance_mode"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    return (UIUserInterfaceStyle)mode;
 }
 
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
-    // Apply saved dark mode preference when the window is ready
-    BOOL darkMode = [self darkModeEnabled];
-    UIUserInterfaceStyle style = darkMode ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+    // Apply saved appearance preference when the window is ready
+    UIUserInterfaceStyle style = [self appearanceMode];
     if ([scene isKindOfClass:[UIWindowScene class]]) {
         for (UIWindow *win in ((UIWindowScene *)scene).windows) {
             win.overrideUserInterfaceStyle = style;

@@ -45,7 +45,7 @@ NSString *promptInputFromRawData(UInt8 *eventData, NSError **error)
 {
     NSString *promptData = [NSString stringWithUTF8String:(char*)eventData] ?: @"";
     NSArray *parts = [promptData componentsSeparatedByString:@";;"];
-    NSString *title = parts.count > 0 && [parts[0] length] ? parts[0] : @"ZXTouch";
+    NSString *title = parts.count > 0 && [parts[0] length] ? parts[0] : @"小新Lap";
     NSString *message = parts.count > 1 ? parts[1] : @"";
     NSString *placeholder = parts.count > 2 ? parts[2] : @"";
     NSString *defaultValue = parts.count > 3 ? parts[3] : @"";

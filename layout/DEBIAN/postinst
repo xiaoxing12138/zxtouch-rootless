@@ -16,16 +16,21 @@ fi
 
 # Create required app directories
 mkdir -p /var/mobile/Library/ZXTouch/scripts/recording/
-mkdir -p /var/mobile/Library/ZXTouch/scripts/examples/
+mkdir -p /var/mobile/Library/ZXTouch/scripts/示例/
 mkdir -p /var/mobile/Library/ZXTouch/config/tweak/
 mkdir -p /var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/
 mkdir -p /var/jb/usr/bin /var/jb/bin
 
 # Copy bundled example scripts. These are maintained by the package, so refresh
-# them on upgrade while leaving unrelated user scripts alone.
+# them on upgrade while leaving unrelated user scripts alone. The old English
+# "examples" folder is removed as well, otherwise an upgrade would leave two
+# copies of every sample in the script list.
 EXAMPLES=/var/jb/usr/share/zxtouch/examples
 if [ -d "$EXAMPLES" ]; then
-    cp -Rf "$EXAMPLES/"* /var/mobile/Library/ZXTouch/scripts/examples/ 2>/dev/null || true
+    rm -rf /var/mobile/Library/ZXTouch/scripts/examples
+    rm -rf "/var/mobile/Library/ZXTouch/scripts/示例"
+    mkdir -p "/var/mobile/Library/ZXTouch/scripts/示例"
+    cp -Rf "$EXAMPLES/"* "/var/mobile/Library/ZXTouch/scripts/示例/" 2>/dev/null || true
 fi
 
 REGISTRY=/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist
