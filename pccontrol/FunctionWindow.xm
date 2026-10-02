@@ -129,7 +129,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
     }
     _window.windowLevel = UIWindowLevelAlert + 1;
     _window.backgroundColor = [UIColor clearColor];
-    _window.overrideUserInterfaceStyle = _appearanceMode;
+    _window.overrideUserInterfaceStyle = (UIUserInterfaceStyle)_appearanceMode;
 
     _window.rootViewController = [[FNRootViewController alloc] init];
     UIView *root = _window.rootViewController.view;
@@ -897,7 +897,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
 - (void)setAppearanceMode:(NSInteger)mode {
     _appearanceMode = mode;
     ZXSafeMainAsync(^{
-        if (self->_window) self->_window.overrideUserInterfaceStyle = mode;
+        if (self->_window) self->_window.overrideUserInterfaceStyle = (UIUserInterfaceStyle)mode;
     });
 }
 
