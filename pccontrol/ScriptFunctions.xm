@@ -169,7 +169,15 @@ NSDictionary<NSString *, NSString *> *ZXScriptEffectiveFunctionParams(NSString *
         if (![decl[@"name"] isEqualToString:funcName]) continue;
         for (NSString *key in decl[@"paramOrder"]) {
             NSString *value = saved[key];
-            if (value.length == 0) value = decl[@"params"][key];
+            NSString *declared = decl[@"params"][key] ?: @"";
+            // 声明写成「甲|乙|丙」的是下拉参数：存下来的值不在候选里就用第一个，
+            // 免得面板没填过时把整串候选当成值传给脚本
+            if ([declared rangeOfString:@"|"].location != NSNotFound) {
+                NSArray<NSString *> *choices = [declared componentsSeparatedByString:@"|"];
+                if (value.length == 0 || ![choices containsObject:value]) value = choices[0];
+            } else if (value.length == 0) {
+                value = declared;
+            }
             values[key] = value ?: @"";
         }
         break;

@@ -6,6 +6,7 @@
 #import "AlertBox.h"
 #import "Process.h"
 #import "FunctionWindow.h"
+#import "ScriptFunctions.h"      // ZXLastFunctionScriptPath / ZXFirstScriptPathWithFunctions
 #import <QuartzCore/QuartzCore.h>
 #import <CoreImage/CoreImage.h>
 #include <roothide.h>
@@ -23,7 +24,8 @@
  * 交互：
  *   - 收起态：48pt 圆点自动吸附视觉左/右边缘，只露一半（center 在边线），
  *     随时可拖；松手按离哪条竖边近重新吸附并持久化；
- *   - 点圆点：在靠屏幕内侧横向展开「启动 / 功能 / 设置 / 返回」（朝空间足的一侧排）；
+ *   - 点圆点：在靠屏幕内侧横向展开「启动 / 功能 / 返回」（朝空间足的一侧排）；
+ *     选哪个脚本在「功能」页里选，所以不再需要单独的「设置」入口；
  *   - 位置以「贴哪边 + 纵向比例」持久化，旋转后位置自然正确。
  *
  * 健壮性：
@@ -63,7 +65,6 @@
 #define kFMCfgEnabled     @"floating_menu_enabled"
 #define kFMCfgEdge        @"floating_menu_edge"       // 1=贴右 0=左
 #define kFMCfgYRatio      @"floating_menu_y_ratio"   // 纵向位置 0..1
-#define kFMCfgScript      @"floating_menu_script"
 #define kFMCfgDotSize     @"floating_menu_dot_size"   // 圆点大小 32..80
 #define kFMCfgMenuBtnSize @"floating_menu_menu_size"  // 菜单按钮大小 32..72
 #define kFMCfgMenuBgAlpha @"floating_menu_menu_bg_alpha" // 菜单黑底透明度 0..1
@@ -344,7 +345,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     UIView                   *_pauseOverlay;     // 暂停时覆盖圆点的灰罩
     UILabel                  *_pauseLabel;       // 暂停时叠加在圆点上的文字
     UIView                   *_menuPanel;        // 白色半透明面板（菜单容器）
-    NSMutableArray<UIButton *> *_menuButtons; // 菜单按钮（固定建 4 个槽位，用几个由 _menuTable 决定）
+    NSMutableArray<UIButton *> *_menuButtons; // 菜单按钮（固定 3 个槽位，用几个由 _menuTable 决定）
     NSMutableArray<UILabel *>  *_menuLabels;  // 对应下方文字标签
     NSArray<NSDictionary *>  *_menuTable;     // 当前状态下要显示哪些按钮：@{role, symbol, title}
     NSTimer                  *_watchTimer;
@@ -377,7 +378,6 @@ static void fmPersistKeys(NSDictionary *pairs)
     int      _lastOrientation;
 
     CGPoint  _dragStartVisual;
-    NSString *_scriptPath;
 }
 
 - (void)applyGeometry;
@@ -654,7 +654,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     [_dotButton addGestureRecognizer:tap];
 
     // 菜单：独立圆形按钮 + 下方文字标签（仿按键精灵，无容器面板）
-    // 固定建 4 个槽位，每个状态实际显示几个 / 各是什么，由 _menuTable（applyScriptPlayState）决定
+    // 三种状态最多都是 3 个按钮，所以固定建 3 个槽位；具体是哪三个由 _menuTable 决定
     _menuButtons = [NSMutableArray array];
     _menuLabels  = [NSMutableArray array];
     _menuPanel = nil;  // 不再需要白色容器面板
@@ -662,8 +662,8 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat btnSize  = _menuBtnSize;
     CGFloat labelH   = [self menuLabelHeight];
 
-    NSArray *symbolNames = @[@"play.fill", @"checklist", @"gearshape.fill", @"arrow.uturn.backward.circle.fill"];
-    NSArray *titles      = @[@"启动", @"功能", @"设置", @"返回"];
+    NSArray *symbolNames = @[@"play.fill", @"checklist", @"arrow.uturn.backward.circle.fill"];
+    NSArray *titles      = @[@"启动", @"功能", @"返回"];
 
     for (NSUInteger i = 0; i < symbolNames.count; i++) {
         UIButton *iconBtn = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -804,7 +804,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 }
 
 // 当前状态该出哪些按钮：role 决定点击干什么（不看下标，按钮增减不会错位）
-//   未运行 → 启动 / 功能 / 设置 / 返回
+//   未运行 → 启动 / 功能 / 返回（脚本在「功能」页里选）
 //   运行中 → 暂停 / 停止 / 返回     （用户要求：跑起来以后不再显示「功能」）
 //   已暂停 → 启动 / 停止 / 返回
 - (NSArray<NSDictionary *> *)menuTableForState:(FMScriptPlayState)state
@@ -813,12 +813,11 @@ static void fmPersistKeys(NSDictionary *pairs)
     NSDictionary *pause  = @{ @"role": @"start",    @"symbol": @"pause.fill", @"title": @"暂停" };
     NSDictionary *stop   = @{ @"role": @"stop",     @"symbol": @"stop.fill",  @"title": @"停止" };
     NSDictionary *func   = @{ @"role": @"function", @"symbol": @"checklist",  @"title": @"功能" };
-    NSDictionary *setup  = @{ @"role": @"settings", @"symbol": @"gearshape.fill", @"title": @"设置" };
     NSDictionary *back   = @{ @"role": @"back",     @"symbol": @"arrow.uturn.backward.circle.fill", @"title": @"返回" };
 
     if (state == FMScriptPlayStateRunning) return @[ pause, stop, back ];
     if (state == FMScriptPlayStatePaused)  return @[ play,  stop, back ];
-    return @[ play, func, setup, back ];
+    return @[ play, func, back ];
 }
 
 - (void)applyScriptPlayState:(FMScriptPlayState)state
@@ -1191,8 +1190,6 @@ static void fmPersistKeys(NSDictionary *pairs)
         [self actionFunction];
     } else if ([role isEqualToString:@"stop"]) {
         [self actionStop];
-    } else if ([role isEqualToString:@"settings"]) {
-        [self actionSettings];
     } else if ([role isEqualToString:@"back"]) {
         [self actionBack];
     }
@@ -1224,9 +1221,12 @@ static void fmPersistKeys(NSDictionary *pairs)
         return;
     }
 
-    NSString *path = [_scriptPath copy];
-    if (path.length == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:path]) {
-        fmToast(@"请先点击设置选择脚本", 2);
+    // 跑哪个脚本以「功能」页选的为准（设置入口已去掉）；没选过就用老记录 / 扫到的第一个
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *path = ZXLastFunctionScriptPath();
+    if (path.length == 0 || ![fm fileExistsAtPath:path]) path = ZXFirstScriptPathWithFunctions();
+    if (path.length == 0 || ![fm fileExistsAtPath:path]) {
+        fmToast(@"请先到「功能」里选一个脚本", 2);
         return;
     }
 
@@ -1256,81 +1256,6 @@ static void fmPersistKeys(NSDictionary *pairs)
     NSError *err = nil;
     stopScriptPlaying(&err);
     fmToast(@"已停止", 3);
-}
-
-- (void)actionSettings
-{
-    [self collapseMenu];
-
-    @try {
-        NSString *base = [getScriptsFolder() copy];
-        NSMutableArray<NSString *> *relativePaths = [NSMutableArray array];
-        NSFileManager *fm = [NSFileManager defaultManager];
-
-        if (base.length > 0) {
-            NSDirectoryEnumerator<NSString *> *enumerator = [fm enumeratorAtPath:base];
-            for (NSString *relative in enumerator) {
-                @autoreleasepool {
-                    if (![[relative pathExtension] isEqualToString:@"bdl"]) {
-                        continue;
-                    }
-                    NSString *full = [base stringByAppendingPathComponent:relative];
-                    BOOL isDir = NO;
-                    if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) {
-                        [relativePaths addObject:relative];
-                    }
-                }
-            }
-        }
-        [relativePaths sortUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
-        [self presentScriptPicker:relativePaths scriptsBase:base];
-    } @catch (NSException *exception) {
-        ZXLogUIException(exception);
-        fmToast(@"扫描脚本目录失败", 1);
-    }
-}
-
-- (void)presentScriptPicker:(NSArray<NSString *> *)relativePaths scriptsBase:(NSString *)base
-{
-    if (!_window) {
-        return;
-    }
-    UIViewController *presenter = _window.rootViewController;
-    if (presenter.presentedViewController) {
-        return;
-    }
-
-    NSString *message = relativePaths.count > 0 ? nil : @"未找到任何 .bdl 脚本";
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"选择脚本"
-                                                                   message:message
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-
-    for (NSString *relative in relativePaths) {
-        NSString *display = [relative stringByDeletingPathExtension]; // 相对路径，支持中文
-        NSString *full = [base stringByAppendingPathComponent:relative];
-        [alert addAction:[UIAlertAction actionWithTitle:display
-                                                  style:UIAlertActionStyleDefault
-                                                handler:^(UIAlertAction *action) {
-            self->_scriptPath = [full copy];
-            fmPersistKeys(@{ kFMCfgScript: full });
-            fmToast([NSString stringWithFormat:@"已选择 %@", display], 4);
-        }]];
-    }
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-
-    // iPad 上 actionSheet 必须挂 popover，否则会抛异常
-    @try {
-        UIPopoverPresentationController *popover = alert.popoverPresentationController;
-        if (popover) {
-            popover.sourceView = _dotButton;
-            popover.sourceRect = _dotButton.bounds;
-            popover.permittedArrowDirections = 0;
-        }
-    } @catch (NSException *exception) {
-        ZXLogUIException(exception);
-    }
-
-    [presenter presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)actionBack
@@ -1572,7 +1497,6 @@ static void fmPersistKeys(NSDictionary *pairs)
             CGFloat pauseFont = kFMPauseFontDefault;
             NSString *pauseColorHex = kFMPauseColorDefault;
             CGFloat pauseGrayAlpha = kFMPauseGrayDefault;
-            NSString *script = @"";
 
             NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
             if ([config isKindOfClass:[NSDictionary class]]) {
@@ -1654,10 +1578,6 @@ static void fmPersistKeys(NSDictionary *pairs)
                         edge = ([xValue doubleValue] < pw / 2.0f) ? 0 : 1;
                     }
                 }
-                NSString *savedScript = config[kFMCfgScript];
-                if ([savedScript isKindOfClass:[NSString class]]) {
-                    script = savedScript;
-                }
             }
 
             self->_edge = (edge == 0) ? 0 : 1;
@@ -1678,7 +1598,6 @@ static void fmPersistKeys(NSDictionary *pairs)
             self->_pauseFont = MIN(MAX(pauseFont, kFMPauseFontMin), kFMPauseFontMax);
             self->_pauseTextColorHex = pauseColorHex;
             self->_pauseGrayAlpha = MIN(MAX(pauseGrayAlpha, kFMPauseGrayMin), kFMPauseGrayMax);
-            self->_scriptPath = script;
 
             // 彻底照搬 NetSpeedIndicator.reloadAppearance 模式：
             // 先 destroy 再 create——确保 SpringBoard 重启后 window 一定能显示

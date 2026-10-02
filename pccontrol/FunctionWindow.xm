@@ -338,7 +338,7 @@ static UIImage *fnSymbol(NSString *name) {
         tf.layer.cornerRadius = 8;
         tf.layer.borderColor = [UIColor separatorColor].CGColor;
         tf.layer.borderWidth = 1;
-        tf.textAlignment = NSTextAlignmentRight;
+        tf.textAlignment = NSTextAlignmentLeft;   // 值紧跟标签，别贴到格子最右
         tf.keyboardType = (type == ZXOptionTypeNumber) ? UIKeyboardTypeDecimalPad : UIKeyboardTypeDefault;
         tf.inputAccessoryView = [self optionKeyboardAccessory];
         tf.text = initial;
@@ -362,17 +362,18 @@ static UIImage *fnSymbol(NSString *name) {
         btn.layer.cornerRadius = 8;
         btn.layer.borderColor = [UIColor separatorColor].CGColor;
         btn.layer.borderWidth = 1;
-        btn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
+        btn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
         btn.autoresizingMask = UIViewAutoresizingFlexibleWidth;
         [btn setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
-        [btn setTitle:[NSString stringWithFormat:@"%@  ▾", initial] forState:UIControlStateNormal];
+        // 左对齐时标题是贴着框边的，前面留一个空格当内边距（跟输入框的 8pt 左内边距对齐）
+        [btn setTitle:[NSString stringWithFormat:@" %@  ▾", initial] forState:UIControlStateNormal];
 
         // 用 UIMenu 做下拉：窗口是独立 UIWindow，弹 UIAlertController 会被限制在窗口尺寸里
         NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
         for (NSString *choice in choices) {
             [items addObject:[UIAction actionWithTitle:choice image:nil identifier:nil handler:^(__kindof UIAction *a) {
                 self->_functionOptionValues[name] = choice;
-                [btn setTitle:[NSString stringWithFormat:@"%@  ▾", choice] forState:UIControlStateNormal];
+                [btn setTitle:[NSString stringWithFormat:@" %@  ▾", choice] forState:UIControlStateNormal];
                 [self optionEditingEnded];
             }]];
         }
@@ -416,8 +417,11 @@ static UIImage *fnSymbol(NSString *name) {
     return row;
 }
 
-// 一行功能：名称 + 参数输入框 + 开关，全部排在同一行
-// （卡片已加宽到 FN_CARD_W，一行放得下 4 个框；每个框左边一个小字写参数名）
+// 一行功能：名称（左，固定宽）+ 参数（在名称与开关之间居中）+ 开关（右，固定位）
+// 参数有两种，声明里就能看出来：
+//   数字     「x=333」        → 小字标签 + 输入框
+//   下拉     「蛋=全部提醒|仅提醒白蛋|仅提醒黑蛋」 → 一个下拉按钮（值里带 | 就是下拉）
+// 参数区整体居中，所以每行的开关都落在同一条竖线上，参数也不会挤在名字旁边。
 - (UIView *)buildFunctionRow:(NSDictionary *)decl
                         isOn:(BOOL)isOn
                        saved:(NSDictionary<NSString *, NSString *> *)saved
@@ -430,10 +434,14 @@ static UIImage *fnSymbol(NSString *name) {
     CGFloat rowW = pw - 8;
     CGFloat rowH = 46.0f;
     CGFloat pad = 10.0f;
-    CGFloat nameW = FN_NAME_W;   // 够放 7 个中文字
+    CGFloat nameW = FN_NAME_W;    // 够放 7 个中文字
     CGFloat switchW = 51.0f;
-    CGFloat capW = 26.0f;      // 参数名小字（x / 延迟 / 次数…）的宽度
+    CGFloat capW = 26.0f;         // 参数名小字（x / 延迟 / 次数…）的宽度
     CGFloat capGap = 4.0f;
+    CGFloat gap = 6.0f;
+    CGFloat midX = pad + nameW + 10;                  // 参数区可用的左边界
+    CGFloat midW = rowW - midX - switchW - pad - 10;  // 参数区可用宽度
+    if (midW < 60.0f) midW = 60.0f;
 
     UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, 0, rowW, rowH)];
     row.backgroundColor = [UIColor secondarySystemBackgroundColor];
@@ -461,48 +469,111 @@ static UIImage *fnSymbol(NSString *name) {
             _functionParamValues[funcName] = store;
         }
 
-        // 名称右边到开关左边留给参数，平均分；框太宽就封顶，免得看着空
-        CGFloat gap = 6.0f;
-        CGFloat fieldsW = rowW - pad - nameW - 8 - 8 - switchW - pad;
-        CGFloat unitW = (fieldsW - gap * (keys.count - 1)) / (CGFloat)keys.count;
-        CGFloat fieldW = MIN(unitW - capW - capGap, 60.0f);   // 参数框收窄，够放 4 位数就行
-        if (fieldW < 28.0f) fieldW = 28.0f;
-        CGFloat fx = pad + nameW + 8;
+        // 第一遍：定每个参数控件的宽度。数字框平分剩下的地方（封顶 56，够放 4 位数），下拉按最长选项定宽
+        NSMutableArray<NSString *> *choicesOf = [NSMutableArray array];
+        NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
+        CGFloat fixedW = 0;
+        NSUInteger numCount = 0;
         for (NSString *key in keys) {
+            NSString *declared = decl[@"params"][key] ?: @"";
+            NSArray<NSString *> *choices = [declared componentsSeparatedByString:@"|"];
+            if ([declared rangeOfString:@"|"].location != NSNotFound) {
+                CGFloat w = 96.0f;
+                for (NSString *c in choices) {
+                    CGFloat cw = [c sizeWithAttributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13] }].width + 34.0f;
+                    if (cw > w) w = cw;
+                }
+                [choicesOf addObject:choices];
+                [widths addObject:@(w)];
+                fixedW += w;
+            } else {
+                [choicesOf addObject:@[]];
+                [widths addObject:@(0)];   // 第二遍再补
+                fixedW += capW + capGap;
+                numCount += 1;
+            }
+        }
+        CGFloat fieldW = 56.0f;
+        if (numCount > 0) {
+            fieldW = (midW - fixedW - gap * (keys.count - 1)) / (CGFloat)numCount;
+            fieldW = MIN(56.0f, fieldW);
+            if (fieldW < 30.0f) fieldW = 30.0f;
+        }
+
+        CGFloat totalW = fixedW + fieldW * numCount + gap * (keys.count - 1);
+        CGFloat fx = midX + (midW - totalW) / 2.0f;   // 整块参数居中
+        if (fx < midX) fx = midX;
+
+        // 第二遍：摆控件
+        for (NSUInteger i = 0; i < keys.count; i++) {
+            NSString *key = keys[i];
+            NSArray<NSString *> *choices = choicesOf[i];
             NSString *value = saved[key];
-            if (value.length == 0) value = decl[@"params"][key];
-            if (value.length == 0) value = @"";
-            store[key] = value;
+            CGFloat ctrlW = choices.count > 0 ? [widths[i] doubleValue] : fieldW;
 
-            UILabel *cap = [[UILabel alloc] initWithFrame:CGRectMake(fx, 0, capW, rowH)];
-            cap.text = key;   // x / y / 延迟 / 次数
-            cap.font = [UIFont systemFontOfSize:11];
-            cap.textColor = [UIColor secondaryLabelColor];
-            cap.textAlignment = NSTextAlignmentRight;
-            [row addSubview:cap];
+            if (choices.count > 0) {
+                // 下拉参数：存的值得是候选项之一，不是就用第一个（声明里那串带 | 的只是候选表）
+                if (![choices containsObject:value ?: @""]) value = choices[0];
+                store[key] = value;
 
-            UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(fx + capW + capGap, (rowH - 30) / 2.0f, fieldW, 30)];
-            tf.font = [UIFont systemFontOfSize:13];
-            tf.textColor = [UIColor labelColor];
-            tf.backgroundColor = [UIColor systemBackgroundColor];
-            tf.layer.cornerRadius = 6;
-            tf.layer.borderColor = [UIColor separatorColor].CGColor;
-            tf.layer.borderWidth = 1;
-            tf.textAlignment = NSTextAlignmentCenter;
-            tf.keyboardType = UIKeyboardTypeDecimalPad;
-            tf.adjustsFontSizeToFitWidth = YES;
-            tf.minimumFontSize = 9;
-            tf.inputAccessoryView = [self optionKeyboardAccessory];
-            tf.text = value;
-            [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-                store[key] = tf.text ?: @"";
-            }] forControlEvents:UIControlEventEditingChanged];
-            [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-                [self persistAllValues];
-            }] forControlEvents:UIControlEventEditingDidEnd];
-            [row addSubview:tf];
+                UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+                btn.frame = CGRectMake(fx, (rowH - 30) / 2.0f, ctrlW, 30);
+                btn.titleLabel.font = [UIFont systemFontOfSize:13];
+                btn.titleLabel.adjustsFontSizeToFitWidth = YES;
+                btn.titleLabel.minimumScaleFactor = 0.8;
+                btn.backgroundColor = [UIColor systemBackgroundColor];
+                btn.layer.cornerRadius = 6;
+                btn.layer.borderColor = [UIColor separatorColor].CGColor;
+                btn.layer.borderWidth = 1;
+                [btn setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
+                [btn setTitle:[NSString stringWithFormat:@"%@  ▾", value] forState:UIControlStateNormal];
 
-            fx += capW + capGap + fieldW + gap;
+                NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
+                for (NSString *choice in choices) {
+                    [items addObject:[UIAction actionWithTitle:choice image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                        store[key] = choice;
+                        [btn setTitle:[NSString stringWithFormat:@"%@  ▾", choice] forState:UIControlStateNormal];
+                        [self persistAllValues];
+                    }]];
+                }
+                btn.menu = [UIMenu menuWithTitle:@"" children:items];
+                btn.showsMenuAsPrimaryAction = YES;
+                [row addSubview:btn];
+            } else {
+                if (value.length == 0) value = decl[@"params"][key];
+                if (value.length == 0) value = @"";
+                store[key] = value;
+
+                UILabel *cap = [[UILabel alloc] initWithFrame:CGRectMake(fx, 0, capW, rowH)];
+                cap.text = key;   // x / y / 延迟 / 次数
+                cap.font = [UIFont systemFontOfSize:11];
+                cap.textColor = [UIColor secondaryLabelColor];
+                cap.textAlignment = NSTextAlignmentRight;
+                [row addSubview:cap];
+
+                UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(fx + capW + capGap, (rowH - 30) / 2.0f, ctrlW, 30)];
+                tf.font = [UIFont systemFontOfSize:13];
+                tf.textColor = [UIColor labelColor];
+                tf.backgroundColor = [UIColor systemBackgroundColor];
+                tf.layer.cornerRadius = 6;
+                tf.layer.borderColor = [UIColor separatorColor].CGColor;
+                tf.layer.borderWidth = 1;
+                tf.textAlignment = NSTextAlignmentCenter;
+                tf.keyboardType = UIKeyboardTypeDecimalPad;
+                tf.adjustsFontSizeToFitWidth = YES;
+                tf.minimumFontSize = 9;
+                tf.inputAccessoryView = [self optionKeyboardAccessory];
+                tf.text = value;
+                [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                    store[key] = tf.text ?: @"";
+                }] forControlEvents:UIControlEventEditingChanged];
+                [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                    [self persistAllValues];
+                }] forControlEvents:UIControlEventEditingDidEnd];
+                [row addSubview:tf];
+            }
+
+            fx += ctrlW + gap;
         }
     }
 

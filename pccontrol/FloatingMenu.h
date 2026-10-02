@@ -15,16 +15,15 @@
  * 按键精灵式悬浮控制按钮（注入 SpringBoard，rootless）。
  *
  * 常驻一个 48pt 圆形悬浮按钮，可拖动、可展开菜单按钮。菜单按钮随脚本状态切换：
- *   未运行 → 启动 / 功能 / 设置 / 返回
+ *   未运行 → 启动 / 功能 / 返回
  *   运行中 → 暂停 / 停止 / 返回
  *   已暂停 → 启动 / 停止 / 返回（圆点变灰、叠加「已暂停」文字、光圈停转）
- * （运行中/已暂停不显示「功能」，功能页只在未运行时进）
+ * （运行中/已暂停不显示「功能」，功能页只在未运行时进；跑哪个脚本在「功能」页里选）
  * 所有配置存放在 getCommonConfigFilePath() 返回的 plist 中：
  *
  *   floating_menu_enabled   BOOL      是否开启
  *   floating_menu_edge      NSNumber  吸附边：1=视觉右边(默认) 0=左边
  *   floating_menu_y_ratio   NSNumber  圆点纵向位置比例 0..1
- *   floating_menu_script    NSString  选中的 .bdl 脚本绝对路径
  *   （旧版 floating_menu_x/y 仍可被读取并自动迁移，不再写入）
  */
 @interface FloatingMenu : NSObject
