@@ -140,10 +140,13 @@ static float nccScoreFast(const float *img, size_t imgW,
     int _maxTryTimes;
     float _acceptableValue;
     float _scaleRation;
+    float _lastBestScore;
 }
 @end
 
 @implementation TemplateMatch
+
+@synthesize lastBestScore = _lastBestScore;
 
 - (instancetype)init {
     self = [super init];
@@ -263,6 +266,8 @@ static float nccScoreFast(const float *img, size_t imgW,
         if (tmplCentered) free(tmplCentered);
         if (tmplRefine && tmplRefine != tmplGray) free(tmplRefine);
     }
+
+    _lastBestScore = bestScore;   // 最高分写回，成功失败都留着给调用方
 
     free(integral);
     free(sqIntegral);

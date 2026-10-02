@@ -174,15 +174,16 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
     {
         @autoreleasepool {
             NSError *err = nil;
-            CGRect result = screenMatchFromRawData(eventData, &err);
+            float bestScore = 0.0f;
+            CGRect result = screenMatchFromRawData(eventData, &err, &bestScore);
             if (err)
             {
                 notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);
             }
             else
             {
-                notifyClient((UInt8*)[[NSString stringWithFormat:@"0;;%.2f;;%.2f;;%.2f;;%.2f\r\n",
-                    result.origin.x, result.origin.y, result.size.width, result.size.height] UTF8String], writeStreamRef);
+                notifyClient((UInt8*)[[NSString stringWithFormat:@"0;;%.2f;;%.2f;;%.2f;;%.2f;;%.3f\r\n",
+                    result.origin.x, result.origin.y, result.size.width, result.size.height, bestScore] UTF8String], writeStreamRef);
             }
         }
     }

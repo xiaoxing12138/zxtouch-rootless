@@ -208,6 +208,8 @@ class zxtouch:
         :param scaleRation: for each time you try, what the template size should be
 
         :return: Result tuple: (success?, error_message/return value)
+                 success 时返回的字典除 x/y/width/height 外，还含 "score"（本次扫到的最高匹配分）
+                 失败时 error_message 里也已经带了「最高得分：x.xxx，要求得分：x.xxx」
         """
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_TEMPLATE_MATCH, template_path, max_try_times,
                                                    acceptable_value, scaleRation))
@@ -215,7 +217,8 @@ class zxtouch:
         if not result[0]:
             return False, result[1]
 
-        return True, {"x": result[1][0], "y": result[1][1], "width": result[1][2], "height": result[1][3]}
+        return True, {"x": result[1][0], "y": result[1][1], "width": result[1][2], "height": result[1][3],
+                      "score": float(result[1][4]) if len(result[1]) > 4 else 0.0}
 
     def show_toast(self, toast_type, content, duration, position=0, fontSize=0):
         """Show toast on ios device

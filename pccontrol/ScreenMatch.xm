@@ -2,8 +2,9 @@
 #include "TemplateMatch.h"
 #include "Screen.h"
 
-CGRect screenMatchFromRawData(UInt8 *eventData, NSError **error)
+CGRect screenMatchFromRawData(UInt8 *eventData, NSError **error, float *outBestScore)
 {
+    if (outBestScore) *outBestScore = 0.0f;
     NSArray *data = [[NSString stringWithFormat:@"%s", eventData] componentsSeparatedByString:@";;"];
     NSString *templatePath = data[0];
     int maxTryTimes = 2;
@@ -20,12 +21,12 @@ CGRect screenMatchFromRawData(UInt8 *eventData, NSError **error)
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;数据格式应为 \"template_path[;;max_try_times;;acceptable_value;;scaleRation]\"（模板图片路径[;;最大尝试次数;;可接受匹配值;;缩放比例]）\r\n"}];
         return CGRect();
     }
-    return [ScreenMatch matchCurrentScreenWithTemplate:templatePath maxTryTimes:maxTryTimes acceptableValue:acceptableValue scaleRation:scaleRation error:error];
+    return [ScreenMatch matchCurrentScreenWithTemplate:templatePath maxTryTimes:maxTryTimes acceptableValue:acceptableValue scaleRation:scaleRation error:error bestScore:outBestScore];
 }
 
 @implementation ScreenMatch
 
-+ (CGRect)matchCurrentScreenWithTemplate:(NSString*)templatePath maxTryTimes:(int)mtt acceptableValue:(float)av scaleRation:(float)sr error:(NSError**)err {
++ (CGRect)matchCurrentScreenWithTemplate:(NSString*)templatePath maxTryTimes:(int)mtt acceptableValue:(float)av scaleRation:(float)sr error:(NSError**)err bestScore:(float*)outBestScore {
     if (![[NSFileManager defaultManager] fileExistsAtPath:templatePath])
     {
         *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;图像匹配找不到模板图片，模板路径：%@\r\n", templatePath]}];
@@ -44,6 +45,7 @@ CGRect screenMatchFromRawData(UInt8 *eventData, NSError **error)
     }
 
     CGRect result = [templateMatch templateMatchWithCGImage:screen templatePath:templatePath error:err];
+    if (outBestScore) *outBestScore = templateMatch.lastBestScore;
     CGImageRelease(screen);
     return result;
 }
