@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>小新Lap连点器</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -45,7 +47,7 @@
 		<string>WaitIntent</string>
 	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>ZXTouch imports selected images into script folders for image matching and other script assets.</string>
+	<string>小新Lap 需要读取你选择的图片，用于图片匹配等脚本功能。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
