@@ -10,6 +10,8 @@
 #import "PickOverlay.h"
 #import "AlertBox.h"
 
+#import <math.h>   // llround / fabs
+
 #define FW_TOP_H   49.0f
 #define FW_CARD_W  560.0f
 #define FW_ROW_H   46.0f
@@ -62,6 +64,7 @@ static NSString * const kPagePreview = @"preview";  // 生成出来的 Python �
     BOOL    _open;          // 删除按钮是不是已经露出来
     CGFloat _panStartX;
     BOOL    _dragging;
+    CGPoint _pressStart;    // 长按起点（superview 坐标）：长按手势没有 translationInView:，只能自己减
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -144,6 +147,7 @@ static NSString * const kPagePreview = @"preview";  // 生成出来的 Python �
     if (g.state == UIGestureRecognizerStateBegan) {
         [self setOpen:NO animated:NO];
         _dragging = YES;
+        _pressStart = [g locationInView:self.superview];
         self.layer.shadowColor = [UIColor blackColor].CGColor;
         self.layer.shadowOpacity = 0.3f;
         self.layer.shadowOffset = CGSizeMake(0, 3);
@@ -154,7 +158,7 @@ static NSString * const kPagePreview = @"preview";  // 生成出来的 Python �
         }];
         if (self.onDragBegan) self.onDragBegan();
     } else if (g.state == UIGestureRecognizerStateChanged) {
-        if (_dragging && self.onDragMoved) self.onDragMoved([g translationInView:self.superview].y);
+        if (_dragging && self.onDragMoved) self.onDragMoved([g locationInView:self.superview].y - _pressStart.y);
     } else if (_dragging) {
         _dragging = NO;
         self.layer.shadowOpacity = 0;
