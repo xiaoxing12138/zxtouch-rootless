@@ -241,7 +241,7 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
 
     NSArray *then = [step[@"Then"] isKindOfClass:[NSArray class]] ? step[@"Then"] : @[];
     NSArray *otherwise = [step[@"Else"] isKindOfClass:[NSArray class]] ? step[@"Else"] : @[];
-    return [NSString stringWithFormat:@"成立时 %lu 个动作 · 不成立时 %lu 个动作 · 点右侧 ⓘ 编辑",
+    return [NSString stringWithFormat:@"成立时 %lu 个动作 · 不成立时 %lu 个动作（点这一行编辑）",
             (unsigned long)then.count, (unsigned long)otherwise.count];
 }
 

@@ -1,6 +1,7 @@
 #import "FunctionWindow.h"
 #import "FloatingMenu.h"      // FMPassthroughWindow + preferredWindowScene
 #import "Common.h"            // ZXSafeMainAsync / getScriptsFolder
+#import "Config.h"            // PANEL_STATE_CONFIG_PATH
 #import "ScriptFunctions.h"
 #import "AlertBox.h"
 #import "Play.h"
@@ -8,10 +9,11 @@
 #import "PickOverlay.h"      // 参数行「取点」：悬浮十字取坐标
 #import <UIKit/UIKit.h>
 
-#define FN_BTN_H     40.0f
 #define FN_TOP_H     49.0f
 #define FN_CARD_W    540.0f   // 卡片宽度：要装下「名称 + 4 个参数框 + 开关」一整行（屏幕不够宽时按屏宽自动缩）
 #define FN_NAME_W    104.0f   // 功能名宽度：能站下 7 个中文字（14pt 字号）
+#define FN_ROW_H     40.0f    // 脚本列表里一行的高度
+#define FN_ROW_GAP   6.0f
 
 // window 内空白区域透传：只有真正落在卡片子视图上的触摸才拦截，
 // 卡片外的点击落到下层 App。
@@ -55,6 +57,38 @@ static UIImage *fnSymbol(NSString *name) {
     return nil;
 }
 
+// 脚本列表里的一行用容器 + block 点击：UIButton 摆不下「左边的名字 + 右边靠边的时间」两段文字
+@interface FNTapView : UIView
+@property (nonatomic, copy) void (^onTap)(void);
+@end
+
+@implementation FNTapView
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *touch = touches.anyObject;
+    if (!touch || !self.onTap) return;
+    if (CGRectContainsPoint(self.bounds, [touch locationInView:self])) self.onTap();
+}
+@end
+
+// 文件最后修改时间：今年的只显示「月-日 时:分」，往年带上年份
+static NSString *fnDateText(NSDate *date) {
+    if (!date) return @"";
+    static NSDateFormatter *thisYear = nil;
+    static NSDateFormatter *otherYear = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        thisYear = [[NSDateFormatter alloc] init];
+        thisYear.dateFormat = @"MM-dd HH:mm";
+        otherYear = [[NSDateFormatter alloc] init];
+        otherYear.dateFormat = @"yyyy-MM-dd HH:mm";
+    });
+    NSDateFormatter *fmt = thisYear;
+    NSInteger year = [[NSCalendar currentCalendar] component:NSCalendarUnitYear fromDate:date];
+    NSInteger nowYear = [[NSCalendar currentCalendar] component:NSCalendarUnitYear fromDate:[NSDate date]];
+    if (year != nowYear) fmt = otherYear;
+    return [fmt stringFromDate:date];
+}
+
 // 界面外观：0跟随系统 1浅色 2深色。旧配置只有 dark_mode 布尔值，按 深色/浅色 迁移。
 NSInteger ZXAppearanceModeFromConfig(NSDictionary *config) {
     if (config[@"appearance_mode"]) {
@@ -69,6 +103,10 @@ NSInteger ZXAppearanceModeFromConfig(NSDictionary *config) {
 void applyPanelAppearanceMode(NSInteger mode) {
     [[FunctionWindow shared] setAppearanceMode:mode];
 }
+
+// 拖动卡片：只认从顶栏开始的手势，中间那块滚动内容不抢
+@interface FunctionWindow () <UIGestureRecognizerDelegate>
+@end
 
 @implementation FunctionWindow
 {
@@ -88,7 +126,10 @@ void applyPanelAppearanceMode(NSInteger mode) {
     // 功能名 → 参数名 → 当前值（x/y/延迟/次数 这些，声明了才在面板上出现）
     NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *_functionParamValues;
     BOOL                        _pickingScript;   // 正在挑「功能」页要用的脚本
+    NSMutableSet<NSString *>   *_expandedFolders; // 脚本列表里展开着的文件夹（绝对路径），存 plist
     BOOL                        _shown;
+    BOOL                        _panelMoved;      // 用户手动拖过卡片，之后不再自动居中
+    CGPoint                     _panelOrigin;
     NSInteger                   _appearanceMode;  // 0 跟随系统 1 浅色 2 深色
     CGFloat                     _contentHeight;   // 卡片中间滚动区的内容高度（用于自适应卡片高度）
 }
@@ -109,8 +150,12 @@ void applyPanelAppearanceMode(NSInteger mode) {
         _functionParamValues = [NSMutableDictionary dictionary];
         _pickingScript = NO;
         _shown = NO;
+        _panelMoved = NO;
+        _panelOrigin = CGPointZero;
         _appearanceMode = ZXAppearanceModeFromConfig([[NSDictionary alloc] initWithContentsOfFile:getCommonConfigFilePath()]);
         _contentHeight = 0;
+        NSDictionary *state = [[NSDictionary alloc] initWithContentsOfFile:PANEL_STATE_CONFIG_PATH];
+        _expandedFolders = [NSMutableSet setWithArray:(state[@"expanded"] ?: @[])];
     }
     return self;
 }
@@ -147,6 +192,11 @@ void applyPanelAppearanceMode(NSInteger mode) {
     _cardView.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
                                | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
     [root addSubview:_cardView];
+
+    // 手动拖动卡片换位置：手指按在顶栏拖（顶栏上的按钮轻点照常触发，只有真的拖动才会走这里）
+    UIPanGestureRecognizer *cardPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleCardPan:)];
+    cardPan.delegate = self;
+    [_cardView addGestureRecognizer:cardPan];
 
     // 顶行：当前脚本（点一下去挑脚本）+ 右上角 ✕
     _functionScriptBtn = fnMakeButton(@"脚本：", [UIColor systemBlueColor]);
@@ -255,25 +305,71 @@ void applyPanelAppearanceMode(NSInteger mode) {
     if (cardH > screenH - 40.0f) cardH = screenH - 40.0f;
     if (cardH < 100.0f) cardH = 100.0f;
 
-    _cardView.frame = CGRectMake((screenW - cardW) / 2.0f, (screenH - cardH) / 2.0f, cardW, cardH);
+    // 拖过就用拖到的地方，没拖过就居中；两种情况都要保证整张卡还在屏幕里
+    CGFloat originX = _panelMoved ? _panelOrigin.x : (screenW - cardW) / 2.0f;
+    CGFloat originY = _panelMoved ? _panelOrigin.y : (screenH - cardH) / 2.0f;
+    if (originX + cardW > screenW - 8.0f) originX = MAX(screenW - cardW - 8.0f, 8.0f);
+    if (originX < 8.0f) originX = 8.0f;
+    if (originY + cardH > screenH - 8.0f) originY = MAX(screenH - cardH - 8.0f, 8.0f);
+    if (originY < 8.0f) originY = 8.0f;
+    if (_panelMoved) _panelOrigin = CGPointMake(originX, originY);
 
-    // 顶行从右往左排：✕ / 保存 / 运行 / 录制，剩下的左边给脚本选择（约占卡片 1/3）
+    _cardView.frame = CGRectMake(originX, originY, cardW, cardH);
+
+    // 顶行按钮：挑脚本的时候只留「录制」，挑完了只留「运行 / 保存」
+    _runBtn.hidden = _pickingScript;
+    _saveBtn.hidden = _pickingScript;
+    _recordBtn.hidden = !_pickingScript;
+
+    // 顶行从右往左排：✕ / 保存 / 运行 / 录制（隐藏的不占位），剩下的左边给脚本选择（约占卡片 1/3）
     CGFloat topY = 6.0f, topH = 36.0f, gap = 6.0f;
     CGFloat rightX = cardW - 8.0f;
     _closeBtn.frame = CGRectMake(rightX - 32.0f, topY, 32.0f, topH);
     rightX -= (32.0f + gap);
-    _saveBtn.frame = CGRectMake(rightX - 64.0f, topY, 64.0f, topH);
-    rightX -= (64.0f + gap);
-    _runBtn.frame = CGRectMake(rightX - 64.0f, topY, 64.0f, topH);
-    rightX -= (64.0f + gap);
-    _recordBtn.frame = CGRectMake(rightX - 60.0f, topY, 60.0f, topH);
-    rightX -= (60.0f + gap);
+
+    NSArray<UIButton *> *topButtons = @[ _saveBtn, _runBtn, _recordBtn ];
+    NSArray<NSNumber *> *topWidths = @[ @64.0, @64.0, @60.0 ];
+    for (NSUInteger i = 0; i < topButtons.count; i++) {
+        UIButton *btn = topButtons[i];
+        if (btn.hidden) continue;
+        CGFloat w = topWidths[i].doubleValue;
+        btn.frame = CGRectMake(rightX - w, topY, w, topH);
+        rightX -= (w + gap);
+    }
 
     CGFloat scriptW = cardW / 3.0f;
     if (8.0f + scriptW > rightX - 6.0f) scriptW = MAX(rightX - 6.0f - 8.0f, 80.0f);
     _functionScriptBtn.frame = CGRectMake(8, topY, scriptW, topH);
 
     _functionScrollView.frame = CGRectMake(0, FN_TOP_H, cardW, MAX(cardH - FN_TOP_H, 0));
+}
+
+#pragma mark - 拖动卡片
+
+- (void)handleCardPan:(UIPanGestureRecognizer *)pan {
+    if (!_cardView) return;
+    if (pan.state == UIGestureRecognizerStateBegan) _panelMoved = YES;
+
+    CGPoint t = [pan translationInView:_cardView.superview];
+    [pan setTranslation:CGPointZero inView:_cardView.superview];
+
+    CGRect f = _cardView.frame;
+    f.origin.x += t.x;
+    f.origin.y += t.y;
+    _cardView.frame = f;
+    _panelOrigin = f.origin;   // 松手后 layoutCard 会按这个位置摆（并夹回屏幕里）
+
+    if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled) {
+        [self layoutCard];   // 拖出屏幕外的部分夹回来，免得面板找不回来
+    }
+}
+
+// 只有落在顶栏上的拖动才算拖卡片，中间那块滚动内容留给列表自己滚
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
+    if ([g isKindOfClass:[UIPanGestureRecognizer class]]) {
+        return [g locationInView:_cardView].y <= FN_TOP_H;
+    }
+    return YES;
 }
 
 #pragma mark - 选项控件
@@ -821,7 +917,112 @@ void applyPanelAppearanceMode(NSInteger mode) {
     [self layoutCard];
 }
 
-// 挑脚本模式：列出脚本目录里所有 .bdl 供选择
+// 列一层目录：文件夹在前、脚本在后，各自按名称排（自然序，中文名也排得对）
+static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:dir error:nil] ?: @[];
+    NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
+    for (NSString *name in items) {
+        if ([name hasPrefix:@"."]) continue;
+        NSString *path = [dir stringByAppendingPathComponent:name];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:path isDirectory:&isDir]) continue;
+        if (isDir) {
+            [entries addObject:@{ @"name": name, @"path": path, @"dir": @YES }];
+        } else if ([[name pathExtension] isEqualToString:@"bdl"]) {
+            NSDate *date = [fm attributesOfItemAtPath:path error:nil][NSFileModificationDate];
+            [entries addObject:@{ @"name": name, @"path": path, @"dir": @NO, @"date": date ?: [NSDate distantPast] }];
+        }
+    }
+    [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        BOOL da = [a[@"dir"] boolValue], db = [b[@"dir"] boolValue];
+        if (da != db) return da ? NSOrderedAscending : NSOrderedDescending;   // 文件夹排前面
+        return [a[@"name"] localizedStandardCompare:b[@"name"]];
+    }];
+    return entries;
+}
+
+// 展开状态存 plist：下次打开面板还是上次那样
+- (void)saveExpandedFolders {
+    NSDictionary *state = @{ @"expanded": [_expandedFolders.allObjects sortedArrayUsingSelector:@selector(compare:)] };
+    [state writeToFile:PANEL_STATE_CONFIG_PATH atomically:YES];
+}
+
+// 递归铺目录：文件夹点一下展开 / 收起，脚本行右边显示最后编辑时间
+- (CGFloat)addScriptEntriesAtDir:(NSString *)dir depth:(NSInteger)depth y:(CGFloat)y width:(CGFloat)pw {
+    __weak typeof(self) weakSelf = self;
+    CGFloat indent = 8.0f + depth * 18.0f;
+    CGFloat rowW = pw - 8.0f;
+    CGFloat timeW = 96.0f;
+
+    for (NSDictionary *entry in fnListScriptEntries(dir)) {
+        BOOL isFolder = [entry[@"dir"] boolValue];
+        NSString *path = entry[@"path"];
+        BOOL expanded = isFolder && [_expandedFolders containsObject:path];
+
+        FNTapView *row = [[FNTapView alloc] initWithFrame:CGRectMake(4, y, rowW, FN_ROW_H)];
+        row.backgroundColor = [UIColor secondarySystemBackgroundColor];
+        row.layer.cornerRadius = 8;
+
+        // 文件夹前面有折叠箭头，脚本行把箭头那格空着，名字才能跟文件夹名对齐
+        if (isFolder) {
+            UIImageView *arrow = [[UIImageView alloc] initWithFrame:CGRectMake(indent + 8, (FN_ROW_H - 12) / 2.0f, 12, 12)];
+            arrow.image = fnSymbol(expanded ? @"chevron.down" : @"chevron.right");
+            arrow.tintColor = [UIColor secondaryLabelColor];
+            arrow.contentMode = UIViewContentModeScaleAspectFit;
+            [row addSubview:arrow];
+        }
+
+        UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(indent + 26, (FN_ROW_H - 16) / 2.0f, 16, 16)];
+        icon.image = fnSymbol(isFolder ? (expanded ? @"folder.fill" : @"folder") : @"doc.text.fill");
+        icon.tintColor = isFolder ? [UIColor systemBlueColor] : [UIColor secondaryLabelColor];
+        icon.contentMode = UIViewContentModeScaleAspectFit;
+        [row addSubview:icon];
+
+        CGFloat nameX = indent + 48.0f;
+        CGFloat nameW = rowW - nameX - 10.0f;
+        if (!isFolder) nameW -= (timeW + 8.0f);
+        UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(nameX, 0, MAX(nameW, 40.0f), FN_ROW_H)];
+        name.text = isFolder ? entry[@"name"] : [entry[@"name"] stringByDeletingPathExtension];
+        name.font = [UIFont systemFontOfSize:13];
+        name.textColor = [UIColor labelColor];
+        name.adjustsFontSizeToFitWidth = YES;
+        name.minimumScaleFactor = 0.8;
+        [row addSubview:name];
+
+        if (isFolder) {
+            row.onTap = ^{
+                FunctionWindow *window = weakSelf;
+                if (!window) return;
+                if (expanded) [window->_expandedFolders removeObject:path];
+                else [window->_expandedFolders addObject:path];
+                [window saveExpandedFolders];
+                [window reloadScriptPicker];
+            };
+        } else {
+            UILabel *time = [[UILabel alloc] initWithFrame:CGRectMake(rowW - 10.0f - timeW, 0, timeW, FN_ROW_H)];
+            time.text = fnDateText(entry[@"date"]);
+            time.font = [UIFont systemFontOfSize:11];
+            time.textColor = [UIColor secondaryLabelColor];
+            time.textAlignment = NSTextAlignmentRight;
+            [row addSubview:time];
+
+            row.onTap = ^{
+                FunctionWindow *window = weakSelf;
+                if (!window) return;
+                [window selectFunctionScript:path];
+            };
+        }
+
+        [_functionScrollView addSubview:row];
+        y += FN_ROW_H + FN_ROW_GAP;
+
+        if (expanded) y = [self addScriptEntriesAtDir:path depth:depth + 1 y:y width:pw];
+    }
+    return y;
+}
+
+// 挑脚本模式：按文件夹层级列出脚本目录里所有 .bdl 供选择
 - (void)reloadScriptPicker {
     if (!_window) return;
     CGFloat pw = [self cardWidth];
@@ -829,34 +1030,9 @@ void applyPanelAppearanceMode(NSInteger mode) {
     [_cardView endEditing:YES];
     for (UIView *v in _functionScrollView.subviews) [v removeFromSuperview];
 
-    NSString *base = getScriptsFolder();
-    NSMutableArray<NSString *> *paths = [NSMutableArray array];
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSDirectoryEnumerator *en = [fm enumeratorAtPath:base];
-    for (NSString *rel in en) {
-        if ([[rel pathExtension] isEqualToString:@"bdl"]) {
-            [paths addObject:[base stringByAppendingPathComponent:rel]];
-        }
-    }
-    [paths sortUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+    CGFloat y = [self addScriptEntriesAtDir:getScriptsFolder() depth:0 y:6 width:pw];
 
-    CGFloat y = 6;
-    for (NSString *path in paths) {
-        UIButton *btn = fnMakeButton(@"", [UIColor labelColor]);
-        [btn setTitle:[[path lastPathComponent] stringByDeletingPathExtension] forState:UIControlStateNormal];
-        btn.titleLabel.font = [UIFont systemFontOfSize:13];
-        btn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-        btn.frame = CGRectMake(8, y, pw - 16, FN_BTN_H);
-        [btn setImage:fnSymbol(@"play.fill") forState:UIControlStateNormal];
-        btn.tintColor = [UIColor labelColor];
-        [btn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-            [self selectFunctionScript:path];
-        }] forControlEvents:UIControlEventTouchUpInside];
-        [_functionScrollView addSubview:btn];
-        y += FN_BTN_H + 6;
-    }
-
-    if (paths.count == 0) {
+    if (y <= 6.5f) {
         UILabel *empty = [[UILabel alloc] initWithFrame:CGRectMake(12, 16, pw - 24, 40)];
         empty.numberOfLines = 0;
         empty.font = [UIFont systemFontOfSize:12];
@@ -922,6 +1098,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
 #pragma mark - 录制
 
 // 顶行的录制开关，和音量键的「开始/停止录制」调用同一对引擎函数，录完同样存进 scripts/录制脚本/
+// 点完就关面板：录制要录的是游戏里的点按，面板挂在上面既挡画面、点它也会被录进去
 - (void)toggleRecording {
     if (isRecordingStart()) {
         stopRecording();
@@ -933,6 +1110,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
         else showAlertBox(@"小新Lap", @"录制已开始。", 1);
     }
     [self refreshRecordingButton];
+    [self hide];
 }
 
 // 录制可能是在网页端 / 音量键起的，所以每次开面板都按真实状态重算按钮，不能只记本地开关

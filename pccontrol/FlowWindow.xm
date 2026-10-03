@@ -14,6 +14,7 @@
 #define FW_CARD_W  560.0f
 #define FW_ROW_H   46.0f
 #define FW_GAP     6.0f
+#define FW_DELETE_W 80.0f   // 左滑露出来的「删除」宽度
 
 // 页面种类
 static NSString * const kPageList    = @"list";     // 步骤列表（整条流程 / 成立时 / 不成立时）
@@ -39,6 +40,140 @@ static NSString * const kPagePreview = @"preview";  // 生成出来的 Python �
     FWRootView *root = [[FWRootView alloc] initWithFrame:[UIScreen mainScreen].bounds];
     root.backgroundColor = [UIColor clearColor];
     self.view = root;
+}
+@end
+
+// 列表里的一行：左滑露出「删除」，长按拿起后上下拖动换顺序
+@interface FWStepRowView : UIView <UIGestureRecognizerDelegate>
+@property (nonatomic, strong) UIView   *content;     // 会被左右平移的那层（序号 + 图标 + 文字）
+@property (nonatomic, strong) UILabel  *numberLabel;
+@property (nonatomic, strong) UIButton *deleteBtn;
+@property (nonatomic, weak)   NSDictionary *step;    // 排序时靠它把视图和数据对上
+@property (nonatomic) BOOL swipeEnabled;             // 能左滑删除
+@property (nonatomic) BOOL dragEnabled;              // 能长按排序
+@property (nonatomic, copy) void (^onTap)(void);
+@property (nonatomic, copy) void (^onDelete)(void);
+@property (nonatomic, copy) void (^onDragBegan)(void);
+@property (nonatomic, copy) void (^onDragMoved)(CGFloat dy);
+@property (nonatomic, copy) void (^onDragEnded)(void);
+@end
+
+@implementation FWStepRowView {
+    BOOL    _open;          // 删除按钮是不是已经露出来
+    CGFloat _panStartX;
+    BOOL    _dragging;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        // 行自己就是圆角容器：左滑时拽出去的那层被裁掉，删除块正好填满右边
+        self.layer.cornerRadius = 8;
+        self.clipsToBounds = YES;
+
+        _deleteBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        _deleteBtn.backgroundColor = [UIColor systemRedColor];
+        _deleteBtn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+        [_deleteBtn setTitle:@"删除" forState:UIControlStateNormal];
+        [_deleteBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        _deleteBtn.hidden = YES;
+        __weak typeof(self) weakSelf = self;
+        [_deleteBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            FWStepRowView *row = weakSelf;
+            if (row && row.onDelete) row.onDelete();
+        }] forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:_deleteBtn];
+
+        _content = [[UIView alloc] initWithFrame:self.bounds];
+        _content.backgroundColor = [UIColor secondarySystemBackgroundColor];
+        _content.layer.cornerRadius = 8;
+        [self addSubview:_content];
+
+        [_content addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)]];
+
+        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+        pan.delegate = self;
+        [self addGestureRecognizer:pan];
+
+        UILongPressGestureRecognizer *press = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handlePress:)];
+        press.minimumPressDuration = 0.35;
+        press.delegate = self;
+        [self addGestureRecognizer:press];
+    }
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    _deleteBtn.frame = CGRectMake(self.bounds.size.width - FW_DELETE_W, 0, FW_DELETE_W, self.bounds.size.height);
+    // 平移中（transform 非单位矩阵）不能碰 frame，UIKit 会算错
+    if (CGAffineTransformIsIdentity(_content.transform)) _content.frame = self.bounds;
+}
+
+// 露着「删除」时点一下 = 收回来，不触发进参数页
+- (void)handleTap {
+    if (_open) { [self setOpen:NO animated:YES]; return; }
+    if (self.onTap) self.onTap();
+}
+
+- (void)handlePan:(UIPanGestureRecognizer *)g {
+    if (!self.swipeEnabled) return;
+    if (g.state == UIGestureRecognizerStateBegan) _panStartX = _content.transform.tx;
+    CGFloat x = _panStartX + [g translationInView:self].x;
+    if (x > 0) x = 0;
+    if (x < -FW_DELETE_W) x = -FW_DELETE_W;
+    _deleteBtn.hidden = (x > -1.0f);
+    _content.transform = CGAffineTransformMakeTranslation(x, 0);
+    if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
+        [self setOpen:(x < -FW_DELETE_W / 2.0f) animated:YES];
+    }
+}
+
+- (void)setOpen:(BOOL)open animated:(BOOL)animated {
+    _open = open;
+    _deleteBtn.hidden = !open;
+    void (^apply)(void) = ^{
+        self->_content.transform = CGAffineTransformMakeTranslation(open ? -FW_DELETE_W : 0, 0);
+    };
+    if (animated) [UIView animateWithDuration:0.18 animations:apply];
+    else apply();
+}
+
+- (void)handlePress:(UILongPressGestureRecognizer *)g {
+    if (!self.dragEnabled) return;
+    if (g.state == UIGestureRecognizerStateBegan) {
+        [self setOpen:NO animated:NO];
+        _dragging = YES;
+        self.layer.shadowColor = [UIColor blackColor].CGColor;
+        self.layer.shadowOpacity = 0.3f;
+        self.layer.shadowOffset = CGSizeMake(0, 3);
+        self.layer.shadowRadius = 8;
+        [UIView animateWithDuration:0.12 animations:^{
+            self.transform = CGAffineTransformMakeScale(1.03f, 1.03f);
+            self.alpha = 0.95f;
+        }];
+        if (self.onDragBegan) self.onDragBegan();
+    } else if (g.state == UIGestureRecognizerStateChanged) {
+        if (_dragging && self.onDragMoved) self.onDragMoved([g translationInView:self.superview].y);
+    } else if (_dragging) {
+        _dragging = NO;
+        self.layer.shadowOpacity = 0;
+        [UIView animateWithDuration:0.12 animations:^{
+            self.transform = CGAffineTransformIdentity;
+            self.alpha = 1.0f;
+        }];
+        if (self.onDragEnded) self.onDragEnded();
+    }
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
+    if ([g isKindOfClass:[UIPanGestureRecognizer class]]) {
+        if (!self.swipeEnabled) return NO;
+        CGPoint v = [(UIPanGestureRecognizer *)g velocityInView:self];
+        return fabs(v.x) > fabs(v.y);   // 竖直方向留给列表自己滚
+    }
+    if ([g isKindOfClass:[UILongPressGestureRecognizer class]]) return self.dragEnabled;
+    return YES;
 }
 @end
 
@@ -75,6 +210,12 @@ static FlowWindow *_fwShared = nil;
     NSMutableArray<NSMutableDictionary *> *_stack;
     BOOL                         _handwritten;   // main.py 是手写的，保存会用流程覆盖它
     CGFloat                      _contentHeight;
+
+    NSMutableArray<FWStepRowView *> *_rows;      // 当前这一页的步骤行（长按排序要用）
+    CGFloat                      _rowsTop;       // 第一行的 y（排序时算目标位置）
+    FWStepRowView               *_dragRow;
+    NSInteger                    _dragIndex;
+    CGFloat                      _dragStartY;
 }
 
 + (instancetype)shared {
@@ -326,12 +467,80 @@ static FlowWindow *_fwShared = nil;
     [self pushPage:@{ @"kind": kPageParams, @"title": [FlowScript typeForKind:kind].title ?: @"步骤", @"step": step }];
 }
 
-- (void)moveStepAtIndex:(NSInteger)index by:(NSInteger)delta {
+#pragma mark - 长按拖动排序
+
+- (FWStepRowView *)rowForStep:(NSDictionary *)step {
+    for (FWStepRowView *row in _rows) {
+        if (row.step == step) return row;
+    }
+    return nil;
+}
+
+// 按数据数组的顺序把行摆回各自的位置（被拖的那行不碰，它跟着手指走）
+- (void)layoutRowsExcept:(FWStepRowView *)skip {
     NSMutableArray *steps = [self currentSteps];
-    NSInteger target = index + delta;
-    if (!steps || index < 0 || index >= (NSInteger)steps.count) return;
-    if (target < 0 || target >= (NSInteger)steps.count) return;
-    [steps exchangeObjectAtIndex:index withObjectAtIndex:target];
+    if (!steps) return;
+    CGFloat stepH = FW_ROW_H + FW_GAP;
+    for (NSUInteger i = 0; i < steps.count; i++) {
+        FWStepRowView *row = [self rowForStep:steps[i]];
+        if (!row) continue;
+        row.numberLabel.text = [NSString stringWithFormat:@"%lu.", (unsigned long)i + 1];
+        if (row == skip) continue;
+        row.frame = CGRectMake(row.frame.origin.x, _rowsTop + i * stepH, row.frame.size.width, FW_ROW_H);
+    }
+}
+
+- (void)beginDragRow:(FWStepRowView *)row {
+    NSMutableArray *steps = [self currentSteps];
+    if (!row || !steps) return;
+    NSUInteger index = [steps indexOfObjectIdenticalTo:row.step];
+    if (index == NSNotFound) return;
+    _dragRow = row;
+    _dragIndex = (NSInteger)index;
+    // 从数据算起始位置，别读 row.frame：这时候行上已经挂了缩放，frame 是缩放后的外框
+    _dragStartY = _rowsTop + _dragIndex * (FW_ROW_H + FW_GAP);
+    _scroll.scrollEnabled = NO;   // 排序期间别让列表跟着滚
+    [_scroll bringSubviewToFront:row];
+}
+
+- (void)moveDragRow:(FWStepRowView *)row dy:(CGFloat)dy {
+    if (!row || row != _dragRow) return;
+    NSMutableArray *steps = [self currentSteps];
+    if (!steps || steps.count == 0) return;
+
+    CGFloat stepH = FW_ROW_H + FW_GAP;
+    CGFloat y = _dragStartY + dy;
+    CGFloat maxY = (CGFloat)(steps.count - 1) * stepH;
+    if (y < 0) y = 0;
+    if (y > maxY) y = maxY;
+    // 拖动中 row 上有缩放 transform，不能碰 frame，只能改 center
+    row.center = CGPointMake(row.center.x, y + FW_ROW_H / 2.0f);
+
+    NSInteger target = (NSInteger)llround(y / stepH);
+    if (target < 0) target = 0;
+    if (target > (NSInteger)steps.count - 1) target = (NSInteger)steps.count - 1;
+    if (target == _dragIndex) return;
+
+    NSMutableDictionary *moved = steps[_dragIndex];
+    [steps removeObjectAtIndex:_dragIndex];
+    [steps insertObject:moved atIndex:target];
+    _dragIndex = target;
+    [self layoutRowsExcept:row];
+}
+
+- (void)endDragRow {
+    _dragRow = nil;
+    _scroll.scrollEnabled = YES;
+    [self reload];   // 数据已经是新顺序了，重建一遍最省事（顺带恢复行的缩放和阴影）
+}
+
+// 左滑删除：从当前这一页的数组里摘掉这一步
+- (void)deleteStep:(NSMutableDictionary *)step {
+    NSMutableArray *steps = [self currentSteps];
+    if (!steps) return;
+    NSUInteger index = [steps indexOfObjectIdenticalTo:step];
+    if (index == NSNotFound) return;
+    [steps removeObjectAtIndex:index];
     [self reload];
 }
 
@@ -406,66 +615,60 @@ static FlowWindow *_fwShared = nil;
 
 #pragma mark - 行控件
 
-- (UIView *)makeRowWithTitle:(NSString *)title
-                      detail:(NSString *)detail
-                       index:(NSInteger)index
-                       onTap:(void (^)(void))onTap
-                        onUp:(void (^)(void))onUp
-                      onDown:(void (^)(void))onDown
-                       width:(CGFloat)w
+// 列表里的一行：序号（可选）+ 图标 + 大标题（+ 小字细节）
+// deletable = 能左滑删除，sortable = 能长按拖动排序
+- (FWStepRowView *)makeRowWithTitle:(NSString *)title
+                             detail:(NSString *)detail
+                              index:(NSInteger)index
+                             symbol:(NSString *)symbol
+                          deletable:(BOOL)deletable
+                           sortable:(BOOL)sortable
+                              width:(CGFloat)w
+                              onTap:(void (^)(void))onTap
+                           onDelete:(void (^)(void))onDelete
 {
-    UIButton *row = [UIButton buttonWithType:UIButtonTypeSystem];
-    row.frame = CGRectMake(0, 0, w, FW_ROW_H);
-    row.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    row.layer.cornerRadius = 8;
-    [row addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        if (onTap) onTap();
-    }] forControlEvents:UIControlEventTouchUpInside];
+    FWStepRowView *row = [[FWStepRowView alloc] initWithFrame:CGRectMake(0, 0, w, FW_ROW_H)];
+    row.swipeEnabled = deletable;
+    row.dragEnabled = sortable;
+    row.onTap = onTap;
+    row.onDelete = onDelete;
 
-    CGFloat left = 12;
+    CGFloat left = 12.0f;
     if (index >= 0) {
-        UILabel *num = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, 22, FW_ROW_H)];
-        num.text = [NSString stringWithFormat:@"%ld.", (long)index + 1];
-        num.font = [UIFont systemFontOfSize:12];
-        num.textColor = [UIColor secondaryLabelColor];
-        [row addSubview:num];
-        left = 34;
+        row.numberLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, 22, FW_ROW_H)];
+        row.numberLabel.text = [NSString stringWithFormat:@"%ld.", (long)index + 1];
+        row.numberLabel.font = [UIFont systemFontOfSize:12];
+        row.numberLabel.textColor = [UIColor secondaryLabelColor];
+        [row.content addSubview:row.numberLabel];
+        left = 34.0f;
     }
 
-    CGFloat rightPad = onUp ? 72.0f : 12.0f;
-    UILabel *main = [[UILabel alloc] initWithFrame:CGRectMake(left, 5, w - left - rightPad, 19)];
+    if (symbol.length > 0) {
+        UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(left, (FW_ROW_H - 17) / 2.0f, 17, 17)];
+        icon.image = [UIImage systemImageNamed:symbol];
+        icon.tintColor = [UIColor systemBlueColor];
+        icon.contentMode = UIViewContentModeScaleAspectFit;
+        [row.content addSubview:icon];
+        left += 17.0f + 7.0f;
+    }
+
+    CGFloat textW = w - left - 12.0f;
+    UILabel *main = [[UILabel alloc] initWithFrame:CGRectMake(left, detail.length > 0 ? 5 : 0, textW, detail.length > 0 ? 19 : FW_ROW_H)];
     main.text = title;
     main.font = [UIFont systemFontOfSize:14];
     main.textColor = [UIColor labelColor];
     main.adjustsFontSizeToFitWidth = YES;
     main.minimumScaleFactor = 0.8;
-    [row addSubview:main];
+    [row.content addSubview:main];
 
     if (detail.length > 0) {
-        UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(left, 24, w - left - rightPad, 16)];
+        UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(left, 24, textW, 16)];
         sub.text = detail;
         sub.font = [UIFont systemFontOfSize:11];
         sub.textColor = [UIColor secondaryLabelColor];
         sub.adjustsFontSizeToFitWidth = YES;
         sub.minimumScaleFactor = 0.8;
-        [row addSubview:sub];
-    }
-
-    if (onUp) {
-        NSArray<NSString *> *titles = @[ @"↑", @"↓" ];
-        for (NSInteger i = 0; i < 2; i++) {
-            UIButton *arrow = [UIButton buttonWithType:UIButtonTypeSystem];
-            arrow.frame = CGRectMake(w - 8 - 60 + i * 32, 8, 28, 30);
-            arrow.backgroundColor = [UIColor systemBackgroundColor];
-            arrow.layer.cornerRadius = 6;
-            arrow.titleLabel.font = [UIFont systemFontOfSize:16];
-            [arrow setTitle:titles[i] forState:UIControlStateNormal];
-            [arrow setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
-            [arrow addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-                if (i == 0) { if (onUp) onUp(); } else { if (onDown) onDown(); }
-            }] forControlEvents:UIControlEventTouchUpInside];
-            [row addSubview:arrow];
-        }
+        [row.content addSubview:sub];
     }
     return row;
 }
@@ -569,6 +772,8 @@ static FlowWindow *_fwShared = nil;
 
     [_cardView endEditing:YES];
     for (UIView *v in _scroll.subviews) [v removeFromSuperview];
+    _rows = [NSMutableArray array];   // 每次重建都清空：换页后旧行不该再被排序逻辑引用
+    _dragRow = nil;
     _scroll.hidden = NO;
     _previewView.hidden = YES;
 
@@ -595,23 +800,31 @@ static FlowWindow *_fwShared = nil;
             [self addSectionLabel:(isRoot ? @"还没有步骤。点下面「添加步骤」开始拼。" : @"这一支还没有动作。") width:pw y:y];
             y += 24;
         } else {
+            _rowsTop = y;
             for (NSInteger i = 0; i < (NSInteger)steps.count; i++) {
                 NSDictionary *step = steps[i];
                 if (![step isKindOfClass:[NSDictionary class]]) continue;
-                NSInteger index = i;
-                UIView *row = [self makeRowWithTitle:[FlowScript summaryForStep:step]
-                                              detail:[FlowScript detailForStep:step]
-                                               index:i
-                                               onTap:^{
-                                                   [self pushParamsPageForStep:(NSMutableDictionary *)step];
-                                               }
-                                                onUp:^{
-                                                   [self moveStepAtIndex:index by:-1];
-                                                }
-                                              onDown:^{
-                                                   [self moveStepAtIndex:index by:1];
-                                                }
-                                               width:rowW];
+                FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
+                FWStepRowView *row = [self makeRowWithTitle:[FlowScript summaryForStep:step]
+                                                     detail:[FlowScript detailForStep:step]
+                                                      index:i
+                                                     symbol:type.symbolName
+                                                  deletable:YES
+                                                   sortable:YES
+                                                      width:rowW
+                                                      onTap:^{
+                                                          [self pushParamsPageForStep:(NSMutableDictionary *)step];
+                                                      }
+                                                   onDelete:^{
+                                                       [self deleteStep:(NSMutableDictionary *)step];
+                                                   }];
+                __weak typeof(self) weakSelf = self;
+                __weak FWStepRowView *weakRow = row;   // 行持有 block、block 又持有行 → 这里必须弱引用，否则漏一组视图
+                row.onDragBegan = ^{ [weakSelf beginDragRow:weakRow]; };
+                row.onDragMoved = ^(CGFloat dy) { [weakSelf moveDragRow:weakRow dy:dy]; };
+                row.onDragEnded = ^{ [weakSelf endDragRow]; };
+                row.step = step;
+                [_rows addObject:row];
                 y = [self addRow:row y:y];
             }
         }
@@ -643,9 +856,11 @@ static FlowWindow *_fwShared = nil;
             NSString *kindName = type.kind;
             // 用小字提示这一步大概要填什么，免得只看到「识色 / 找色 / 识图」分不清
             NSString *hint = [FlowScript summaryForStep:[FlowScript newStepOfKind:kindName]];
-            UIView *row = [self makeRowWithTitle:type.title detail:hint index:-1
-                                           onTap:^{ [self addStepOfKind:kindName]; }
-                                            onUp:nil onDown:nil width:rowW];
+            FWStepRowView *row = [self makeRowWithTitle:type.title detail:hint index:-1
+                                                 symbol:type.symbolName
+                                              deletable:NO sortable:NO width:rowW
+                                                  onTap:^{ [self addStepOfKind:kindName]; }
+                                               onDelete:nil];
             y = [self addRow:row y:y];
         }
     } else if ([kind isEqualToString:kPageParams]) {
