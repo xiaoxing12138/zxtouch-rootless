@@ -10,8 +10,6 @@
 #import "Util.h"
 #import "PlaySettingsViewController.h"
 #import "PlaySettingsNavigationController.h"
-#import "FlowEditorViewController.h"
-#import "FlowScript.h"
 #import "ScheduleSettingsViewController.h"
 
 @interface MoreOptionsPopOverTableViewController ()
@@ -136,12 +134,8 @@
 
 #pragma mark - 可视化脚本
 
-- (void)pushAfterDismiss:(UIViewController *)controller
+- (void)dismissThen:(void (^)(void))completion
 {
-    ScriptListViewController *upper = self->upperLevel;
-    void (^completion)(void) = ^{
-        [upper.navigationController pushViewController:controller animated:YES];
-    };
     // 关的一定得是「弹层本身」：自己身上可能还挂着一层 alert，
     // 直接对自己 dismiss 只会把 alert 关掉，弹层会赖在屏幕上。
     UIViewController *host = self.presentingViewController;
@@ -156,8 +150,25 @@
     });
 }
 
+- (void)pushAfterDismiss:(UIViewController *)controller
+{
+    ScriptListViewController *upper = self->upperLevel;
+    [self dismissThen:^{
+        [upper.navigationController pushViewController:controller animated:YES];
+    }];
+}
+
+// 可视化编辑器是插件侧的悬浮卡片（取点要在游戏画面上画覆盖层，App 里截不到游戏），
+// 所以这里只发命令，然后把自己这层弹层关掉，让位给卡片。
 - (void)openFlowEditor:(id)sender {
-    [self pushAfterDismiss:[[FlowEditorViewController alloc] initWithScriptBundlePath:currentFolder]];
+    ScriptListViewController *upper = self->upperLevel;
+    NSString *path = [currentFolder stringByStandardizingPath];
+    [self dismissThen:^{
+        NSString *result = [Util sendEngineCommand:[NSString stringWithFormat:@"44;;open;;%@", path]];
+        if (!result) {
+            [Util showAlertBoxWithOneOption:upper title:@"错误" message:@"小新Lap 服务不可用，请确认插件已生效。" buttonString:@"确定"];
+        }
+    }];
 }
 
 - (void)openScheduleSettings:(id)sender {
@@ -191,15 +202,14 @@
             return;
         }
 
-        NSError *error = nil;
-        if (![FlowScript createVisualScriptAtPath:bundlePath error:&error]) {
-            [Util showAlertBoxWithOneOption:self title:@"错误"
-                                    message:[NSString stringWithFormat:@"创建失败：%@", error.localizedDescription ?: @"未知错误"]
-                               buttonString:@"确定"];
-            return;
-        }
-        [upper refreshTable];
-        [self pushAfterDismiss:[[FlowEditorViewController alloc] initWithScriptBundlePath:bundlePath]];
+        // 建包（目录 + flow.plist + main.py）和开卡片都在插件侧做
+        [self dismissThen:^{
+            NSString *result = [Util sendEngineCommand:[NSString stringWithFormat:@"44;;new;;%@", bundlePath]];
+            [upper refreshTable];
+            if (!result) {
+                [Util showAlertBoxWithOneOption:upper title:@"错误" message:@"小新Lap 服务不可用，请确认插件已生效。" buttonString:@"确定"];
+            }
+        }];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
 }

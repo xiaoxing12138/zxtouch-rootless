@@ -5,6 +5,7 @@
 #import "AlertBox.h"
 #import "Play.h"
 #import "Record.h"           // 录制开关：startRecording / stopRecording / isRecordingStart
+#import "PickOverlay.h"      // 参数行「取点」：悬浮十字取坐标
 #import <UIKit/UIKit.h>
 
 #define FN_BTN_H     40.0f
@@ -279,6 +280,11 @@ void applyPanelAppearanceMode(NSInteger mode) {
 
 // 输入框弹出键盘时，键盘上方的「完成」条
 - (UIView *)optionKeyboardAccessory {
+    return [self optionKeyboardAccessoryWithPick:nil];
+}
+
+// 传了 pickAction 就多一个「取点」：x / y 两个框共用一条，点了在游戏画面上拖十字定坐标
+- (UIView *)optionKeyboardAccessoryWithPick:(void (^)(void))pickAction {
     UIToolbar *bar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
     bar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     UIBarButtonItem *space = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace
@@ -287,12 +293,46 @@ void applyPanelAppearanceMode(NSInteger mode) {
                                                              style:UIBarButtonItemStylePlain
                                                             target:self
                                                             action:@selector(dismissOptionKeyboard)];
-    bar.items = @[space, done];
+    if (pickAction) {
+        UIAction *action = [UIAction actionWithTitle:@"取点" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            pickAction();
+        }];
+        bar.items = @[[[UIBarButtonItem alloc] initWithPrimaryAction:action], space, done];
+    } else {
+        bar.items = @[space, done];
+    }
     return bar;
 }
 
 - (void)dismissOptionKeyboard {
     [_cardView endEditing:YES];
+}
+
+// 拖十字取坐标，回填这一组参数的 x / y
+- (void)pickPointForXField:(UITextField *)xField
+                    yField:(UITextField *)yField
+                     store:(NSMutableDictionary<NSString *, NSString *> *)store
+{
+    [_cardView endEditing:YES];
+    _cardView.hidden = YES;   // 卡片必须让开：否则会被烤进冻结帧，也挡住游戏画面
+
+    __weak typeof(self) weakSelf = self;
+    [PickOverlay presentWithMode:FlowPickModePoint completion:^(NSDictionary *result) {
+        FunctionWindow *window = weakSelf;
+        if (!window) return;
+        CGPoint point = [result[kPickStart] CGPointValue];
+        NSArray<UITextField *> *fields = @[xField, yField];
+        NSArray<NSString *> *keys = @[@"x", @"y"];
+        NSArray<NSNumber *> *values = @[ @(llround(point.x)), @(llround(point.y)) ];
+        for (NSUInteger i = 0; i < 2; i++) {
+            fields[i].text = [NSString stringWithFormat:@"%ld", (long)values[i].integerValue];
+            store[keys[i]] = fields[i].text;
+        }
+        [window persistAllValues];
+        window->_cardView.hidden = NO;
+    } cancel:^{
+        weakSelf->_cardView.hidden = NO;
+    }];
 }
 
 // 把当前选项值存回 plist（切脚本 / 关闭 / 运行 / 输入框失焦时调用）
@@ -534,7 +574,8 @@ void applyPanelAppearanceMode(NSInteger mode) {
         CGFloat fx = midX + (midW - totalW) / 2.0f;   // 整块参数居中
         if (fx < midX) fx = midX;
 
-        // 第二遍：摆控件
+        // 第二遍：摆控件（顺手把数字框按 key 记下来，循环完给 x/y 挂「取点」）
+        NSMutableDictionary<NSString *, UITextField *> *numFields = [NSMutableDictionary dictionary];
         for (NSUInteger i = 0; i < keys.count; i++) {
             NSString *key = keys[i];
             NSArray<NSString *> *choices = choicesOf[i];
@@ -605,11 +646,26 @@ void applyPanelAppearanceMode(NSInteger mode) {
                     [self persistAllValues];
                 }] forControlEvents:UIControlEventEditingDidEnd];
                 [row addSubview:tf];
+                numFields[key] = tf;
             }
 
             // 数字参数占的是「小字标签 + 输入框」，推进量必须把标签那一段算进去，
             // 否则下一个标签会压在上一个输入框上（4 个参数能压掉 90pt）
             fx += (choices.count > 0 ? ctrlW : capW + capGap + ctrlW) + gap;
+        }
+
+        // 声明了 x 和 y 的功能，键盘上加一个「取点」：拖十字定坐标，两个框一起回填
+        UITextField *xField = numFields[@"x"];
+        UITextField *yField = numFields[@"y"];
+        if (xField && yField) {
+            // 弱引用进 block：strong 的话「输入框 → 工具栏 → 动作 → block → 输入框」成环，面板一重建就漏一组
+            __weak UITextField *weakX = xField;
+            __weak UITextField *weakY = yField;
+            UIToolbar *bar = (UIToolbar *)[self optionKeyboardAccessoryWithPick:^{
+                [self pickPointForXField:weakX yField:weakY store:store];
+            }];
+            xField.inputAccessoryView = bar;
+            yField.inputAccessoryView = bar;
         }
     }
 

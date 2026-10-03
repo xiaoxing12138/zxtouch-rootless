@@ -14,8 +14,6 @@
 #import "ImageViewerViewController.h"
 #include "Config.h"
 #import "ScriptManagement/MoreOptionsPopOverTableViewController.h"
-#import "Flow/FlowEditorViewController.h"
-#import "Flow/FlowScript.h"
 #import "Socket.h"
 #import "Util.h"
 
@@ -293,10 +291,15 @@
                 [self.navigationController pushViewController:recordingEditor animated:YES];
                 return;
             }
-            // 可视化脚本：点一下直接进编辑器，跟录制脚本一个待遇
-            if ([FlowScript bundleHasFlow:path]) {
-                FlowEditorViewController *flowEditor = [[FlowEditorViewController alloc] initWithScriptBundlePath:path];
-                [self.navigationController pushViewController:flowEditor animated:YES];
+            // 可视化脚本：编辑器是插件侧的悬浮卡片。取点/框选要在游戏画面上画覆盖层，
+            // App 进程只能截到自己，所以这里只发命令让引擎自己开卡片。
+            if ([[NSFileManager defaultManager] fileExistsAtPath:[path stringByAppendingPathComponent:@"flow.plist"]]) {
+                NSString *result = [Util sendEngineCommand:[NSString stringWithFormat:@"44;;open;;%@", path]];
+                if (!result || [result characterAtIndex:0] != '0') {
+                    [Util showAlertBoxWithOneOption:self title:@"错误"
+                                            message:[NSString stringWithFormat:@"打不开可视化编辑器。%@", result.length ? result : @"小新Lap 服务不可用。"]
+                                       buttonString:@"确定"];
+                }
                 return;
             }
         }

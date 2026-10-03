@@ -38,6 +38,10 @@
 // 43：返回「未转正」的原始竖屏帧 JPEG + 当前方向，响应头 0;;image/jpeg;<字节数>;;<方向>\r\n
 // 给可视化编辑器截图框选识图模板用：显示时转正，抠模板时按原始帧抠（见 Screen.h 换算说明）
 #define TASK_SCREENSHOT_RAW 43
+// 44：可视化编辑器（插件侧悬浮卡片，因为取点必须在 SpringBoard 进程里画覆盖层）
+// 44;;open;;<脚本包绝对路径> 打开已存在的可视化脚本
+// 44;;new;;<脚本包绝对路径>  新建可视化脚本包（建目录 + flow.plist + main.py）
+#define TASK_FLOW_EDITOR 44
 
 #define TASK_UPDATE_CACHE 90
 
