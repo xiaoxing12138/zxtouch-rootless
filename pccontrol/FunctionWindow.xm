@@ -331,7 +331,9 @@ void applyPanelAppearanceMode(NSInteger mode) {
         [window persistAllValues];
         window->_cardView.hidden = NO;
     } cancel:^{
-        weakSelf->_cardView.hidden = NO;
+        FunctionWindow *window = weakSelf;   // 弱引用不能直接取 ivar，先落实成强引用
+        if (!window) return;
+        window->_cardView.hidden = NO;
     }];
 }
 
