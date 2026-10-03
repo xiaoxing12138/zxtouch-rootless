@@ -4,6 +4,7 @@
 #import "ScriptFunctions.h"
 #import "AlertBox.h"
 #import "Play.h"
+#import "Record.h"           // 录制开关：startRecording / stopRecording / isRecordingStart
 #import <UIKit/UIKit.h>
 
 #define FN_BTN_H     40.0f
@@ -77,6 +78,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
     UIButton        *_closeBtn;
     UIButton        *_saveBtn;
     UIButton        *_runBtn;
+    UIButton        *_recordBtn;
 
     NSArray<NSString *>        *_functionNames;
     NSMutableArray<UISwitch *> *_functionSwitches;
@@ -203,6 +205,13 @@ void applyPanelAppearanceMode(NSInteger mode) {
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_saveBtn];
 
+    // 顶行右侧：录制（未录制显示「录制」，录制中显示「停止」）
+    _recordBtn = fnMakeButton(@"录制", [UIColor systemRedColor]);
+    [_recordBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [self toggleRecording];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [_cardView addSubview:_recordBtn];
+
     [self layoutCard];
 
     // 建好后先隐藏，等 show 时再显示
@@ -247,7 +256,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
 
     _cardView.frame = CGRectMake((screenW - cardW) / 2.0f, (screenH - cardH) / 2.0f, cardW, cardH);
 
-    // 顶行从右往左排：✕ / 保存 / 运行，剩下的左边给脚本选择（约占卡片 1/3）
+    // 顶行从右往左排：✕ / 保存 / 运行 / 录制，剩下的左边给脚本选择（约占卡片 1/3）
     CGFloat topY = 6.0f, topH = 36.0f, gap = 6.0f;
     CGFloat rightX = cardW - 8.0f;
     _closeBtn.frame = CGRectMake(rightX - 32.0f, topY, 32.0f, topH);
@@ -256,6 +265,8 @@ void applyPanelAppearanceMode(NSInteger mode) {
     rightX -= (64.0f + gap);
     _runBtn.frame = CGRectMake(rightX - 64.0f, topY, 64.0f, topH);
     rightX -= (64.0f + gap);
+    _recordBtn.frame = CGRectMake(rightX - 60.0f, topY, 60.0f, topH);
+    rightX -= (60.0f + gap);
 
     CGFloat scriptW = cardW / 3.0f;
     if (8.0f + scriptW > rightX - 6.0f) scriptW = MAX(rightX - 6.0f - 8.0f, 80.0f);
@@ -850,6 +861,30 @@ void applyPanelAppearanceMode(NSInteger mode) {
     });
 }
 
+#pragma mark - 录制
+
+// 顶行的录制开关，和音量键的「开始/停止录制」调用同一对引擎函数，录完同样存进 scripts/录制脚本/
+- (void)toggleRecording {
+    if (isRecordingStart()) {
+        stopRecording();
+        showAlertBox(@"小新Lap", @"录制已停止并保存。", 1);
+    } else {
+        NSError *err = nil;
+        startRecording(0, &err);
+        if (err) showAlertBox(@"错误", [NSString stringWithFormat:@"无法开始录制：%@", [err localizedDescription]], 999);
+        else showAlertBox(@"小新Lap", @"录制已开始。", 1);
+    }
+    [self refreshRecordingButton];
+}
+
+// 录制可能是在网页端 / 音量键起的，所以每次开面板都按真实状态重算按钮，不能只记本地开关
+- (void)refreshRecordingButton {
+    BOOL recording = isRecordingStart();
+    [_recordBtn setTitle:(recording ? @"停止" : @"录制") forState:UIControlStateNormal];
+    _recordBtn.backgroundColor = recording ? [[UIColor systemRedColor] colorWithAlphaComponent:0.20f]
+                                           : [UIColor secondarySystemBackgroundColor];
+}
+
 #pragma mark - 显示 / 隐藏
 
 - (void)show {
@@ -871,6 +906,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
 
         self->_pickingScript = NO;
         [self reloadFunctionPage];
+        [self refreshRecordingButton];   // 录制可能在面板关着的时候被别人起停过
         self->_window.hidden = NO;
 
         // window 刚创建时 bounds 可能是 CGRectZero，layoutCard 会退回用 UIScreen.bounds；
