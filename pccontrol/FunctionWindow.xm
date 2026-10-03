@@ -14,6 +14,9 @@
 #define FN_NAME_W    104.0f   // 功能名宽度：能站下 7 个中文字（14pt 字号）
 #define FN_ROW_H     40.0f    // 脚本列表里一行的高度
 #define FN_ROW_GAP   6.0f
+#define FN_MIN_W     260.0f                // 面板最小宽度
+#define FN_MIN_H     (FN_TOP_H + 120.0f)   // 面板最小高度
+#define FN_GRIP      26.0f                 // 右下角缩放把手的边长
 
 // window 内空白区域透传：只有真正落在卡片子视图上的触摸才拦截，
 // 卡片外的点击落到下层 App。
@@ -106,6 +109,8 @@ void applyPanelAppearanceMode(NSInteger mode) {
 
 // 拖动卡片：只认从顶栏开始的手势，中间那块滚动内容不抢
 @interface FunctionWindow () <UIGestureRecognizerDelegate>
+- (void)savePanelState;
+- (void)handleResizePan:(UIPanGestureRecognizer *)pan;
 @end
 
 @implementation FunctionWindow
@@ -118,6 +123,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
     UIButton        *_saveBtn;
     UIButton        *_runBtn;
     UIButton        *_recordBtn;
+    UIImageView     *_resizeGrip;   // 右下角把手：拖它改面板大小
 
     NSArray<NSString *>        *_functionNames;
     NSMutableArray<UISwitch *> *_functionSwitches;
@@ -132,6 +138,9 @@ void applyPanelAppearanceMode(NSInteger mode) {
     CGPoint                     _panelOrigin;
     NSInteger                   _appearanceMode;  // 0 跟随系统 1 浅色 2 深色
     CGFloat                     _contentHeight;   // 卡片中间滚动区的内容高度（用于自适应卡片高度）
+    // 面板宽高是全局的：所有脚本、所有页面共用一个尺寸，存在 panel_state.plist 里，拖右下角改
+    CGFloat                     _panelW;
+    CGFloat                     _panelH;
 }
 
 + (instancetype)shared {
@@ -156,6 +165,8 @@ void applyPanelAppearanceMode(NSInteger mode) {
         _contentHeight = 0;
         NSDictionary *state = [[NSDictionary alloc] initWithContentsOfFile:PANEL_STATE_CONFIG_PATH];
         _expandedFolders = [NSMutableSet setWithArray:(state[@"expanded"] ?: @[])];
+        _panelW = [state[@"panel_w"] doubleValue];
+        _panelH = [state[@"panel_h"] doubleValue];
     }
     return self;
 }
@@ -263,6 +274,16 @@ void applyPanelAppearanceMode(NSInteger mode) {
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_recordBtn];
 
+    // 右下角缩放把手：拖它改面板大小（大小是所有脚本、所有页面共用的，存 plist）
+    _resizeGrip = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, FN_GRIP, FN_GRIP)];
+    _resizeGrip.image = fnSymbol(@"arrow.up.left.and.arrow.down.right");
+    _resizeGrip.tintColor = [UIColor secondaryLabelColor];
+    _resizeGrip.contentMode = UIViewContentModeScaleAspectFit;
+    _resizeGrip.userInteractionEnabled = YES;
+    [_resizeGrip addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self
+                                                                            action:@selector(handleResizePan:)]];
+    [_cardView addSubview:_resizeGrip];
+
     [self layoutCard];
 
     // 建好后先隐藏，等 show 时再显示
@@ -278,13 +299,25 @@ void applyPanelAppearanceMode(NSInteger mode) {
         }];
 }
 
+// 面板宽度（给页面排版用）：用户调过就用调的，没调过就按默认宽算
 - (CGFloat)cardWidth {
     CGFloat screenW = _window ? _window.bounds.size.width : [UIScreen mainScreen].bounds.size.width;
     if (screenW <= 0) screenW = 375.0f;
-    CGFloat w = MIN(FN_CARD_W, screenW - 40.0f);
-    if (w < 200.0f) w = MAX(screenW - 20.0f, 200.0f);
-    if (w > screenW) w = screenW;
-    return w;
+    if (_panelW > 0) return MIN(MAX(_panelW, FN_MIN_W), screenW - 16.0f);
+    return MIN(FN_CARD_W, MAX(screenW - 40.0f, 200.0f));
+}
+
+// 面板尺寸是全局的：所有脚本、所有页面共用同一个宽高（存 plist）。
+// 第一次打开（plist 里还没有）按当前这页内容定一个初始值，之后就固定下来，只有拖右下角把手才会变。
+- (CGSize)cardSizeInScreen:(CGSize)screen {
+    if (_panelW <= 0 || _panelH <= 0) {
+        _panelW = MIN(FN_CARD_W, MAX(screen.width - 40.0f, 200.0f));
+        _panelH = MIN(MAX(FN_TOP_H + _contentHeight, FN_MIN_H), screen.height * 0.72f);
+        [self savePanelState];
+    }
+    CGFloat w = MIN(MAX(_panelW, FN_MIN_W), screen.width - 16.0f);
+    CGFloat h = MIN(MAX(_panelH, FN_MIN_H), screen.height - 40.0f);
+    return CGSizeMake(w, h);
 }
 
 - (void)layoutCard {
@@ -294,16 +327,9 @@ void applyPanelAppearanceMode(NSInteger mode) {
     if (screenW <= 0) screenW = [UIScreen mainScreen].bounds.size.width;
     if (screenH <= 0) screenH = [UIScreen mainScreen].bounds.size.height;
 
-    CGFloat cardW = [self cardWidth];
-
-    // 高度按内容自适应，不超过屏幕高度的 72%（底部不再放按钮，高度就是 顶行 + 内容）
-    CGFloat maxH = screenH * 0.72f;
-    CGFloat cardH = FN_TOP_H + _contentHeight;
-    if (cardH > maxH) cardH = maxH;
-    CGFloat minH = FN_TOP_H + 60.0f;
-    if (cardH < minH) cardH = minH;
-    if (cardH > screenH - 40.0f) cardH = screenH - 40.0f;
-    if (cardH < 100.0f) cardH = 100.0f;
+    CGSize cardSize = [self cardSizeInScreen:CGSizeMake(screenW, screenH)];
+    CGFloat cardW = cardSize.width;
+    CGFloat cardH = cardSize.height;
 
     // 拖过就用拖到的地方，没拖过就居中；两种情况都要保证整张卡还在屏幕里
     CGFloat originX = _panelMoved ? _panelOrigin.x : (screenW - cardW) / 2.0f;
@@ -342,6 +368,9 @@ void applyPanelAppearanceMode(NSInteger mode) {
     _functionScriptBtn.frame = CGRectMake(8, topY, scriptW, topH);
 
     _functionScrollView.frame = CGRectMake(0, FN_TOP_H, cardW, MAX(cardH - FN_TOP_H, 0));
+
+    // 右下角把手（往内缩 8pt，免得被圆角裁掉）
+    _resizeGrip.frame = CGRectMake(cardW - 8.0f - FN_GRIP, cardH - 8.0f - FN_GRIP, FN_GRIP, FN_GRIP);
 }
 
 #pragma mark - 拖动卡片
@@ -370,6 +399,30 @@ void applyPanelAppearanceMode(NSInteger mode) {
         return [g locationInView:_cardView].y <= FN_TOP_H;
     }
     return YES;
+}
+
+// 拖右下角把手改面板大小：改完存盘，所有脚本、所有页面下次打开都是这个大小
+- (void)handleResizePan:(UIPanGestureRecognizer *)pan {
+    if (!_cardView) return;
+    CGPoint t = [pan translationInView:_cardView.superview];
+    [pan setTranslation:CGPointZero inView:_cardView.superview];
+
+    CGFloat screenW = _window ? _window.bounds.size.width : [UIScreen mainScreen].bounds.size.width;
+    CGFloat screenH = _window ? _window.bounds.size.height : [UIScreen mainScreen].bounds.size.height;
+    if (screenW <= 0) screenW = [UIScreen mainScreen].bounds.size.width;
+    if (screenH <= 0) screenH = [UIScreen mainScreen].bounds.size.height;
+
+    _panelW = MIN(MAX(_panelW + t.x, FN_MIN_W), screenW - 16.0f);
+    _panelH = MIN(MAX(_panelH + t.y, FN_MIN_H), screenH - 40.0f);
+    [self layoutCard];
+
+    if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled) {
+        [self persistAllValues];
+        [self savePanelState];
+        // 行是按宽度算好位置的，换宽度后要重排一遍
+        if (_pickingScript) [self reloadScriptPicker];
+        else [self reloadFunctionPage];
+    }
 }
 
 #pragma mark - 选项控件
@@ -917,7 +970,9 @@ void applyPanelAppearanceMode(NSInteger mode) {
     [self layoutCard];
 }
 
-// 列一层目录：文件夹在前、脚本在后，各自按名称排（自然序，中文名也排得对）
+// 列一层目录，顺序严格照 App 的脚本列表（ScriptListViewController 的 insertFileListIntoArray:）：
+// 非 .bdl 的文件夹「插到最前」，其余按系统枚举顺序追加 —— 这样面板里的顺序和 App 里看到的完全一致。
+// .bdl 本身是脚本包（也是文件夹），一律当脚本行，不能当文件夹展开。
 static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:dir error:nil] ?: @[];
@@ -927,24 +982,24 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
         NSString *path = [dir stringByAppendingPathComponent:name];
         BOOL isDir = NO;
         if (![fm fileExistsAtPath:path isDirectory:&isDir]) continue;
-        if (isDir) {
-            [entries addObject:@{ @"name": name, @"path": path, @"dir": @YES }];
-        } else if ([[name pathExtension] isEqualToString:@"bdl"]) {
-            NSDate *date = [fm attributesOfItemAtPath:path error:nil][NSFileModificationDate];
-            [entries addObject:@{ @"name": name, @"path": path, @"dir": @NO, @"date": date ?: [NSDate distantPast] }];
-        }
+        BOOL isBdl = [[name pathExtension].lowercaseString isEqualToString:@"bdl"];
+        if (!isDir && !isBdl) continue;   // 面板只列「文件夹」和「脚本」，普通文件不进来
+        NSDate *date = [fm attributesOfItemAtPath:path error:nil][NSFileModificationDate];
+        NSDictionary *entry = @{ @"name": name, @"path": path,
+                                 @"dir": @(isDir && !isBdl),
+                                 @"date": date ?: [NSDate distantPast] };
+        if (isDir && !isBdl) [entries insertObject:entry atIndex:0];
+        else [entries addObject:entry];
     }
-    [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
-        BOOL da = [a[@"dir"] boolValue], db = [b[@"dir"] boolValue];
-        if (da != db) return da ? NSOrderedAscending : NSOrderedDescending;   // 文件夹排前面
-        return [a[@"name"] localizedStandardCompare:b[@"name"]];
-    }];
     return entries;
 }
 
-// 展开状态存 plist：下次打开面板还是上次那样
-- (void)saveExpandedFolders {
-    NSDictionary *state = @{ @"expanded": [_expandedFolders.allObjects sortedArrayUsingSelector:@selector(compare:)] };
+// 面板状态存 plist：展开的文件夹 + 全局宽高，下次打开还是这样
+- (void)savePanelState {
+    NSMutableDictionary *state = [NSMutableDictionary dictionary];
+    state[@"expanded"] = [_expandedFolders.allObjects sortedArrayUsingSelector:@selector(compare:)];
+    if (_panelW > 0) state[@"panel_w"] = @(_panelW);
+    if (_panelH > 0) state[@"panel_h"] = @(_panelH);
     [state writeToFile:PANEL_STATE_CONFIG_PATH atomically:YES];
 }
 
@@ -996,7 +1051,7 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
                 if (!window) return;
                 if (expanded) [window->_expandedFolders removeObject:path];
                 else [window->_expandedFolders addObject:path];
-                [window saveExpandedFolders];
+                [window savePanelState];
                 [window reloadScriptPicker];
             };
         } else {

@@ -45,74 +45,50 @@
         return;
     }
     
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"脚本名称"
-                                                                    message:@"请输入脚本名称"
-                                                             preferredStyle:UIAlertControllerStyleAlert];
+    // 不再让用户起名：直接用「年月日_时分秒」，想改名字事后自己改
+    NSDateFormatter *nameFormatter = [[NSDateFormatter alloc] init];
+    [nameFormatter setDateFormat:@"yyyyMMdd_HHmmss"];
+    NSString *scriptName = [nameFormatter stringFromDate:[NSDate date]];
 
-    UIAlertAction *submit = [UIAlertAction actionWithTitle:@"提交" style:UIAlertActionStyleDefault
-                                                   handler:^(UIAlertAction * action) {
-                                                       if (alert.textFields.count > 0) {
-                                                           UITextField *textField = [alert.textFields firstObject];
-                                                           if ([textField.text length] != 0)
-                                                           {
-                                                               // create folder
-                                                               BOOL isDir;
-                                                               NSError *err = nil;
-                                                               NSFileManager *fileManager= [NSFileManager defaultManager];
-                                                               NSString* folderToAddPath = [self->currentFolder stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.bdl", textField.text]];
-                                                               if([fileManager fileExistsAtPath:folderToAddPath isDirectory:&isDir] && isDir)
-                                                               {
-                                                                   [Util showAlertBoxWithOneOption:self title:@"错误" message:@"脚本已存在，请使用其他脚本名称。" buttonString:@"确定"];
-                                                               }
-                                                               else
-                                                               {
-                                                                   [fileManager createDirectoryAtPath:folderToAddPath withIntermediateDirectories:YES attributes:nil error:&err];
-                                                                   if (err)
-                                                                   {
-                                                                       [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建脚本，原因：", err] buttonString:@"确定"];
-                                                                   }
-                                                                   
-                                                                   // add plist file
-                                                                   NSDictionary *scriptInfo = @{@"Entry": @"main.py", @"FrontApp": @"", @"Orientation": @"1"};
-                                                                   NSString *plistPath = [folderToAddPath stringByAppendingPathComponent:@"info.plist"];
-                                                                   [scriptInfo writeToFile:plistPath atomically:YES];
-                                                                   
-                                                                   // add python file
-                                                                   NSDateFormatter *dateFormatter=[[NSDateFormatter alloc] init];
-                                                                   [dateFormatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
-                                                                   NSString *currentDateTime = [dateFormatter stringFromDate:[NSDate date]];
-                                                                   NSString *initContent = [NSString stringWithFormat:@"# 本脚本创建于 %@\n# ZXTouch 模块文档（GitHub）：https://github.com/xuan32546/IOS13-SimulateTouch/\n\nfrom zxtouch.client import zxtouch\n\n\n# 请在此处编写你的代码。", currentDateTime];
-                                                                   
-                                                                   [initContent writeToFile:[folderToAddPath stringByAppendingPathComponent:@"main.py"] atomically:YES encoding:NSUTF8StringEncoding error:&err];
-                                                                   if (err)
-                                                                   {
-                                                                       [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建脚本，原因：", err] buttonString:@"确定"];
-                                                                   }
-                                                                   dispatch_async(dispatch_get_main_queue(), ^{
-                                                                       [self->upperLevel refreshTable];
-                                                                   });
-                                                               }
-                                                               
-                                                           }
-                                                           else
-                                                           {
-                                                               [Util showAlertBoxWithOneOption:self title:@"错误" message:@"请输入脚本名称。" buttonString:@"确定"];
-                                                           }
-                                                       }
-                                                   }];
-    UIAlertAction *cancel = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleDefault
-                                                   handler:^(UIAlertAction * action) {}];
+    BOOL isDir;
+    NSError *err = nil;
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSString *folderToAddPath = [self->currentFolder stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.bdl", scriptName]];
+    // 同一秒里连点两下（基本不会发生）就往后加 -2、-3，保证不重名
+    NSInteger seq = 2;
+    while ([fileManager fileExistsAtPath:folderToAddPath isDirectory:&isDir] && isDir)
+    {
+        folderToAddPath = [self->currentFolder stringByAppendingPathComponent:
+                           [NSString stringWithFormat:@"%@-%ld.bdl", scriptName, (long)seq++]];
+    }
 
-    [alert addAction:cancel];
-    [alert addAction:submit];
+    [fileManager createDirectoryAtPath:folderToAddPath withIntermediateDirectories:YES attributes:nil error:&err];
+    if (err)
+    {
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建脚本，原因：", err] buttonString:@"确定"];
+        return;
+    }
 
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        //textField.placeholder = @""; // if needs
-    }];
+    // add plist file
+    NSDictionary *scriptInfo = @{@"Entry": @"main.py", @"FrontApp": @"", @"Orientation": @"1"};
+    [scriptInfo writeToFile:[folderToAddPath stringByAppendingPathComponent:@"info.plist"] atomically:YES];
 
-    [self presentViewController:alert animated:YES completion:nil];
-    
-    
+    // add python file
+    NSDateFormatter *dateFormatter=[[NSDateFormatter alloc] init];
+    [dateFormatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
+    NSString *currentDateTime = [dateFormatter stringFromDate:[NSDate date]];
+    NSString *initContent = [NSString stringWithFormat:@"# 本脚本创建于 %@\n# ZXTouch 模块文档（GitHub）：https://github.com/xuan32546/IOS13-SimulateTouch/\n\nfrom zxtouch.client import zxtouch\n\n\n# 请在此处编写你的代码。", currentDateTime];
+
+    [initContent writeToFile:[folderToAddPath stringByAppendingPathComponent:@"main.py"] atomically:YES encoding:NSUTF8StringEncoding error:&err];
+    if (err)
+    {
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建脚本，原因：", err] buttonString:@"确定"];
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self->upperLevel refreshTable];
+    });
 }
 
 - (IBAction)createFolderButtonClick:(id)sender {

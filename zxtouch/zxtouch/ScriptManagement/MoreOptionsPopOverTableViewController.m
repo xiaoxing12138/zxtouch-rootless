@@ -177,41 +177,28 @@
 
 - (void)createVisualScript:(id)sender {
     ScriptListViewController *upper = self->upperLevel;
-    NSString *folder = currentFolder;
 
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"可视化脚本名称"
-                                                                  message:@"新建后直接用「加步骤」拼脚本，不用写代码。"
-                                                           preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
-        field.placeholder = @"例如：自动吃丹";
-        field.clearButtonMode = UITextFieldViewModeWhileEditing;
+    // 不再让用户起名：直接用「年月日_时分秒」，想改名字事后自己改
+    NSDateFormatter *nameFormatter = [[NSDateFormatter alloc] init];
+    [nameFormatter setDateFormat:@"yyyyMMdd_HHmmss"];
+    NSString *name = [nameFormatter stringFromDate:[NSDate date]];
+
+    NSString *bundlePath = [[currentFolder stringByAppendingPathComponent:name] stringByAppendingPathExtension:@"bdl"];
+    // 同一秒里连点两下（基本不会发生）就往后加 -2、-3，保证不重名
+    NSInteger seq = 2;
+    while ([[NSFileManager defaultManager] fileExistsAtPath:bundlePath]) {
+        bundlePath = [[currentFolder stringByAppendingPathComponent:
+                       [NSString stringWithFormat:@"%@-%ld", name, (long)seq++]] stringByAppendingPathExtension:@"bdl"];
+    }
+
+    // 建包（目录 + flow.plist + main.py）和开卡片都在插件侧做
+    [self dismissThen:^{
+        NSString *result = [Util sendEngineCommand:[NSString stringWithFormat:@"44;;new;;%@", bundlePath]];
+        [upper refreshTable];
+        if (!result) {
+            [Util showAlertBoxWithOneOption:upper title:@"错误" message:@"小新Lap 服务不可用，请确认插件已生效。" buttonString:@"确定"];
+        }
     }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"创建" style:UIAlertActionStyleDefault
-                                            handler:^(UIAlertAction *action) {
-        UITextField *field = alert.textFields.firstObject;
-        NSString *name = [[field.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
-                          stringByReplacingOccurrencesOfString:@"/" withString:@"-"];
-        if (name.length == 0) {
-            [Util showAlertBoxWithOneOption:self title:@"错误" message:@"请输入脚本名称。" buttonString:@"确定"];
-            return;
-        }
-        NSString *bundlePath = [[folder stringByAppendingPathComponent:name] stringByAppendingPathExtension:@"bdl"];
-        if ([[NSFileManager defaultManager] fileExistsAtPath:bundlePath]) {
-            [Util showAlertBoxWithOneOption:self title:@"错误" message:@"这个脚本已经存在了。" buttonString:@"确定"];
-            return;
-        }
-
-        // 建包（目录 + flow.plist + main.py）和开卡片都在插件侧做
-        [self dismissThen:^{
-            NSString *result = [Util sendEngineCommand:[NSString stringWithFormat:@"44;;new;;%@", bundlePath]];
-            [upper refreshTable];
-            if (!result) {
-                [Util showAlertBoxWithOneOption:upper title:@"错误" message:@"小新Lap 服务不可用，请确认插件已生效。" buttonString:@"确定"];
-            }
-        }];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (id)initWithFolderPath:(NSString *)path
