@@ -7,6 +7,8 @@
 #import "Play.h"
 #import "Record.h"           // 录制开关：startRecording / stopRecording / isRecordingStart
 #import "PickOverlay.h"      // 参数行「取点」：悬浮十字取坐标
+#import "FlowWindow.h"       // 可视化脚本：列表里点到就开它的编辑器卡片
+#import "FlowScript.h"       // bundleHasFlow：判断脚本包里有没有可视化流程
 #import <UIKit/UIKit.h>
 
 #define FN_TOP_H     49.0f
@@ -127,6 +129,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
     UIButton        *_saveBtn;
     UIButton        *_runBtn;
     UIButton        *_recordBtn;
+    UIButton        *_newScriptBtn;  // 挑脚本时顶行的「＋」：新建可视化脚本并直接开编辑器
     UIImageView     *_resizeGrip;   // 右下角把手：拖它改面板大小
 
     NSArray<NSString *>        *_functionNames;
@@ -278,6 +281,14 @@ void applyPanelAppearanceMode(NSInteger mode) {
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_recordBtn];
 
+    // 挑脚本时才显示：新建一个可视化脚本，建完直接开它的编辑器卡片
+    _newScriptBtn = fnMakeButton(@"＋", [UIColor systemBlueColor]);
+    _newScriptBtn.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+    [_newScriptBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [self createVisualScriptHere];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [_cardView addSubview:_newScriptBtn];
+
     // 右下角缩放把手：拖它改面板大小（大小是所有脚本、所有页面共用的，存 plist）
     _resizeGrip = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, FN_GRIP, FN_GRIP)];
     _resizeGrip.image = fnSymbol(@"arrow.up.left.and.arrow.down.right");
@@ -346,19 +357,20 @@ void applyPanelAppearanceMode(NSInteger mode) {
 
     _cardView.frame = CGRectMake(originX, originY, cardW, cardH);
 
-    // 顶行按钮：挑脚本的时候只留「录制」，挑完了只留「运行 / 保存」
+    // 顶行按钮：挑脚本的时候只留「＋ / 录制」，挑完了只留「运行 / 保存」
     _runBtn.hidden = _pickingScript;
     _saveBtn.hidden = _pickingScript;
     _recordBtn.hidden = !_pickingScript;
+    _newScriptBtn.hidden = !_pickingScript;
 
-    // 顶行从右往左排：✕ / 保存 / 运行 / 录制（隐藏的不占位），剩下的左边给脚本选择（约占卡片 1/3）
+    // 顶行从右往左排：✕ / 保存 / 运行 / 录制 / ＋（隐藏的不占位），剩下的左边给脚本选择（约占卡片 1/3）
     CGFloat topY = 6.0f, topH = 36.0f, gap = 6.0f;
     CGFloat rightX = cardW - 8.0f;
     _closeBtn.frame = CGRectMake(rightX - 32.0f, topY, 32.0f, topH);
     rightX -= (32.0f + gap);
 
-    NSArray<UIButton *> *topButtons = @[ _saveBtn, _runBtn, _recordBtn ];
-    NSArray<NSNumber *> *topWidths = @[ @64.0, @64.0, @60.0 ];
+    NSArray<UIButton *> *topButtons = @[ _saveBtn, _runBtn, _recordBtn, _newScriptBtn ];
+    NSArray<NSNumber *> *topWidths = @[ @64.0, @64.0, @60.0, @40.0 ];
     for (NSUInteger i = 0; i < topButtons.count; i++) {
         UIButton *btn = topButtons[i];
         if (btn.hidden) continue;
@@ -1069,7 +1081,13 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
             row.onTap = ^{
                 FunctionWindow *window = weakSelf;
                 if (!window) return;
-                [window selectFunctionScript:path];
+                if ([FlowScript bundleHasFlow:path]) {
+                    // 可视化脚本（包里有 flow.plist）：点开直接进它的编辑器，而不是选成「功能」脚本
+                    [window hide];
+                    [[FlowWindow shared] openBundle:path];
+                } else {
+                    [window selectFunctionScript:path];
+                }
             };
         }
 
@@ -1122,6 +1140,25 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
     _functionScriptPath = [path copy];
     ZXSaveLastFunctionScriptPath(_functionScriptPath);
     [self reloadFunctionPage];
+}
+
+// 挑脚本时点「＋」：按 App 同样的命名规则新建一个可视化脚本包，建完直接开它的编辑器
+- (void)createVisualScriptHere {
+    NSString *folder = getScriptsFolder();
+    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+    [fmt setDateFormat:@"yyyyMMdd_HHmmss"];
+    NSString *name = [fmt stringFromDate:[NSDate date]];
+
+    NSString *path = [[folder stringByAppendingPathComponent:name] stringByAppendingPathExtension:@"bdl"];
+    // 同一秒里连点两下（基本不会发生）就往后加 -2、-3，保证不重名
+    NSInteger seq = 2;
+    while ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        path = [[folder stringByAppendingPathComponent:
+                 [NSString stringWithFormat:@"%@-%ld", name, (long)seq++]] stringByAppendingPathExtension:@"bdl"];
+    }
+
+    [self hide];
+    [[FlowWindow shared] createBundleAtPath:path];
 }
 
 #pragma mark - 运行
