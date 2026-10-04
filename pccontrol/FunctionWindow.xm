@@ -1135,6 +1135,8 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
 
     _previewView.hidden = YES;
     [_cardView endEditing:YES];
+    // 正在挑脚本：左上角不能还挂着上一个脚本的名字，容易让人以为点的是它
+    [_functionScriptBtn setTitle:@"选择脚本" forState:UIControlStateNormal];
     for (UIView *v in _functionScrollView.subviews) [v removeFromSuperview];
 
     CGFloat y = [self addScriptEntriesAtDir:getScriptsFolder() depth:0 y:6 width:pw];
@@ -1261,6 +1263,8 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
 
 - (UIScrollView *)flowHostScrollView { return _functionScrollView; }
 - (CGFloat)flowHostContentWidth { return [self cardWidth]; }
+// 窗口的根视图铺满整屏且在卡片之上：底部半屏「添加步骤」挂这里才不会卡片裁剪
+- (UIView *)flowHostOverlayContainer { return _window.rootViewController.view; }
 
 - (void)flowHostSetNavigationTitle:(NSString *)title canGoBack:(BOOL)canGoBack {
     _flowCanGoBack = canGoBack;
@@ -1379,6 +1383,7 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
 // 关闭面板。「保存」走 saveAndHide；✕ 直接调这里，不额外存盘
 - (void)hide {
     _shown = NO;
+    [[FlowWindow shared] hideOverlays];   // 编辑器弹的半屏「添加步骤」挂在窗口根上，不跟着卡片一起消失
     ZXSafeMainAsync(^{
         if (!self->_window) return;
         [self->_cardView endEditing:YES];

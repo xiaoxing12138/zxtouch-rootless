@@ -62,8 +62,8 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         ];
 
         FlowStepType *swipe = [self type:kFlowSwipe title:@"滑动" symbol:@"hand.draw.fill" condition:NO];
-        swipe.pickActionTitle = @"从屏幕框选起止";
-        swipe.pickMode = FlowPickModeRect;
+        swipe.pickActionTitle = @"从屏幕取起点和终点";
+        swipe.pickMode = FlowPickModePath;
         swipe.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
         swipe.fields = @[
             [FlowFieldSpec key:@"X1" title:@"起点 X" integer:YES def:@"300"],

@@ -311,3 +311,34 @@ void ZXLogUIException(NSException *exception)
         // Logging must never itself become the reason SpringBoard dies.
     }
 }
+
+#pragma mark - 面板配色
+
+// 同一种颜色给一深一浅两份，窗口定了 overrideUserInterfaceStyle，取到的就是对应那套
+static UIColor *ZXDynamicColor(uint32_t light, uint32_t dark)
+{
+    UIColor *l = [UIColor colorWithRed:((light >> 16) & 0xFF) / 255.0
+                                 green:((light >> 8) & 0xFF) / 255.0
+                                  blue:(light & 0xFF) / 255.0 alpha:1];
+    UIColor *d = [UIColor colorWithRed:((dark >> 16) & 0xFF) / 255.0
+                                 green:((dark >> 8) & 0xFF) / 255.0
+                                  blue:(dark & 0xFF) / 255.0 alpha:1];
+    return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
+        return (traits.userInterfaceStyle == UIUserInterfaceStyleDark) ? d : l;
+    }];
+}
+
+UIColor *ZXPalette(ZXPaletteRole role)
+{
+    static NSArray<UIColor *> *colors = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        const uint32_t light[] = { 0xF2F3F5, 0xFFFFFF, 0xE3E5E9, 0x1C1F24, 0x6B7280, 0xF7F8FA, 0x0FA98F, 0xE5484D, 0xB26A00 };
+        const uint32_t dark[]  = { 0x15171C, 0x1E2026, 0x2A2D35, 0xE8EAED, 0x8B909A, 0x12141A, 0x2ED3B7, 0xFF5A5F, 0xFFB84D };
+        NSMutableArray *list = [NSMutableArray arrayWithCapacity:ZXPalValue + 1];
+        for (NSInteger i = 0; i <= ZXPalValue; i++) [list addObject:ZXDynamicColor(light[i], dark[i])];
+        colors = list;
+    });
+    if (role < 0 || role >= (NSInteger)colors.count) return colors[ZXPalText];
+    return colors[role];
+}

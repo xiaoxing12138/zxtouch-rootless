@@ -8,23 +8,81 @@
 #import "FlowScript.h"
 #import "PickOverlay.h"
 #import "AlertBox.h"
+#import "Common.h"
 
 #import <math.h>   // llround / fabs
 
-#define FW_ROW_H    46.0f
-#define FW_GAP      6.0f
-#define FW_DELETE_W 80.0f   // 左滑露出来的「删除」宽度
+#define FW_ROW_H    56.0f
+#define FW_GAP      8.0f
+#define FW_DELETE_W 88.0f   // 左滑露出来的「删除」宽度
+#define FW_CELL_H   54.0f   // 半屏面板里一个类型格的高度
 
 // 页面种类
 static NSString * const kPageList    = @"list";     // 步骤列表（整条流程 / 成立时 / 不成立时）
-static NSString * const kPageTypes   = @"types";    // 「添加步骤」的候选类型
 static NSString * const kPageParams  = @"params";   // 某一步的参数
 static NSString * const kPagePreview = @"preview";  // 生成出来的 Python 源码
 
+#pragma mark - 配色
+
+// 一种颜色给一深一浅两份，跟着面板窗口的 overrideUserInterfaceStyle 切
+static UIColor *fwColor(uint32_t light, uint32_t dark)
+{
+    return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
+        uint32_t v = (traits.userInterfaceStyle == UIUserInterfaceStyleDark) ? dark : light;
+        return [UIColor colorWithRed:((v >> 16) & 0xFF) / 255.0
+                               green:((v >> 8) & 0xFF) / 255.0
+                                blue:(v & 0xFF) / 255.0 alpha:1];
+    }];
+}
+
+// 每种步骤一个色：左边色条、图标底、半屏面板的格子都用它
+static UIColor *fwTypeColor(NSString *kind)
+{
+    if ([kind isEqualToString:kFlowTap])       return fwColor(0x2F6BFF, 0x5A9BFF);
+    if ([kind isEqualToString:kFlowSwipe])     return fwColor(0x7B4DFF, 0xA98BFF);
+    if ([kind isEqualToString:kFlowWait])      return fwColor(0xB87700, 0xFFB84D);
+    if ([kind isEqualToString:kFlowToast])     return fwColor(0x0E9F8A, 0x2ED3B7);
+    if ([kind isEqualToString:kFlowColor])     return fwColor(0xD9551F, 0xFF8F5E);
+    if ([kind isEqualToString:kFlowFindColor]) return fwColor(0xC22E7A, 0xF0559B);
+    if ([kind isEqualToString:kFlowImage])     return fwColor(0x1B8F49, 0x35C46B);
+    return fwColor(0x4C8DFF, 0x6EA8FF);
+}
+
+// 参数页按语义分组，声明顺序仍然是字段自己的声明顺序
+static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
+{
+    if ([kind isEqualToString:kFlowTap]) return @[
+        @{ @"title": @"位置", @"keys": @[ @"X", @"Y" ] },
+        @{ @"title": @"点按", @"keys": @[ @"Count", @"Interval", @"Hold" ] },
+    ];
+    if ([kind isEqualToString:kFlowSwipe]) return @[
+        @{ @"title": @"起点", @"keys": @[ @"X1", @"Y1" ] },
+        @{ @"title": @"终点", @"keys": @[ @"X2", @"Y2" ] },
+        @{ @"title": @"滑动时长", @"keys": @[ @"Duration" ] },
+    ];
+    if ([kind isEqualToString:kFlowWait]) return @[ @{ @"title": @"时间", @"keys": @[ @"Seconds" ] } ];
+    if ([kind isEqualToString:kFlowToast]) return @[ @{ @"title": @"提示", @"keys": @[ @"Text", @"Seconds" ] } ];
+    if ([kind isEqualToString:kFlowColor]) return @[
+        @{ @"title": @"位置", @"keys": @[ @"X", @"Y" ] },
+        @{ @"title": @"颜色", @"keys": @[ @"Color", @"Tolerance" ] },
+    ];
+    if ([kind isEqualToString:kFlowFindColor]) return @[
+        @{ @"title": @"区域", @"keys": @[ @"X1", @"Y1", @"X2", @"Y2" ] },
+        @{ @"title": @"颜色", @"keys": @[ @"Color", @"Tolerance" ] },
+    ];
+    if ([kind isEqualToString:kFlowImage]) return @[
+        @{ @"title": @"模板", @"keys": @[ @"Template" ] },
+        @{ @"title": @"匹配", @"keys": @[ @"Threshold" ] },
+    ];
+    return @[];
+}
+
+#pragma mark - 列表行
+
 // 列表里的一行：左滑露出「删除」，长按拿起后上下拖动换顺序
 @interface FWStepRowView : UIView <UIGestureRecognizerDelegate>
-@property (nonatomic, strong) UIView   *content;     // 会被左右平移的那层（序号 + 图标 + 文字）
-@property (nonatomic, strong) UILabel  *numberLabel;
+@property (nonatomic, strong) UIView   *content;     // 会被左右平移的那层
+@property (nonatomic, strong) UILabel  *numberLabel; // 排序时要重编号
 @property (nonatomic, strong) UIButton *deleteBtn;
 @property (nonatomic, weak)   NSDictionary *step;    // 排序时靠它把视图和数据对上
 @property (nonatomic) BOOL swipeEnabled;             // 能左滑删除
@@ -47,11 +105,11 @@ static NSString * const kPagePreview = @"preview";  // 生成出来的 Python �
     self = [super initWithFrame:frame];
     if (self) {
         // 行自己就是圆角容器：左滑时拽出去的那层被裁掉，删除块正好填满右边
-        self.layer.cornerRadius = 8;
+        self.layer.cornerRadius = 12;
         self.clipsToBounds = YES;
 
         _deleteBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        _deleteBtn.backgroundColor = [UIColor systemRedColor];
+        _deleteBtn.backgroundColor = ZXPalette(ZXPalDanger);
         _deleteBtn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
         [_deleteBtn setTitle:@"删除" forState:UIControlStateNormal];
         [_deleteBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
@@ -64,8 +122,8 @@ static NSString * const kPagePreview = @"preview";  // 生成出来的 Python �
         [self addSubview:_deleteBtn];
 
         _content = [[UIView alloc] initWithFrame:self.bounds];
-        _content.backgroundColor = [UIColor secondarySystemBackgroundColor];
-        _content.layer.cornerRadius = 8;
+        _content.backgroundColor = ZXPalette(ZXPalRow);
+        _content.layer.cornerRadius = 12;
         [self addSubview:_content];
 
         [_content addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)]];
@@ -87,6 +145,23 @@ static NSString * const kPagePreview = @"preview";  // 生成出来的 Python �
     _deleteBtn.frame = CGRectMake(self.bounds.size.width - FW_DELETE_W, 0, FW_DELETE_W, self.bounds.size.height);
     // 平移中（transform 非单位矩阵）不能碰 frame，UIKit 会算错
     if (CGAffineTransformIsIdentity(_content.transform)) _content.frame = self.bounds;
+}
+
+// 按下去给一点反馈：整行压暗一档，抬手 / 被手势抢走就还原
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [super touchesBegan:touches withEvent:event];
+    [UIView animateWithDuration:0.1 animations:^{ self->_content.alpha = 0.68f; }];
+}
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [super touchesEnded:touches withEvent:event];
+    [self resetPressFeedback];
+}
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [super touchesCancelled:touches withEvent:event];
+    [self resetPressFeedback];
+}
+- (void)resetPressFeedback {
+    [UIView animateWithDuration:0.16 animations:^{ self->_content.alpha = 1.0f; }];
 }
 
 // 露着「删除」时点一下 = 收回来，不触发进参数页
@@ -177,6 +252,10 @@ static FlowWindow *_fwShared = nil;
     FWStepRowView               *_dragRow;
     NSInteger                    _dragIndex;
     CGFloat                      _dragStartY;
+
+    BOOL                         _animateTransition;   // 换页时淡入 + 上移
+    UIView                      *_addSheet;           // 半屏「添加步骤」的遮罩（含面板）
+    UIView                      *_addSheetPanel;
 }
 
 + (instancetype)shared {
@@ -204,6 +283,7 @@ static FlowWindow *_fwShared = nil;
 
     _stack = [NSMutableArray array];
     [_stack addObject:[self rootPage]];
+    _animateTransition = YES;
     [self refresh];
     if (_handwritten) {
         showAlertBox(@"提示", @"这个脚本的 main.py 是手写的，在这里保存会用流程覆盖它。", 3);
@@ -238,12 +318,16 @@ static FlowWindow *_fwShared = nil;
 }
 
 - (void)pushPage:(NSDictionary *)page {
+    _animateTransition = YES;
     [_stack addObject:[page mutableCopy]];
     [self refresh];
 }
 
 - (void)goBack {
-    if (_stack.count > 1) [_stack removeLastObject];
+    if (_stack.count > 1) {
+        _animateTransition = YES;
+        [_stack removeLastObject];
+    }
     [self refresh];
 }
 
@@ -261,21 +345,14 @@ static FlowWindow *_fwShared = nil;
     [self pushPage:@{ @"kind": kPageList, @"title": title, @"steps": step[key], @"branch": @YES }];
 }
 
-- (void)pushTypesPage {
-    BOOL branch = [_stack.lastObject[@"branch"] boolValue];
-    [self pushPage:@{ @"kind": kPageTypes, @"title": @"添加步骤", @"branch": @(branch) }];
-}
-
+// 加一步：加完直接停在它的参数页
 - (void)addStepOfKind:(NSString *)kind {
-    if (_stack.count < 2) return;
-    NSMutableArray *steps = _stack[_stack.count - 2][@"steps"];
-    if (![steps isKindOfClass:[NSMutableArray class]]) return;
+    NSMutableArray *steps = [self currentSteps];
+    if (!steps) return;
     NSMutableDictionary *step = [FlowScript newStepOfKind:kind];
     if (!step) return;
-
     [steps addObject:step];
-    [_stack removeLastObject];   // 类型选择页换成参数页
-    [self pushPage:@{ @"kind": kPageParams, @"title": [FlowScript typeForKind:kind].title ?: @"步骤", @"step": step }];
+    [self pushParamsPageForStep:step];
 }
 
 #pragma mark - 长按拖动排序
@@ -295,7 +372,7 @@ static FlowWindow *_fwShared = nil;
     for (NSUInteger i = 0; i < steps.count; i++) {
         FWStepRowView *row = [self rowForStep:steps[i]];
         if (!row) continue;
-        row.numberLabel.text = [NSString stringWithFormat:@"%lu.", (unsigned long)i + 1];
+        row.numberLabel.text = [NSString stringWithFormat:@"%lu", (unsigned long)i + 1];
         if (row == skip) continue;
         row.frame = CGRectMake(row.frame.origin.x, _rowsTop + i * stepH, row.frame.size.width, FW_ROW_H);
     }
@@ -389,7 +466,8 @@ static FlowWindow *_fwShared = nil;
     NSArray<NSString *> *targets = type.pickTargets;
     if (targets.count == 0) return;
 
-    if (type.pickMode == FlowPickModePoint || type.pickMode == FlowPickModeRect) {
+    if (type.pickMode == FlowPickModePoint || type.pickMode == FlowPickModePath ||
+        type.pickMode == FlowPickModeRect) {
         // 起点 / 终点分开写：滑动要的是方向，不能被外接矩形抹掉
         CGPoint start = [result[kPickStart] CGPointValue];
         CGPoint end = [result[kPickEnd] CGPointValue];
@@ -408,19 +486,45 @@ static FlowWindow *_fwShared = nil;
     }
 }
 
+// 取点按钮右侧的回显：已经取到的值
+- (NSString *)pickDetailForStep:(NSDictionary *)step type:(FlowStepType *)type {
+    NSArray<NSString *> *t = type.pickTargets;
+    NSString *v = ^NSString *(NSUInteger i) {
+        return (i < t.count) ? [FlowScript textForValue:step[t[i]]] : @"";
+    };
+    switch (type.pickMode) {
+        case FlowPickModePoint:
+            return [NSString stringWithFormat:@"%@, %@", v(0), v(1)];
+        case FlowPickModeColor:
+            return [NSString stringWithFormat:@"%@, %@   #%@", v(0), v(1),
+                    [FlowScript textForValue:step[@"Color"]]];
+        case FlowPickModePath:
+            return [NSString stringWithFormat:@"%@,%@ → %@,%@", v(0), v(1), v(2), v(3)];
+        case FlowPickModeRect:
+            return [NSString stringWithFormat:@"%@,%@ → %@,%@", v(0), v(1), v(2), v(3)];
+        case FlowPickModeTemplate: {
+            NSString *name = v(0);
+            return name.length ? name : @"还没框选";
+        }
+        default:
+            return nil;
+    }
+}
+
 #pragma mark - 行控件
 
-// 列表里的一行：序号（可选）+ 图标 + 大标题（+ 小字细节）
+// 列表里的一行：序号 + 左侧色条 + 图标底 + 标题 / 细节 + 右侧把手
 // deletable = 能左滑删除，sortable = 能长按拖动排序
-- (FWStepRowView *)makeRowWithTitle:(NSString *)title
-                             detail:(NSString *)detail
-                              index:(NSInteger)index
-                             symbol:(NSString *)symbol
-                          deletable:(BOOL)deletable
-                           sortable:(BOOL)sortable
-                              width:(CGFloat)w
-                              onTap:(void (^)(void))onTap
-                           onDelete:(void (^)(void))onDelete
+- (FWStepRowView *)makeStepRow:(NSString *)title
+                        detail:(NSString *)detail
+                         index:(NSInteger)index
+                        symbol:(NSString *)symbol
+                         color:(UIColor *)color
+                     deletable:(BOOL)deletable
+                      sortable:(BOOL)sortable
+                         width:(CGFloat)w
+                         onTap:(void (^)(void))onTap
+                      onDelete:(void (^)(void))onDelete
 {
     FWStepRowView *row = [[FWStepRowView alloc] initWithFrame:CGRectMake(0, 0, w, FW_ROW_H)];
     row.swipeEnabled = deletable;
@@ -428,56 +532,103 @@ static FlowWindow *_fwShared = nil;
     row.onTap = onTap;
     row.onDelete = onDelete;
 
-    CGFloat left = 12.0f;
     if (index >= 0) {
-        row.numberLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, 22, FW_ROW_H)];
-        row.numberLabel.text = [NSString stringWithFormat:@"%ld.", (long)index + 1];
-        row.numberLabel.font = [UIFont systemFontOfSize:12];
-        row.numberLabel.textColor = [UIColor secondaryLabelColor];
-        [row.content addSubview:row.numberLabel];
-        left = 34.0f;
+        UILabel *number = [[UILabel alloc] initWithFrame:CGRectMake(8, 0, 20, FW_ROW_H)];
+        number.text = [NSString stringWithFormat:@"%ld", (long)index + 1];
+        number.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightMedium];
+        number.textColor = ZXPalette(ZXPalSub);
+        number.textAlignment = NSTextAlignmentCenter;
+        [row.content addSubview:number];
+        row.numberLabel = number;
     }
 
-    if (symbol.length > 0) {
-        UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(left, (FW_ROW_H - 17) / 2.0f, 17, 17)];
-        icon.image = [UIImage systemImageNamed:symbol];
-        icon.tintColor = [UIColor systemBlueColor];
-        icon.contentMode = UIViewContentModeScaleAspectFit;
-        [row.content addSubview:icon];
-        left += 17.0f + 7.0f;
-    }
+    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(34, 12, 3, FW_ROW_H - 24)];
+    bar.backgroundColor = color;
+    bar.layer.cornerRadius = 1.5;
+    [row.content addSubview:bar];
 
-    CGFloat textW = w - left - 12.0f;
-    UILabel *main = [[UILabel alloc] initWithFrame:CGRectMake(left, detail.length > 0 ? 5 : 0, textW, detail.length > 0 ? 19 : FW_ROW_H)];
+    UIView *tile = [[UIView alloc] initWithFrame:CGRectMake(45, (FW_ROW_H - 28) / 2.0f, 28, 28)];
+    tile.backgroundColor = [color colorWithAlphaComponent:0.16];
+    tile.layer.cornerRadius = 8;
+    [row.content addSubview:tile];
+
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbol]];
+    icon.tintColor = color;
+    icon.contentMode = UIViewContentModeScaleAspectFit;
+    icon.frame = CGRectInset(tile.bounds, 5, 5);
+    [tile addSubview:icon];
+
+    CGFloat textX = 83.0f;
+    CGFloat textW = MAX(w - textX - (sortable ? 34.0f : 12.0f), 60.0f);
+    UILabel *main = [[UILabel alloc] initWithFrame:CGRectMake(textX, detail.length ? 10 : 0,
+                                                              textW, detail.length ? 20 : FW_ROW_H)];
     main.text = title;
-    main.font = [UIFont systemFontOfSize:14];
-    main.textColor = [UIColor labelColor];
+    main.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    main.textColor = ZXPalette(ZXPalText);
     main.adjustsFontSizeToFitWidth = YES;
     main.minimumScaleFactor = 0.8;
     [row.content addSubview:main];
 
     if (detail.length > 0) {
-        UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(left, 24, textW, 16)];
+        UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(textX, 30, textW, 16)];
         sub.text = detail;
-        sub.font = [UIFont systemFontOfSize:11];
-        sub.textColor = [UIColor secondaryLabelColor];
+        sub.font = [UIFont systemFontOfSize:12];
+        sub.textColor = ZXPalette(ZXPalSub);
         sub.adjustsFontSizeToFitWidth = YES;
-        sub.minimumScaleFactor = 0.8;
+        sub.minimumScaleFactor = 0.75;
         [row.content addSubview:sub];
+    }
+
+    if (sortable) {
+        UIImageView *handle = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal"]];
+        handle.tintColor = ZXPalette(ZXPalSub);
+        handle.contentMode = UIViewContentModeScaleAspectFit;
+        handle.frame = CGRectMake(w - 30.0f, (FW_ROW_H - 16) / 2.0f, 16, 16);
+        [row.content addSubview:handle];
     }
     return row;
 }
 
-- (UIView *)makeActionRow:(NSString *)title color:(UIColor *)color width:(CGFloat)w action:(void (^)(void))action {
+// 一整行的按钮：标题左对齐 + 右侧细节
+// primary = 主操作（青绿底 + 青绿描边），否则就是一张普通卡片
+- (UIView *)makeActionRow:(NSString *)title
+                   detail:(NSString *)detail
+                    color:(UIColor *)color
+                  primary:(BOOL)primary
+                    width:(CGFloat)w
+                   action:(void (^)(void))action
+{
     UIButton *row = [UIButton buttonWithType:UIButtonTypeSystem];
-    row.frame = CGRectMake(0, 0, w, FW_ROW_H);
-    row.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    row.layer.cornerRadius = 8;
-    row.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    row.titleLabel.font = [UIFont systemFontOfSize:14];
-    // 左对齐时标题贴着框边，前面留一个空格当内边距
-    [row setTitle:[NSString stringWithFormat:@"  %@", title] forState:UIControlStateNormal];
-    [row setTitleColor:color forState:UIControlStateNormal];
+    CGFloat rowH = FW_ROW_H - 10.0f;
+    row.frame = CGRectMake(0, 0, w, rowH);
+    row.backgroundColor = primary ? [color colorWithAlphaComponent:0.16] : ZXPalette(ZXPalRow);
+    row.layer.cornerRadius = 10;
+    row.layer.borderWidth = 1;
+    row.layer.borderColor = (primary ? [color colorWithAlphaComponent:0.55] : ZXPalette(ZXPalLine)).CGColor;
+
+    // 标题和右侧细节都自己摆：按钮自带的 titleLabel 没法定宽，窄面板上会和细节叠字
+    CGFloat detailW = (detail.length > 0) ? MAX(w * 0.52f, 90.0f) : 0;
+    UILabel *main = [[UILabel alloc] initWithFrame:CGRectMake(14, 0, MAX(w - 28 - detailW - 8, 60), rowH)];
+    main.text = title;
+    main.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    main.textColor = primary ? color : ZXPalette(ZXPalText);
+    main.adjustsFontSizeToFitWidth = YES;
+    main.minimumScaleFactor = 0.75;
+    main.userInteractionEnabled = NO;
+    [row addSubview:main];
+
+    if (detail.length > 0) {
+        UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(w - 14 - detailW, 0, detailW, rowH)];
+        sub.text = detail;
+        sub.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightMedium];
+        sub.textColor = primary ? color : ZXPalette(ZXPalValue);
+        sub.textAlignment = NSTextAlignmentRight;
+        sub.adjustsFontSizeToFitWidth = YES;
+        sub.minimumScaleFactor = 0.7;
+        sub.userInteractionEnabled = NO;
+        [row addSubview:sub];
+    }
+
     [row addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
         if (action) action();
     }] forControlEvents:UIControlEventTouchUpInside];
@@ -491,30 +642,35 @@ static FlowWindow *_fwShared = nil;
                    width:(CGFloat)w
                 onChange:(void (^)(NSString *text))onChange
 {
-    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, FW_ROW_H)];
-    row.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    row.layer.cornerRadius = 8;
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, FW_ROW_H - 10.0f)];
+    row.backgroundColor = ZXPalette(ZXPalRow);
+    row.layer.cornerRadius = 10;
+    row.layer.borderWidth = 1;
+    row.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
 
-    CGFloat labelW = MIN(170.0f, w * 0.42f);
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, labelW, FW_ROW_H)];
+    CGFloat labelW = MIN(180.0f, w * 0.46f);
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, labelW, row.frame.size.height)];
     label.text = title;
     label.font = [UIFont systemFontOfSize:13];
-    label.textColor = [UIColor labelColor];
+    label.textColor = ZXPalette(ZXPalSub);
     label.adjustsFontSizeToFitWidth = YES;
     label.minimumScaleFactor = 0.75;
     [row addSubview:label];
 
     CGFloat fieldX = 12 + labelW + 6;
-    UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(fieldX, 7, MAX(w - fieldX - 12, 60), FW_ROW_H - 14)];
-    field.font = [UIFont systemFontOfSize:14];
-    field.textColor = [UIColor labelColor];
-    field.backgroundColor = [UIColor systemBackgroundColor];
+    CGFloat fieldH = row.frame.size.height - 12.0f;
+    UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(fieldX, 6, MAX(w - fieldX - 12, 60), fieldH)];
+    field.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    field.textColor = ZXPalette(ZXPalValue);
+    field.tintColor = ZXPalette(ZXPalAccent);
+    field.backgroundColor = ZXPalette(ZXPalField);
     field.layer.cornerRadius = 8;
-    field.layer.borderColor = [UIColor separatorColor].CGColor;
+    field.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
     field.layer.borderWidth = 1;
     field.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     field.keyboardType = integer ? UIKeyboardTypeDecimalPad : UIKeyboardTypeDefault;
     field.inputAccessoryView = [self keyboardAccessory];
+    field.textAlignment = NSTextAlignmentLeft;
     field.text = [FlowScript textForValue:value];
     [field addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
         if (onChange) onChange(field.text ?: @"");
@@ -541,6 +697,170 @@ static FlowWindow *_fwShared = nil;
     [_scroll endEditing:YES];
 }
 
+#pragma mark - 半屏「添加步骤」面板
+
+// 面板挂在选项面板窗口的整屏容器上（不受卡片 553×598.5 的裁剪），所以能做成底部半屏
+- (void)showAddSheet {
+    if (_addSheet) return;
+    UIView *host = [_host flowHostOverlayContainer];
+    if (!host) return;
+
+    BOOL branch = [_stack.lastObject[@"branch"] boolValue];
+    NSArray<FlowStepType *> *all = branch ? [FlowScript simpleStepTypes] : [FlowScript allStepTypes];
+    NSMutableArray<FlowStepType *> *actions = [NSMutableArray array];
+    NSMutableArray<FlowStepType *> *conditions = [NSMutableArray array];
+    for (FlowStepType *type in all) {
+        [(type.isCondition ? conditions : actions) addObject:type];
+    }
+    if (all.count == 0) return;
+
+    CGFloat hostW = MAX(host.bounds.size.width, 240.0f);
+    CGFloat hostH = MAX(host.bounds.size.height, 320.0f);
+    CGFloat pad = 20.0f;
+    CGFloat cellGap = 8.0f;
+    NSInteger cols = ((hostW - pad * 2) >= 520.0f) ? 3 : 2;
+    CGFloat cellW = floor((hostW - pad * 2 - cellGap * (cols - 1)) / cols);
+
+    NSArray<NSDictionary *> *groups = @[];
+    if (actions.count > 0) {
+        groups = [groups arrayByAddingObject:@{ @"title": @"触摸动作", @"types": actions }];
+    }
+    if (conditions.count > 0) {
+        groups = [groups arrayByAddingObject:@{ @"title": @"判断条件", @"types": conditions }];
+    }
+
+    // 先量面板高度：标题行 + 每组（小标题 + 若干行格子）
+    CGFloat contentH = 0;
+    for (NSDictionary *group in groups) {
+        NSArray *types = group[@"types"];
+        NSInteger lines = (NSInteger)ceil((double)types.count / cols);
+        contentH += 26.0f + lines * FW_CELL_H + (lines - 1) * cellGap + 14.0f;
+    }
+    CGFloat panelH = MIN(14.0f + 30.0f + contentH + 20.0f, hostH - 60.0f);
+
+    UIView *dim = [[UIView alloc] initWithFrame:host.bounds];
+    dim.backgroundColor = [UIColor colorWithWhite:0 alpha:0.34];
+    dim.alpha = 0;
+    [dim addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissAddSheet)]];
+
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, hostH - panelH, hostW, panelH)];
+    panel.backgroundColor = ZXPalette(ZXPalCard);
+    // 只露上半截，下面两角就贴在屏幕边上，四角都圆一下效果一样，还省掉 mask 那层
+    panel.layer.cornerRadius = 18;
+    [dim addSubview:panel];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(pad, 14, hostW - pad * 2 - 70, 30)];
+    title.text = @"添加步骤";
+    title.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    title.textColor = ZXPalette(ZXPalText);
+    [panel addSubview:title];
+
+    UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
+    cancel.frame = CGRectMake(hostW - pad - 58, 17, 58, 26);
+    cancel.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    cancel.backgroundColor = ZXPalette(ZXPalField);
+    cancel.layer.cornerRadius = 13;
+    [cancel setTitle:@"取消" forState:UIControlStateNormal];
+    [cancel setTitleColor:ZXPalette(ZXPalSub) forState:UIControlStateNormal];
+    [cancel addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [self dismissAddSheet];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [panel addSubview:cancel];
+
+    __weak typeof(self) weakSelf = self;
+    CGFloat y = 54.0f;
+    for (NSDictionary *group in groups) {
+        UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(pad, y, hostW - pad * 2, 18)];
+        label.text = group[@"title"];
+        label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        label.textColor = ZXPalette(ZXPalSub);
+        [panel addSubview:label];
+        y += 26.0f;
+
+        NSArray<FlowStepType *> *types = group[@"types"];
+        for (NSUInteger i = 0; i < types.count; i++) {
+            FlowStepType *type = types[i];
+            NSInteger col = (NSInteger)(i % cols);
+            NSInteger line = (NSInteger)(i / cols);
+            UIButton *cell = [UIButton buttonWithType:UIButtonTypeSystem];
+            cell.frame = CGRectMake(pad + col * (cellW + cellGap), y + line * (FW_CELL_H + cellGap),
+                                    cellW, FW_CELL_H);
+            cell.backgroundColor = ZXPalette(ZXPalRow);
+            cell.layer.cornerRadius = 12;
+            cell.layer.borderWidth = 1;
+            cell.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
+
+            UIColor *color = fwTypeColor(type.kind);
+            UIView *tile = [[UIView alloc] initWithFrame:CGRectMake(12, (FW_CELL_H - 26) / 2.0f, 26, 26)];
+            tile.backgroundColor = [color colorWithAlphaComponent:0.16];
+            tile.layer.cornerRadius = 8;
+            tile.userInteractionEnabled = NO;
+            [cell addSubview:tile];
+
+            UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:type.symbolName]];
+            icon.tintColor = color;
+            icon.contentMode = UIViewContentModeScaleAspectFit;
+            icon.frame = CGRectInset(tile.bounds, 5, 5);
+            [tile addSubview:icon];
+
+            UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(46, 0, MAX(cellW - 54, 40), FW_CELL_H)];
+            name.text = type.title;
+            name.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+            name.textColor = ZXPalette(ZXPalText);
+            name.adjustsFontSizeToFitWidth = YES;
+            name.minimumScaleFactor = 0.8;
+            name.userInteractionEnabled = NO;
+            [cell addSubview:name];
+
+            NSString *kind = type.kind;
+            [cell addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                FlowWindow *strongSelf = weakSelf;
+                if (!strongSelf) return;
+                [strongSelf closeAddSheetThen:^{ [strongSelf addStepOfKind:kind]; }];
+            }] forControlEvents:UIControlEventTouchUpInside];
+            [panel addSubview:cell];
+        }
+        y += (CGFloat)ceil((double)types.count / cols) * FW_CELL_H
+           + (CGFloat)(ceil((double)types.count / cols) - 1) * cellGap + 14.0f;
+    }
+
+    _addSheet = dim;
+    _addSheetPanel = panel;
+    [host addSubview:dim];
+
+    panel.transform = CGAffineTransformMakeTranslation(0, panelH);
+    [UIView animateWithDuration:0.24 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        dim.alpha = 1;
+        panel.transform = CGAffineTransformIdentity;
+    } completion:nil];
+}
+
+- (void)dismissAddSheet {
+    [self closeAddSheetThen:nil];
+}
+
+- (void)closeAddSheetThen:(void (^)(void))done {
+    UIView *dim = _addSheet, *panel = _addSheetPanel;
+    _addSheet = nil;
+    _addSheetPanel = nil;
+    if (!dim) {
+        if (done) done();
+        return;
+    }
+    [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
+        dim.alpha = 0;
+        panel.transform = CGAffineTransformMakeTranslation(0, panel.bounds.size.height);
+    } completion:^(BOOL finished) {
+        [dim removeFromSuperview];
+        if (done) done();
+    }];
+}
+
+// 面板整体收起（点 ✕ / 隐藏）时把半屏面板一起收掉，否则它会飘在游戏上
+- (void)hideOverlays {
+    [self closeAddSheetThen:nil];
+}
+
 #pragma mark - 内容刷新
 
 - (CGFloat)addRow:(UIView *)row y:(CGFloat)y {
@@ -553,8 +873,24 @@ static FlowWindow *_fwShared = nil;
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, y, pw - 24, 18)];
     label.text = text;
     label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
-    label.textColor = [UIColor secondaryLabelColor];
+    label.textColor = ZXPalette(ZXPalSub);
     [_scroll addSubview:label];
+}
+
+- (FlowFieldSpec *)specForKey:(NSString *)key inType:(FlowStepType *)type {
+    for (FlowFieldSpec *spec in type.fields) {
+        if ([spec.key isEqualToString:key]) return spec;
+    }
+    return nil;
+}
+
+- (UIView *)fieldRowForSpec:(FlowFieldSpec *)spec step:(NSMutableDictionary *)step width:(CGFloat)w {
+    NSString *key = spec.key;
+    BOOL integer = spec.integer;
+    return [self makeValueRow:spec.title value:step[key] integer:integer width:w
+                     onChange:^(NSString *text) {
+                         step[key] = [FlowScript valueFromText:text integer:integer];
+                     }];
 }
 
 - (void)refresh {
@@ -577,6 +913,9 @@ static FlowWindow *_fwShared = nil;
     BOOL isRoot = [page[@"isRoot"] boolValue];
     [_host flowHostSetNavigationTitle:page[@"title"] canGoBack:!isRoot];
 
+    BOOL animate = _animateTransition;
+    _animateTransition = NO;
+
     if ([kind isEqualToString:kPagePreview]) {
         [_host flowHostShowPreviewText:[FlowScript pythonSourceForFlow:_flow]];
         return;
@@ -588,27 +927,34 @@ static FlowWindow *_fwShared = nil;
     if ([kind isEqualToString:kPageList]) {
         NSArray *steps = page[@"steps"];
         if (steps.count == 0) {
-            [self addSectionLabel:(isRoot ? @"还没有步骤。点下面「添加步骤」开始拼。" : @"这一支还没有动作。") width:_pw y:y];
-            y += 24;
+            UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(12, y, _pw - 24, 38)];
+            hint.numberOfLines = 0;
+            hint.font = [UIFont systemFontOfSize:12];
+            hint.textColor = ZXPalette(ZXPalSub);
+            hint.text = isRoot ? @"还没有步骤。点下面的「添加步骤」开始拼一条流程。"
+                               : @"这一支还没有动作。";
+            [_scroll addSubview:hint];
+            y += 46;
         } else {
             _rowsTop = y;
             for (NSInteger i = 0; i < (NSInteger)steps.count; i++) {
                 NSDictionary *step = steps[i];
                 if (![step isKindOfClass:[NSDictionary class]]) continue;
                 FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
-                FWStepRowView *row = [self makeRowWithTitle:[FlowScript summaryForStep:step]
-                                                     detail:[FlowScript detailForStep:step]
-                                                      index:i
-                                                     symbol:type.symbolName
-                                                  deletable:YES
-                                                   sortable:YES
-                                                      width:rowW
-                                                      onTap:^{
-                                                          [self pushParamsPageForStep:(NSMutableDictionary *)step];
-                                                      }
-                                                   onDelete:^{
-                                                       [self deleteStep:(NSMutableDictionary *)step];
-                                                   }];
+                FWStepRowView *row = [self makeStepRow:[FlowScript summaryForStep:step]
+                                                detail:[FlowScript detailForStep:step]
+                                                 index:i
+                                                symbol:type.symbolName
+                                                 color:fwTypeColor(type.kind)
+                                             deletable:YES
+                                              sortable:YES
+                                                 width:rowW
+                                                 onTap:^{
+                                                     [self pushParamsPageForStep:(NSMutableDictionary *)step];
+                                                 }
+                                              onDelete:^{
+                                                  [self deleteStep:(NSMutableDictionary *)step];
+                                              }];
                 __weak typeof(self) weakSelf = self;
                 __weak FWStepRowView *weakRow = row;   // 行持有 block、block 又持有行 → 这里必须弱引用，否则漏一组视图
                 row.onDragBegan = ^{ [weakSelf beginDragRow:weakRow]; };
@@ -620,15 +966,14 @@ static FlowWindow *_fwShared = nil;
             }
         }
 
-        UIView *add = [self makeActionRow:@"＋ 添加步骤" color:[UIColor systemBlueColor] width:rowW action:^{
-            [self pushTypesPage];
-        }];
+        UIView *add = [self makeActionRow:@"＋  添加步骤" detail:nil color:ZXPalette(ZXPalAccent) primary:YES
+                                    width:rowW action:^{ [self showAddSheet]; }];
         y = [self addRow:add y:y];
 
         if (isRoot) {
             y += 6;
             [self addSectionLabel:@"运行方式" width:_pw y:y];
-            y += 22;
+            y += 24;
             UIView *loopTimes = [self makeValueRow:@"循环次数（0 = 一直循环）" value:_flow[@"LoopTimes"] integer:YES width:rowW
                                           onChange:^(NSString *text) {
                                               self->_flow[@"LoopTimes"] = [FlowScript valueFromText:text integer:YES];
@@ -640,68 +985,83 @@ static FlowWindow *_fwShared = nil;
                                              }];
             y = [self addRow:loopInterval y:y];
         }
-    } else if ([kind isEqualToString:kPageTypes]) {
-        NSArray<FlowStepType *> *types = [page[@"branch"] boolValue] ? [FlowScript simpleStepTypes]
-                                                                    : [FlowScript allStepTypes];
-        for (FlowStepType *type in types) {
-            NSString *kindName = type.kind;
-            // 用小字提示这一步大概要填什么，免得只看到「识色 / 找色 / 识图」分不清
-            NSString *hint = [FlowScript summaryForStep:[FlowScript newStepOfKind:kindName]];
-            FWStepRowView *row = [self makeRowWithTitle:type.title detail:hint index:-1
-                                                 symbol:type.symbolName
-                                              deletable:NO sortable:NO width:rowW
-                                                  onTap:^{ [self addStepOfKind:kindName]; }
-                                               onDelete:nil];
-            y = [self addRow:row y:y];
-        }
     } else if ([kind isEqualToString:kPageParams]) {
         NSMutableDictionary *step = page[@"step"];
         FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
         if (!type) return;
 
         if (type.pickMode != FlowPickModeNone) {
-            UIView *pick = [self makeActionRow:type.pickActionTitle color:[UIColor systemBlueColor] width:rowW action:^{
-                [self beginPickingForStep:step type:type];
-            }];
+            UIView *pick = [self makeActionRow:type.pickActionTitle
+                                        detail:[self pickDetailForStep:step type:type]
+                                         color:ZXPalette(ZXPalAccent) primary:YES width:rowW
+                                        action:^{ [self beginPickingForStep:step type:type]; }];
             y = [self addRow:pick y:y];
         }
 
+        NSArray<NSDictionary<NSString *, id> *> *groups = fwGroupsForKind(step[@"Kind"]);
+        NSMutableSet<NSString *> *used = [NSMutableSet set];
+        for (NSDictionary<NSString *, id> *group in groups) {
+            NSMutableArray<FlowFieldSpec *> *specs = [NSMutableArray array];
+            for (NSString *key in group[@"keys"]) {
+                FlowFieldSpec *spec = [self specForKey:key inType:type];
+                if (spec) { [specs addObject:spec]; [used addObject:key]; }
+            }
+            if (specs.count == 0) continue;
+            y += 4;
+            [self addSectionLabel:group[@"title"] width:_pw y:y];
+            y += 24;
+            for (FlowFieldSpec *spec in specs) {
+                y = [self addRow:[self fieldRowForSpec:spec step:step width:rowW] y:y];
+            }
+        }
+        // 兜底：分组表没列到的字段也要显示出来，别让参数凭空消失
+        NSMutableArray<FlowFieldSpec *> *rest = [NSMutableArray array];
         for (FlowFieldSpec *spec in type.fields) {
-            NSString *key = spec.key;
-            BOOL integer = spec.integer;
-            UIView *row = [self makeValueRow:spec.title value:step[key] integer:integer width:rowW
-                                    onChange:^(NSString *text) {
-                                        step[key] = [FlowScript valueFromText:text integer:integer];
-                                    }];
-            y = [self addRow:row y:y];
+            if (![used containsObject:spec.key]) [rest addObject:spec];
+        }
+        if (rest.count > 0) {
+            y += 4;
+            [self addSectionLabel:@"其他" width:_pw y:y];
+            y += 24;
+            for (FlowFieldSpec *spec in rest) {
+                y = [self addRow:[self fieldRowForSpec:spec step:step width:rowW] y:y];
+            }
         }
 
         if (type.isCondition) {
-            y += 4;
+            y += 6;
             [self addSectionLabel:@"成立 / 不成立时要做什么" width:_pw y:y];
-            y += 22;
+            y += 24;
             NSArray<NSString *> *keys = @[ @"Then", @"Else" ];
             NSArray<NSString *> *titles = @[ @"成立时", @"不成立时" ];
             for (NSInteger i = 0; i < 2; i++) {
                 NSString *key = keys[i];
                 NSArray *actions = [step[key] isKindOfClass:[NSArray class]] ? step[key] : @[];
-                NSString *title = [NSString stringWithFormat:@"%@（%lu 个动作）▸", titles[i], (unsigned long)actions.count];
-                UIView *row = [self makeActionRow:title color:[UIColor labelColor] width:rowW action:^{
-                    [self pushBranchPageForStep:step key:key title:titles[i]];
-                }];
+                NSString *detail = [NSString stringWithFormat:@"%lu 个动作", (unsigned long)actions.count];
+                UIView *row = [self makeActionRow:titles[i] detail:detail color:ZXPalette(ZXPalText)
+                                          primary:NO width:rowW
+                                           action:^{ [self pushBranchPageForStep:step key:key title:titles[i]]; }];
                 y = [self addRow:row y:y];
             }
         }
 
-        y += 6;
-        UIView *deleteRow = [self makeActionRow:@"删除这一步" color:[UIColor systemRedColor] width:rowW action:^{
-            [self deleteCurrentStep];
-        }];
+        y += 8;
+        UIView *deleteRow = [self makeActionRow:@"删除这一步" detail:nil color:ZXPalette(ZXPalDanger)
+                                        primary:NO width:rowW action:^{ [self deleteCurrentStep]; }];
         y = [self addRow:deleteRow y:y];
     }
 
-    scroll.contentSize = CGSizeMake(_pw, y + 4);
+    scroll.contentSize = CGSizeMake(_pw, y + 8);
     [scroll setContentOffset:CGPointZero animated:NO];
+
+    if (animate) {
+        scroll.alpha = 0;
+        scroll.transform = CGAffineTransformMakeTranslation(0, 8);
+        [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+            scroll.alpha = 1;
+            scroll.transform = CGAffineTransformIdentity;
+        } completion:nil];
+    }
 }
 
 @end

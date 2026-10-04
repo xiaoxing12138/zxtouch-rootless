@@ -18,6 +18,8 @@
 - (UIScrollView *)flowHostScrollView;
 /// 行宽基准（= 面板宽度）
 - (CGFloat)flowHostContentWidth;
+/// 覆盖层容器：整屏、在卡片之上（底部半屏「添加步骤」挂这里，不受卡片尺寸裁剪）
+- (UIView *)flowHostOverlayContainer;
 /// 顶栏左边那个按钮：canGoBack=NO 显示「脚本：title」点=挑脚本，YES 显示「← title」点=返回
 - (void)flowHostSetNavigationTitle:(NSString *)title canGoBack:(BOOL)canGoBack;
 /// 取点时把卡片藏起来（卡片会被烤进冻结帧、也挡游戏画面）
@@ -41,6 +43,9 @@
 
 /// 顶栏左键返回上一页（根页什么都不做）
 - (void)goBack;
+
+/// 收起编辑器自己弹出的覆盖层（底部半屏「添加步骤」）；面板整体收起时要调
+- (void)hideOverlays;
 
 /// 存盘：写 flow.plist + 重新生成 main.py；弹提示，成功返回 YES
 - (BOOL)save;

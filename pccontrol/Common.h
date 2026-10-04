@@ -52,6 +52,23 @@ NSString* getDeviceName();
 */
 void ZXLogUIException(NSException *exception);
 
+/*
+ 面板配色：深浅两套写进同一个动态颜色，跟着窗口的 overrideUserInterfaceStyle 切。
+ 全工程只此一份，别在各家 view 里再散落写死色值。
+*/
+typedef NS_ENUM(NSInteger, ZXPaletteRole) {
+    ZXPalCard = 0,   // 卡片 / 面板底
+    ZXPalRow,        // 列表行底
+    ZXPalLine,       // 描边 / 分隔线
+    ZXPalText,       // 主文字
+    ZXPalSub,        // 次文字
+    ZXPalField,      // 输入框底
+    ZXPalAccent,     // 主操作（青绿）
+    ZXPalDanger,     // 危险 / 删除
+    ZXPalValue,      // 参数数值高亮
+};
+UIColor *ZXPalette(ZXPaletteRole role);
+
 static inline void ZXSafeMainAsync(dispatch_block_t block)
 {
     dispatch_async(dispatch_get_main_queue(), ^{

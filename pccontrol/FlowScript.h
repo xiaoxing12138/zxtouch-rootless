@@ -32,6 +32,7 @@ extern NSString * const kFlowImage;      // 识图（条件）
 typedef NS_ENUM(NSInteger, FlowPickMode) {
     FlowPickModeNone = 0,
     FlowPickModePoint,     // 取一个坐标点 → 写回 x/y 键
+    FlowPickModePath,      // 一帧上放两个选择器取起点/终点 → 写回 x1/y1/x2/y2 键
     FlowPickModeRect,      // 框一个区域 → 写回 x1/y1/x2/y2 键
     FlowPickModeColor,     // 取一个点并读它的颜色 → 写回 x/y 与 Color 键
     FlowPickModeTemplate,  // 框选并存成识图模板 → 写回 Template 键
