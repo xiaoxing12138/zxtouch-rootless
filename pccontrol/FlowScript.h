@@ -65,6 +65,8 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 + (nullable FlowStepType *)typeForKind:(NSString *)kind;
 
 + (NSMutableDictionary *)newStepOfKind:(NSString *)kind;
+/// 深拷贝一步（含成立/不成立分支，全部转成可变），用于「复制到下方」
++ (NSMutableDictionary *)mutableStepFromStep:(NSDictionary *)step;
 
 /// 编辑弹窗里拿到的是字符串，这里按字段类型转成 plist 里该存的值
 + (id)valueFromText:(nullable NSString *)text integer:(BOOL)integer;

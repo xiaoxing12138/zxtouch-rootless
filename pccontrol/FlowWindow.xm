@@ -12,15 +12,13 @@
 
 #import <math.h>   // llround / fabs
 
-#define FW_ROW_H    56.0f
+#define FW_ROW_H    45.0f
 #define FW_GAP      8.0f
 #define FW_DELETE_W 88.0f   // 左滑露出来的「删除」宽度
-#define FW_CELL_H   54.0f   // 半屏面板里一个类型格的高度
+#define FW_CELL_H   54.0f   // 「添加步骤」子浮窗里一个类型格的高度
 
-// 页面种类
-static NSString * const kPageList    = @"list";     // 步骤列表（整条流程 / 成立时 / 不成立时）
-static NSString * const kPageParams  = @"params";   // 某一步的参数
-static NSString * const kPagePreview = @"preview";  // 生成出来的 Python 源码
+// 页面种类（参数编辑 / 设置都在子浮窗里，不再是页面）
+static NSString * const kPageList = @"list";   // 步骤列表（整条流程 / 成立时 / 不成立时）
 
 #pragma mark - 配色
 
@@ -35,7 +33,7 @@ static UIColor *fwColor(uint32_t light, uint32_t dark)
     }];
 }
 
-// 每种步骤一个色：左边色条、图标底、半屏面板的格子都用它
+// 每种步骤一个色：左边色条、图标底、子浮窗的格子都用它
 static UIColor *fwTypeColor(NSString *kind)
 {
     if ([kind isEqualToString:kFlowTap])       return fwColor(0x2F6BFF, 0x5A9BFF);
@@ -48,7 +46,7 @@ static UIColor *fwTypeColor(NSString *kind)
     return fwColor(0x4C8DFF, 0x6EA8FF);
 }
 
-// 参数页按语义分组，声明顺序仍然是字段自己的声明顺序
+// 参数按语义分组，声明顺序仍然是字段自己的声明顺序
 static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
 {
     if ([kind isEqualToString:kFlowTap]) return @[
@@ -77,18 +75,80 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
     return @[];
 }
 
+#pragma mark - 定时设置（和 App 的 ScheduleSettingsViewController / 引擎 Schedule.xm 键值一一对应）
+
+static NSString * const kScheduleKey     = @"Schedule";
+static NSString * const kStartMode       = @"StartMode";
+static NSString * const kStartTime       = @"StartTime";
+static NSString * const kWeekdays        = @"Weekdays";
+static NSString * const kEndMode         = @"EndMode";
+static NSString * const kDurationMinutes = @"DurationMinutes";
+static NSString * const kEndTime         = @"EndTime";
+
+static NSString * const kModeManual   = @"manual";
+static NSString * const kModeDaily    = @"daily";
+static NSString * const kModeDuration = @"duration";
+
+/// 把「9:5」「09:30」「9：30」都理成「09:30」；不是合法时刻就返回 nil
+static NSString *fwNormalizeTime(NSString *text)
+{
+    NSString *raw = [[text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
+                     stringByReplacingOccurrencesOfString:@"：" withString:@":"];
+    NSArray<NSString *> *parts = [raw componentsSeparatedByString:@":"];
+    if (parts.count != 2) return nil;
+    NSInteger hour = parts[0].integerValue;
+    NSInteger minute = parts[1].integerValue;
+    if (parts[0].length == 0 || parts[1].length == 0) return nil;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return nil;
+    return [NSString stringWithFormat:@"%02ld:%02ld", (long)hour, (long)minute];
+}
+
+/// 每次改动都立刻写进脚本包的 info.plist；全手动 = Schedule 键整个拿掉，调度器直接跳过
+static void fwPersistSchedule(NSString *bundlePath, NSString *startMode, NSString *startTime,
+                              NSArray<NSNumber *> *weekdays, NSString *endMode,
+                              NSInteger durationMinutes, NSString *endTime)
+{
+    NSString *infoPath = [bundlePath stringByAppendingPathComponent:@"info.plist"];
+    NSDictionary *existing = [NSDictionary dictionaryWithContentsOfFile:infoPath];
+    NSMutableDictionary *info = [existing isKindOfClass:[NSDictionary class]] ? [existing mutableCopy]
+                                                                              : [NSMutableDictionary dictionary];
+
+    NSMutableDictionary *schedule = [NSMutableDictionary dictionary];
+    if ([startMode isEqualToString:kModeDaily]) {
+        schedule[kStartMode] = kModeDaily;
+        schedule[kStartTime] = fwNormalizeTime(startTime) ?: @"09:00";
+        schedule[kWeekdays] = [weekdays copy];          // 空数组 = 每天
+    }
+    if ([endMode isEqualToString:kModeDuration]) {
+        schedule[kEndMode] = kModeDuration;
+        schedule[kDurationMinutes] = @(MAX(1, durationMinutes));
+    } else if ([endMode isEqualToString:kModeDaily]) {
+        schedule[kEndMode] = kModeDaily;
+        schedule[kEndTime] = fwNormalizeTime(endTime) ?: @"23:00";
+    }
+
+    if (schedule.count == 0) [info removeObjectForKey:kScheduleKey];
+    else info[kScheduleKey] = schedule;
+
+    if (![info writeToFile:infoPath atomically:YES]) {
+        showAlertBox(@"错误", @"无法写入 info.plist。", 999);
+    }
+}
+
 #pragma mark - 列表行
 
-// 列表里的一行：左滑露出「删除」，长按拿起后上下拖动换顺序
+// 列表里的一行：左滑露出「删除」，长按弹「复制到下方」，右侧把手按住直接拖动排序
 @interface FWStepRowView : UIView <UIGestureRecognizerDelegate>
 @property (nonatomic, strong) UIView   *content;     // 会被左右平移的那层
 @property (nonatomic, strong) UILabel  *numberLabel; // 排序时要重编号
 @property (nonatomic, strong) UIButton *deleteBtn;
+@property (nonatomic, strong) UIView   *dragHandle;  // 右侧把手（自己挂 pan，有 translationInView 可用）
 @property (nonatomic, weak)   NSDictionary *step;    // 排序时靠它把视图和数据对上
 @property (nonatomic) BOOL swipeEnabled;             // 能左滑删除
-@property (nonatomic) BOOL dragEnabled;              // 能长按排序
+@property (nonatomic) BOOL dragEnabled;              // 把手能拖动排序
 @property (nonatomic, copy) void (^onTap)(void);
 @property (nonatomic, copy) void (^onDelete)(void);
+@property (nonatomic, copy) void (^onCopy)(void);
 @property (nonatomic, copy) void (^onDragBegan)(void);
 @property (nonatomic, copy) void (^onDragMoved)(CGFloat dy);
 @property (nonatomic, copy) void (^onDragEnded)(void);
@@ -97,8 +157,6 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
 @implementation FWStepRowView {
     BOOL    _open;          // 删除按钮是不是已经露出来
     CGFloat _panStartX;
-    BOOL    _dragging;
-    CGPoint _pressStart;    // 长按起点（superview 坐标）：长按手势没有 translationInView:，只能自己减
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -126,18 +184,36 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
         _content.layer.cornerRadius = 12;
         [self addSubview:_content];
 
-        [_content addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)]];
+        // 长按弹「复制到下方」；点按要等长按失败才算数，不然一松手两个都触发
+        UILongPressGestureRecognizer *press =
+            [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handlePress:)];
+        press.minimumPressDuration = 0.45;
+        [self addGestureRecognizer:press];
+
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)];
+        [tap requireGestureRecognizerToFail:press];
+        [_content addGestureRecognizer:tap];
 
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
         pan.delegate = self;
         [self addGestureRecognizer:pan];
-
-        UILongPressGestureRecognizer *press = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handlePress:)];
-        press.minimumPressDuration = 0.35;
-        press.delegate = self;
-        [self addGestureRecognizer:press];
     }
     return self;
+}
+
+// 右侧把手：按住直接上下拖（不用先长按），图标本体只负责显示
+- (void)installDragHandle {
+    if (_dragHandle) return;
+    _dragHandle = [[UIView alloc] init];
+    _dragHandle.userInteractionEnabled = YES;
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal"]];
+    icon.tintColor = ZXPalette(ZXPalSub);
+    icon.contentMode = UIViewContentModeScaleAspectFit;
+    icon.tag = 7;
+    [_dragHandle addSubview:icon];
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleDragPan:)];
+    [_dragHandle addGestureRecognizer:pan];
+    [_content addSubview:_dragHandle];   // 跟着 content 走，左滑时一起让开
 }
 
 - (void)layoutSubviews {
@@ -145,6 +221,9 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
     _deleteBtn.frame = CGRectMake(self.bounds.size.width - FW_DELETE_W, 0, FW_DELETE_W, self.bounds.size.height);
     // 平移中（transform 非单位矩阵）不能碰 frame，UIKit 会算错
     if (CGAffineTransformIsIdentity(_content.transform)) _content.frame = self.bounds;
+    _dragHandle.frame = CGRectMake(self.bounds.size.width - 34.0f, 0, 34.0f, self.bounds.size.height);
+    UIView *icon = [_dragHandle viewWithTag:7];
+    icon.frame = CGRectMake((34.0f - 16.0f) / 2.0f, (self.bounds.size.height - 16.0f) / 2.0f, 16, 16);
 }
 
 // 按下去给一点反馈：整行压暗一档，抬手 / 被手势抢走就还原
@@ -164,7 +243,7 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
     [UIView animateWithDuration:0.16 animations:^{ self->_content.alpha = 1.0f; }];
 }
 
-// 露着「删除」时点一下 = 收回来，不触发进参数页
+// 露着「删除」时点一下 = 收回来，不触发进参数
 - (void)handleTap {
     if (_open) { [self setOpen:NO animated:YES]; return; }
     if (self.onTap) self.onTap();
@@ -193,12 +272,18 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
     else apply();
 }
 
+// 长按 = 弹「复制到下方」小菜单（落在把手上不算，把手是拖排序的）
 - (void)handlePress:(UILongPressGestureRecognizer *)g {
+    if (g.state != UIGestureRecognizerStateBegan) return;
+    if (self.dragEnabled && [g locationInView:self].x > self.bounds.size.width - 34.0f) return;
+    if (self.onCopy) self.onCopy();
+}
+
+// 把手上的拖动排序：Began 即拿起，松手落下
+- (void)handleDragPan:(UIPanGestureRecognizer *)g {
     if (!self.dragEnabled) return;
     if (g.state == UIGestureRecognizerStateBegan) {
         [self setOpen:NO animated:NO];
-        _dragging = YES;
-        _pressStart = [g locationInView:self.superview];
         self.layer.shadowColor = [UIColor blackColor].CGColor;
         self.layer.shadowOpacity = 0.3f;
         self.layer.shadowOffset = CGSizeMake(0, 3);
@@ -209,9 +294,8 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
         }];
         if (self.onDragBegan) self.onDragBegan();
     } else if (g.state == UIGestureRecognizerStateChanged) {
-        if (_dragging && self.onDragMoved) self.onDragMoved([g locationInView:self.superview].y - _pressStart.y);
-    } else if (_dragging) {
-        _dragging = NO;
+        if (self.onDragMoved) self.onDragMoved([g translationInView:self.superview].y);
+    } else if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
         self.layer.shadowOpacity = 0;
         [UIView animateWithDuration:0.12 animations:^{
             self.transform = CGAffineTransformIdentity;
@@ -224,10 +308,11 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
     if ([g isKindOfClass:[UIPanGestureRecognizer class]]) {
         if (!self.swipeEnabled) return NO;
+        // 把手那条竖条留给拖动排序，别在这里触发左滑
+        if (self.dragEnabled && [g locationInView:self].x > self.bounds.size.width - 34.0f) return NO;
         CGPoint v = [(UIPanGestureRecognizer *)g velocityInView:self];
         return fabs(v.x) > fabs(v.y);   // 竖直方向留给列表自己滚
     }
-    if ([g isKindOfClass:[UILongPressGestureRecognizer class]]) return self.dragEnabled;
     return YES;
 }
 @end
@@ -245,17 +330,20 @@ static FlowWindow *_fwShared = nil;
     NSString                    *_bundlePath;
     NSMutableDictionary         *_flow;
     NSMutableArray<NSMutableDictionary *> *_stack;
-    BOOL                         _handwritten;   // main.py 是手写的，保存会用流程覆盖它
+    BOOL                         _handwritten;   // main.py 是手写的，改动会覆盖它
 
-    NSMutableArray<FWStepRowView *> *_rows;      // 当前这一页的步骤行（长按排序要用）
+    NSMutableArray<FWStepRowView *> *_rows;      // 当前这一页的步骤行（排序要用）
     CGFloat                      _rowsTop;       // 第一行的 y（排序时算目标位置）
     FWStepRowView               *_dragRow;
     NSInteger                    _dragIndex;
     CGFloat                      _dragStartY;
 
     BOOL                         _animateTransition;   // 换页时淡入 + 上移
-    UIView                      *_addSheet;           // 半屏「添加步骤」的遮罩（含面板）
-    UIView                      *_addSheetPanel;
+
+    // 子浮窗（添加步骤 / 编辑参数 / 设置）：挂在窗口根的整屏容器上，屏幕中间
+    UIView                      *_subDim;        // 遮罩 + 卡片
+    UIScrollView                *_subScroll;     // 卡片里的内容区
+    void (^_subRebuilder)(void);                 // 取点回来后重建子浮窗内容
 }
 
 + (instancetype)shared {
@@ -266,7 +354,7 @@ static FlowWindow *_fwShared = nil;
 
 - (void)setHost:(id<FlowEditorHost>)host { _host = host; }
 
-#pragma mark - 载入 / 保存
+#pragma mark - 载入 / 实时落盘
 
 - (void)loadBundle:(NSString *)bundlePath {
     if (bundlePath.length == 0) return;
@@ -276,7 +364,7 @@ static FlowWindow *_fwShared = nil;
         _handwritten = NO;
     } else {
         _flow = [FlowScript emptyFlow];
-        // 手写脚本开进编辑器：第一次改动会覆盖 main.py，先说一声
+        // 手写脚本开进编辑器：改动会实时覆盖 main.py，先说一声
         _handwritten = ![FlowScript bundleHasGeneratedScript:bundlePath];
     }
     if (!_flow) _flow = [FlowScript emptyFlow];
@@ -286,20 +374,18 @@ static FlowWindow *_fwShared = nil;
     _animateTransition = YES;
     [self refresh];
     if (_handwritten) {
-        showAlertBox(@"提示", @"这个脚本的 main.py 是手写的，在这里保存会用流程覆盖它。", 3);
+        showAlertBox(@"提示", @"这个脚本的 main.py 是手写的，这里的每次修改都会实时覆盖它。", 3);
     }
 }
 
-- (BOOL)save {
-    [_scroll endEditing:YES];
+// 实时落盘：每次改动（字段、添加、删除、排序、取点、循环参数）都调它，静默写 flow.plist + 重新生成 main.py
+- (void)autosave {
+    if (_bundlePath.length == 0 || !_flow) return;
     NSError *error = nil;
     if (![FlowScript saveFlow:_flow toBundle:_bundlePath error:&error] ||
         ![FlowScript writeGeneratedScriptForFlow:_flow toBundle:_bundlePath error:&error]) {
         showAlertBox(@"错误", error.localizedDescription ?: @"保存失败。", 999);
-        return NO;
     }
-    showAlertBox(@"小新Lap", @"已保存，并重新生成了 main.py。", 1);
-    return YES;
 }
 
 - (NSMutableDictionary *)rootPage {
@@ -331,31 +417,24 @@ static FlowWindow *_fwShared = nil;
     [self refresh];
 }
 
-- (void)showPreviewPage {
-    [self pushPage:@{ @"kind": kPagePreview, @"title": @"生成的 main.py" }];
-}
-
-- (void)pushParamsPageForStep:(NSMutableDictionary *)step {
-    FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
-    [self pushPage:@{ @"kind": kPageParams, @"title": type.title ?: @"步骤", @"step": step }];
-}
-
 - (void)pushBranchPageForStep:(NSMutableDictionary *)step key:(NSString *)key title:(NSString *)title {
     if (![step[key] isKindOfClass:[NSMutableArray class]]) step[key] = [NSMutableArray array];
     [self pushPage:@{ @"kind": kPageList, @"title": title, @"steps": step[key], @"branch": @YES }];
 }
 
-// 加一步：加完直接停在它的参数页
+// 加一步：落盘后直接在子浮窗里打开它的参数
 - (void)addStepOfKind:(NSString *)kind {
     NSMutableArray *steps = [self currentSteps];
     if (!steps) return;
     NSMutableDictionary *step = [FlowScript newStepOfKind:kind];
     if (!step) return;
     [steps addObject:step];
-    [self pushParamsPageForStep:step];
+    [self autosave];
+    [self refresh];
+    [self showParamsSubForStep:step parentSteps:steps];
 }
 
-#pragma mark - 长按拖动排序
+#pragma mark - 把手拖动排序
 
 - (FWStepRowView *)rowForStep:(NSDictionary *)step {
     for (FWStepRowView *row in _rows) {
@@ -419,7 +498,8 @@ static FlowWindow *_fwShared = nil;
 - (void)endDragRow {
     _dragRow = nil;
     _scroll.scrollEnabled = YES;
-    [self refresh];   // 数据已经是新顺序了，重建一遍最省事（顺带恢复行的缩放和阴影）
+    [self autosave];   // 新顺序落盘
+    [self refresh];    // 重建一遍最省事（顺带恢复行的缩放和阴影）
 }
 
 // 左滑删除：从当前这一页的数组里摘掉这一步
@@ -429,36 +509,56 @@ static FlowWindow *_fwShared = nil;
     NSUInteger index = [steps indexOfObjectIdenticalTo:step];
     if (index == NSNotFound) return;
     [steps removeObjectAtIndex:index];
+    [self autosave];
     [self refresh];
 }
 
-- (void)deleteCurrentStep {
-    if (_stack.count < 2) return;
-    NSMutableDictionary *step = _stack.lastObject[@"step"];
-    NSMutableArray *steps = _stack[_stack.count - 2][@"steps"];
-    if (!step || ![steps isKindOfClass:[NSMutableArray class]]) return;
-    [steps removeObjectIdenticalTo:step];
-    [self goBack];
+// 长按行的菜单：复制到下方
+- (void)showCopyMenuForRow:(FWStepRowView *)row step:(NSMutableDictionary *)step {
+    __weak typeof(self) weakSelf = self;
+    ZXShowMiniMenuNearView(row, @[ @{
+        @"title": @"复制到下方",
+        @"icon": @"doc.on.doc",
+        @"action": ^{
+            FlowWindow *strongSelf = weakSelf;
+            if (!strongSelf) return;
+            NSMutableArray *steps = [strongSelf currentSteps];
+            NSUInteger index = [steps indexOfObjectIdenticalTo:step];
+            if (index == NSNotFound) return;
+            NSMutableDictionary *copy = [FlowScript mutableStepFromStep:step];
+            if (!copy) return;
+            [steps insertObject:copy atIndex:index + 1];
+            [strongSelf autosave];
+            [strongSelf refresh];
+        },
+    } ]);
 }
 
 #pragma mark - 取点
 
-// 取点器要盖在游戏上，面板先让开；取完再放回来
+// 取点器要盖在游戏上，面板和子浮窗都先让开；取完再放回来
 - (void)beginPickingForStep:(NSMutableDictionary *)step type:(FlowStepType *)type {
     [_scroll endEditing:YES];
+    [_subScroll endEditing:YES];
     [_host flowHostSetCardHidden:YES];
+    _subDim.hidden = YES;   // 子浮窗也会被烤进冻结帧
 
     __weak typeof(self) weakSelf = self;
     [PickOverlay presentWithMode:type.pickMode completion:^(NSDictionary *result) {
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return;
         [strongSelf applyPickResult:result toStep:step type:type];
+        [strongSelf autosave];
         [strongSelf->_host flowHostSetCardHidden:NO];
+        strongSelf->_subDim.hidden = NO;
         [strongSelf refresh];
+        // 子浮窗还开着（参数页）就重建一遍，让「从屏幕取…」那行的回显更新
+        if (strongSelf->_subDim && strongSelf->_subRebuilder) strongSelf->_subRebuilder();
     } cancel:^{
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return;
         [strongSelf->_host flowHostSetCardHidden:NO];
+        strongSelf->_subDim.hidden = NO;
     }];
 }
 
@@ -514,7 +614,7 @@ static FlowWindow *_fwShared = nil;
 #pragma mark - 行控件
 
 // 列表里的一行：序号 + 左侧色条 + 图标底 + 标题 / 细节 + 右侧把手
-// deletable = 能左滑删除，sortable = 能长按拖动排序
+// deletable = 能左滑删除，sortable = 右侧把手拖动排序
 - (FWStepRowView *)makeStepRow:(NSString *)title
                         detail:(NSString *)detail
                          index:(NSInteger)index
@@ -542,12 +642,12 @@ static FlowWindow *_fwShared = nil;
         row.numberLabel = number;
     }
 
-    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(34, 12, 3, FW_ROW_H - 24)];
+    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(34, 8, 3, FW_ROW_H - 16)];
     bar.backgroundColor = color;
     bar.layer.cornerRadius = 1.5;
     [row.content addSubview:bar];
 
-    UIView *tile = [[UIView alloc] initWithFrame:CGRectMake(45, (FW_ROW_H - 28) / 2.0f, 28, 28)];
+    UIView *tile = [[UIView alloc] initWithFrame:CGRectMake(45, (FW_ROW_H - 26) / 2.0f, 26, 26)];
     tile.backgroundColor = [color colorWithAlphaComponent:0.16];
     tile.layer.cornerRadius = 8;
     [row.content addSubview:tile];
@@ -558,34 +658,28 @@ static FlowWindow *_fwShared = nil;
     icon.frame = CGRectInset(tile.bounds, 5, 5);
     [tile addSubview:icon];
 
-    CGFloat textX = 83.0f;
+    CGFloat textX = 79.0f;
     CGFloat textW = MAX(w - textX - (sortable ? 34.0f : 12.0f), 60.0f);
-    UILabel *main = [[UILabel alloc] initWithFrame:CGRectMake(textX, detail.length ? 10 : 0,
-                                                              textW, detail.length ? 20 : FW_ROW_H)];
+    UILabel *main = [[UILabel alloc] initWithFrame:CGRectMake(textX, detail.length ? 3 : 0,
+                                                              textW, detail.length ? 18 : FW_ROW_H)];
     main.text = title;
-    main.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    main.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     main.textColor = ZXPalette(ZXPalText);
     main.adjustsFontSizeToFitWidth = YES;
     main.minimumScaleFactor = 0.8;
     [row.content addSubview:main];
 
     if (detail.length > 0) {
-        UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(textX, 30, textW, 16)];
+        UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(textX, 22, textW, 14)];
         sub.text = detail;
-        sub.font = [UIFont systemFontOfSize:12];
+        sub.font = [UIFont systemFontOfSize:11];
         sub.textColor = ZXPalette(ZXPalSub);
         sub.adjustsFontSizeToFitWidth = YES;
         sub.minimumScaleFactor = 0.75;
         [row.content addSubview:sub];
     }
 
-    if (sortable) {
-        UIImageView *handle = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal"]];
-        handle.tintColor = ZXPalette(ZXPalSub);
-        handle.contentMode = UIViewContentModeScaleAspectFit;
-        handle.frame = CGRectMake(w - 30.0f, (FW_ROW_H - 16) / 2.0f, 16, 16);
-        [row.content addSubview:handle];
-    }
+    if (sortable) [row installDragHandle];
     return row;
 }
 
@@ -648,7 +742,7 @@ static FlowWindow *_fwShared = nil;
     row.layer.borderWidth = 1;
     row.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
 
-    CGFloat labelW = MIN(180.0f, w * 0.46f);
+    CGFloat labelW = MIN(150.0f, w * 0.46f);
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, labelW, row.frame.size.height)];
     label.text = title;
     label.font = [UIFont systemFontOfSize:13];
@@ -660,7 +754,7 @@ static FlowWindow *_fwShared = nil;
     CGFloat fieldX = 12 + labelW + 6;
     CGFloat fieldH = row.frame.size.height - 12.0f;
     UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(fieldX, 6, MAX(w - fieldX - 12, 60), fieldH)];
-    field.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    field.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
     field.textColor = ZXPalette(ZXPalValue);
     field.tintColor = ZXPalette(ZXPalAccent);
     field.backgroundColor = ZXPalette(ZXPalField);
@@ -695,16 +789,131 @@ static FlowWindow *_fwShared = nil;
 
 - (void)dismissKeyboard {
     [_scroll endEditing:YES];
+    [_subScroll endEditing:YES];
 }
 
-#pragma mark - 半屏「添加步骤」面板
+#pragma mark - 子浮窗（屏幕中间：添加步骤 / 编辑参数 / 设置都走这里）
 
-// 面板挂在选项面板窗口的整屏容器上（不受卡片 553×598.5 的裁剪），所以能做成底部半屏
-- (void)showAddSheet {
-    if (_addSheet) return;
+// builder 往内容区铺控件（x 从 8 开始，宽 width），返回内容总高度；卡片高度按内容夹到一屏以内
+- (void)showSubWithTitle:(NSString *)title builder:(CGFloat (^)(UIScrollView *content, CGFloat width))builder {
+    [self dismissSubAnimated:NO];
     UIView *host = [_host flowHostOverlayContainer];
-    if (!host) return;
+    if (!host || !builder) return;
 
+    CGFloat hostW = MAX(host.bounds.size.width, 240.0f);
+    CGFloat hostH = MAX(host.bounds.size.height, 320.0f);
+    CGFloat cardW = MIN(hostW - 72.0f, 400.0f);
+    CGFloat titleH = 46.0f;
+
+    UIView *dim = [[UIView alloc] initWithFrame:host.bounds];
+
+    // 轻遮罩：还能看见后面的主流程（点外面 = 关掉）。铺满按钮当遮罩，不和面板上的按钮抢触摸
+    UIButton *backdrop = [UIButton buttonWithType:UIButtonTypeCustom];
+    backdrop.frame = dim.bounds;
+    backdrop.backgroundColor = [UIColor colorWithWhite:0 alpha:0.15];
+    [backdrop addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [self dismissSubAnimated:YES];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [dim addSubview:backdrop];
+
+    UIView *card = [[UIView alloc] init];
+    card.backgroundColor = ZXPalette(ZXPalCard);
+    card.layer.cornerRadius = 14;
+    card.layer.borderWidth = 1;
+    card.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
+    card.layer.shadowColor = [UIColor blackColor].CGColor;
+    card.layer.shadowOpacity = 0.25f;
+    card.layer.shadowRadius = 14;
+    card.layer.shadowOffset = CGSizeMake(0, 4);
+    card.clipsToBounds = YES;
+    [dim addSubview:card];
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(14, 0, cardW - 28 - 40, titleH)];
+    titleLabel.text = title;
+    titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    titleLabel.textColor = ZXPalette(ZXPalText);
+    [card addSubview:titleLabel];
+
+    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
+    close.frame = CGRectMake(cardW - 40, (titleH - 28) / 2.0f, 28, 28);
+    close.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    close.backgroundColor = ZXPalette(ZXPalField);
+    close.layer.cornerRadius = 14;
+    [close setTitle:@"✕" forState:UIControlStateNormal];
+    [close setTitleColor:ZXPalette(ZXPalSub) forState:UIControlStateNormal];
+    [close addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [self dismissSubAnimated:YES];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:close];
+
+    UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, titleH - 1, cardW, 1)];
+    sep.backgroundColor = ZXPalette(ZXPalLine);
+    [card addSubview:sep];
+
+    UIScrollView *scroll = [[UIScrollView alloc] init];
+    [card addSubview:scroll];
+
+    _subDim = dim;
+    _subScroll = scroll;
+
+    CGFloat contentH = builder(scroll, cardW - 16.0f);
+    CGFloat bodyH = MIN(contentH + 4.0f, hostH - 140.0f - titleH);
+    if (bodyH < 60.0f) bodyH = 60.0f;
+    CGFloat cardH = titleH + bodyH;
+    card.frame = CGRectMake((hostW - cardW) / 2.0f, (hostH - cardH) / 2.0f, cardW, cardH);
+    scroll.frame = CGRectMake(0, titleH, cardW, bodyH);
+    scroll.contentSize = CGSizeMake(cardW, contentH + 4.0f);
+
+    [host addSubview:dim];
+    dim.alpha = 0;
+    card.transform = CGAffineTransformMakeScale(0.92f, 0.92f);
+    [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        dim.alpha = 1;
+        card.transform = CGAffineTransformIdentity;
+    } completion:nil];
+}
+
+- (void)dismissSubAnimated:(BOOL)animated {
+    UIView *dim = _subDim;
+    _subDim = nil;
+    _subScroll = nil;
+    _subRebuilder = nil;
+    if (!dim) return;
+    if (!animated) {
+        [dim removeFromSuperview];
+        return;
+    }
+    [UIView animateWithDuration:0.15 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
+        dim.alpha = 0;
+    } completion:^(BOOL finished) {
+        [dim removeFromSuperview];
+    }];
+}
+
+// 面板整体收起（点 ✕ / 隐藏）时把子浮窗一起收掉，否则它会飘在游戏上
+- (void)hideOverlays {
+    [self dismissSubAnimated:NO];
+}
+
+// 子浮窗里铺一行的帮手：x=8，往下排
+- (CGFloat)subAddRow:(UIView *)row y:(CGFloat)y {
+    row.frame = CGRectMake(8, y, row.frame.size.width, row.frame.size.height);
+    [_subScroll addSubview:row];
+    return y + row.frame.size.height + FW_GAP;
+}
+
+- (CGFloat)subAddSection:(NSString *)text width:(CGFloat)w y:(CGFloat)y {
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, y, w - 8, 18)];
+    label.text = text;
+    label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    label.textColor = ZXPalette(ZXPalSub);
+    [_subScroll addSubview:label];
+    return y + 24;
+}
+
+#pragma mark - 子浮窗：添加步骤
+
+- (void)showAddSheet {
     BOOL branch = [_stack.lastObject[@"branch"] boolValue];
     NSArray<FlowStepType *> *all = branch ? [FlowScript simpleStepTypes] : [FlowScript allStepTypes];
     NSMutableArray<FlowStepType *> *actions = [NSMutableArray array];
@@ -714,159 +923,330 @@ static FlowWindow *_fwShared = nil;
     }
     if (all.count == 0) return;
 
-    CGFloat hostW = MAX(host.bounds.size.width, 240.0f);
-    CGFloat hostH = MAX(host.bounds.size.height, 320.0f);
-    CGFloat pad = 20.0f;
-    CGFloat cellGap = 8.0f;
-    NSInteger cols = ((hostW - pad * 2) >= 520.0f) ? 3 : 2;
-    CGFloat cellW = floor((hostW - pad * 2 - cellGap * (cols - 1)) / cols);
-
-    NSArray<NSDictionary *> *groups = @[];
-    if (actions.count > 0) {
-        groups = [groups arrayByAddingObject:@{ @"title": @"触摸动作", @"types": actions }];
-    }
-    if (conditions.count > 0) {
-        groups = [groups arrayByAddingObject:@{ @"title": @"判断条件", @"types": conditions }];
-    }
-
-    // 先量面板高度：标题行 + 每组（小标题 + 若干行格子）
-    CGFloat contentH = 0;
-    for (NSDictionary *group in groups) {
-        NSArray *types = group[@"types"];
-        NSInteger lines = (NSInteger)ceil((double)types.count / cols);
-        contentH += 26.0f + lines * FW_CELL_H + (lines - 1) * cellGap + 14.0f;
-    }
-    CGFloat panelH = MIN(14.0f + 30.0f + contentH + 20.0f, hostH - 60.0f);
-
-    UIView *dim = [[UIView alloc] initWithFrame:host.bounds];
-    dim.backgroundColor = [UIColor clearColor];
-    dim.alpha = 0;
-
-    // 点面板外面关掉：用一个铺满的按钮当遮罩，比给容器挂 tap 手势稳（不会把面板上的按钮点吃掉）
-    UIButton *backdrop = [UIButton buttonWithType:UIButtonTypeCustom];
-    backdrop.frame = dim.bounds;
-    backdrop.backgroundColor = [UIColor colorWithWhite:0 alpha:0.34];
-    [backdrop addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self dismissAddSheet];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [dim addSubview:backdrop];
-
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, hostH - panelH, hostW, panelH)];
-    panel.backgroundColor = ZXPalette(ZXPalCard);
-    // 只露上半截，下面两角就贴在屏幕边上，四角都圆一下效果一样，还省掉 mask 那层
-    panel.layer.cornerRadius = 18;
-    [dim addSubview:panel];
-
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(pad, 14, hostW - pad * 2 - 70, 30)];
-    title.text = @"添加步骤";
-    title.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
-    title.textColor = ZXPalette(ZXPalText);
-    [panel addSubview:title];
-
-    UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
-    cancel.frame = CGRectMake(hostW - pad - 58, 17, 58, 26);
-    cancel.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-    cancel.backgroundColor = ZXPalette(ZXPalField);
-    cancel.layer.cornerRadius = 13;
-    [cancel setTitle:@"取消" forState:UIControlStateNormal];
-    [cancel setTitleColor:ZXPalette(ZXPalSub) forState:UIControlStateNormal];
-    [cancel addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self dismissAddSheet];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:cancel];
+    NSMutableArray<NSDictionary *> *groups = [NSMutableArray array];
+    if (actions.count > 0) [groups addObject:@{ @"title": @"触摸动作", @"types": actions }];
+    if (conditions.count > 0) [groups addObject:@{ @"title": @"判断条件", @"types": conditions }];
 
     __weak typeof(self) weakSelf = self;
-    CGFloat y = 54.0f;
-    for (NSDictionary *group in groups) {
-        UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(pad, y, hostW - pad * 2, 18)];
-        label.text = group[@"title"];
-        label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
-        label.textColor = ZXPalette(ZXPalSub);
-        [panel addSubview:label];
-        y += 26.0f;
+    [self showSubWithTitle:@"添加步骤" builder:^CGFloat(UIScrollView *content, CGFloat w) {
+        CGFloat cellGap = 8.0f;
+        CGFloat cellW = floor((w - cellGap) / 2.0f);
+        CGFloat y = 8.0f;
 
-        NSArray<FlowStepType *> *types = group[@"types"];
-        for (NSUInteger i = 0; i < types.count; i++) {
-            FlowStepType *type = types[i];
-            NSInteger col = (NSInteger)(i % cols);
-            NSInteger line = (NSInteger)(i / cols);
-            UIButton *cell = [UIButton buttonWithType:UIButtonTypeSystem];
-            cell.frame = CGRectMake(pad + col * (cellW + cellGap), y + line * (FW_CELL_H + cellGap),
-                                    cellW, FW_CELL_H);
-            cell.backgroundColor = ZXPalette(ZXPalRow);
-            cell.layer.cornerRadius = 12;
-            cell.layer.borderWidth = 1;
-            cell.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
+        for (NSDictionary *group in groups) {
+            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, y, w - 8, 18)];
+            label.text = group[@"title"];
+            label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+            label.textColor = ZXPalette(ZXPalSub);
+            [content addSubview:label];
+            y += 26.0f;
 
-            UIColor *color = fwTypeColor(type.kind);
-            UIView *tile = [[UIView alloc] initWithFrame:CGRectMake(12, (FW_CELL_H - 26) / 2.0f, 26, 26)];
-            tile.backgroundColor = [color colorWithAlphaComponent:0.16];
-            tile.layer.cornerRadius = 8;
-            tile.userInteractionEnabled = NO;
-            [cell addSubview:tile];
+            NSArray<FlowStepType *> *types = group[@"types"];
+            for (NSUInteger i = 0; i < types.count; i++) {
+                FlowStepType *type = types[i];
+                NSInteger col = (NSInteger)(i % 2);
+                NSInteger line = (NSInteger)(i / 2);
+                UIButton *cell = [UIButton buttonWithType:UIButtonTypeSystem];
+                cell.frame = CGRectMake(8 + col * (cellW + cellGap), y + line * (FW_CELL_H + cellGap),
+                                        cellW, FW_CELL_H);
+                cell.backgroundColor = ZXPalette(ZXPalRow);
+                cell.layer.cornerRadius = 12;
+                cell.layer.borderWidth = 1;
+                cell.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
 
-            UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:type.symbolName]];
-            icon.tintColor = color;
-            icon.contentMode = UIViewContentModeScaleAspectFit;
-            icon.frame = CGRectInset(tile.bounds, 5, 5);
-            [tile addSubview:icon];
+                UIColor *color = fwTypeColor(type.kind);
+                UIView *tile = [[UIView alloc] initWithFrame:CGRectMake(12, (FW_CELL_H - 26) / 2.0f, 26, 26)];
+                tile.backgroundColor = [color colorWithAlphaComponent:0.16];
+                tile.layer.cornerRadius = 8;
+                tile.userInteractionEnabled = NO;
+                [cell addSubview:tile];
 
-            UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(46, 0, MAX(cellW - 54, 40), FW_CELL_H)];
-            name.text = type.title;
-            name.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-            name.textColor = ZXPalette(ZXPalText);
-            name.adjustsFontSizeToFitWidth = YES;
-            name.minimumScaleFactor = 0.8;
-            name.userInteractionEnabled = NO;
-            [cell addSubview:name];
+                UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:type.symbolName]];
+                icon.tintColor = color;
+                icon.contentMode = UIViewContentModeScaleAspectFit;
+                icon.frame = CGRectInset(tile.bounds, 5, 5);
+                [tile addSubview:icon];
 
-            NSString *kind = type.kind;
-            [cell addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-                FlowWindow *strongSelf = weakSelf;
-                if (!strongSelf) return;
-                [strongSelf closeAddSheetThen:^{ [strongSelf addStepOfKind:kind]; }];
-            }] forControlEvents:UIControlEventTouchUpInside];
-            [panel addSubview:cell];
+                UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(46, 0, MAX(cellW - 54, 40), FW_CELL_H)];
+                name.text = type.title;
+                name.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+                name.textColor = ZXPalette(ZXPalText);
+                name.adjustsFontSizeToFitWidth = YES;
+                name.minimumScaleFactor = 0.8;
+                name.userInteractionEnabled = NO;
+                [cell addSubview:name];
+
+                NSString *kind = type.kind;
+                [cell addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                    FlowWindow *strongSelf = weakSelf;
+                    if (!strongSelf) return;
+                    [strongSelf dismissSubAnimated:NO];
+                    [strongSelf addStepOfKind:kind];
+                }] forControlEvents:UIControlEventTouchUpInside];
+                [content addSubview:cell];
+            }
+            NSInteger lines = (NSInteger)ceil((double)types.count / 2.0);
+            y += lines * FW_CELL_H + (lines - 1) * cellGap + 14.0f;
         }
-        y += (CGFloat)ceil((double)types.count / cols) * FW_CELL_H
-           + (CGFloat)(ceil((double)types.count / cols) - 1) * cellGap + 14.0f;
-    }
-
-    _addSheet = dim;
-    _addSheetPanel = panel;
-    [host addSubview:dim];
-
-    panel.transform = CGAffineTransformMakeTranslation(0, panelH);
-    [UIView animateWithDuration:0.24 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
-        dim.alpha = 1;
-        panel.transform = CGAffineTransformIdentity;
-    } completion:nil];
-}
-
-- (void)dismissAddSheet {
-    [self closeAddSheetThen:nil];
-}
-
-- (void)closeAddSheetThen:(void (^)(void))done {
-    UIView *dim = _addSheet, *panel = _addSheetPanel;
-    _addSheet = nil;
-    _addSheetPanel = nil;
-    if (!dim) {
-        if (done) done();
-        return;
-    }
-    [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
-        dim.alpha = 0;
-        panel.transform = CGAffineTransformMakeTranslation(0, panel.bounds.size.height);
-    } completion:^(BOOL finished) {
-        [dim removeFromSuperview];
-        if (done) done();
+        return y;
     }];
 }
 
-// 面板整体收起（点 ✕ / 隐藏）时把半屏面板一起收掉，否则它会飘在游戏上
-- (void)hideOverlays {
-    [self closeAddSheetThen:nil];
+#pragma mark - 子浮窗：某一步的参数
+
+- (void)showParamsSubForStep:(NSMutableDictionary *)step parentSteps:(NSMutableArray *)parentSteps {
+    FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
+    if (!type) return;
+
+    __weak typeof(self) weakSelf = self;
+    [self showSubWithTitle:type.title ?: @"步骤" builder:^CGFloat(UIScrollView *content, CGFloat w) {
+        FlowWindow *strongSelf = weakSelf;
+        if (!strongSelf) return 0.0f;
+        CGFloat y = 8.0f;
+
+        if (type.pickMode != FlowPickModeNone) {
+            UIView *pick = [strongSelf makeActionRow:type.pickActionTitle
+                                              detail:[strongSelf pickDetailForStep:step type:type]
+                                               color:ZXPalette(ZXPalAccent) primary:YES width:w
+                                              action:^{ [strongSelf beginPickingForStep:step type:type]; }];
+            y = [strongSelf subAddRow:pick y:y];
+        }
+
+        NSArray<NSDictionary<NSString *, id> *> *groups = fwGroupsForKind(step[@"Kind"]);
+        NSMutableSet<NSString *> *used = [NSMutableSet set];
+        // 取点行已经承载了这些字段（坐标 / 模板名），下面不再重复铺输入框
+        [used addObjectsFromArray:type.pickTargets];
+        for (NSDictionary<NSString *, id> *group in groups) {
+            NSMutableArray<FlowFieldSpec *> *specs = [NSMutableArray array];
+            for (NSString *key in group[@"keys"]) {
+                if ([used containsObject:key]) continue;
+                FlowFieldSpec *spec = [strongSelf specForKey:key inType:type];
+                if (spec) { [specs addObject:spec]; [used addObject:key]; }
+            }
+            if (specs.count == 0) continue;
+            y += 4;
+            y = [strongSelf subAddSection:group[@"title"] width:w y:y];
+            for (FlowFieldSpec *spec in specs) {
+                y = [strongSelf subAddRow:[strongSelf fieldRowForSpec:spec step:step width:w] y:y];
+            }
+        }
+        // 兜底：分组表没列到的字段也要显示出来，别让参数凭空消失
+        NSMutableArray<FlowFieldSpec *> *rest = [NSMutableArray array];
+        for (FlowFieldSpec *spec in type.fields) {
+            if (![used containsObject:spec.key]) [rest addObject:spec];
+        }
+        if (rest.count > 0) {
+            y += 4;
+            y = [strongSelf subAddSection:@"其他" width:w y:y];
+            for (FlowFieldSpec *spec in rest) {
+                y = [strongSelf subAddRow:[strongSelf fieldRowForSpec:spec step:step width:w] y:y];
+            }
+        }
+
+        if (type.isCondition) {
+            y += 6;
+            y = [strongSelf subAddSection:@"成立 / 不成立时要做什么" width:w y:y];
+            NSArray<NSString *> *keys = @[ @"Then", @"Else" ];
+            NSArray<NSString *> *titles = @[ @"成立时", @"不成立时" ];
+            for (NSInteger i = 0; i < 2; i++) {
+                NSString *key = keys[i];
+                NSArray *branchSteps = [step[key] isKindOfClass:[NSArray class]] ? step[key] : @[];
+                NSString *detail = [NSString stringWithFormat:@"%lu 个动作", (unsigned long)branchSteps.count];
+                NSString *branchTitle = titles[i];
+                UIView *row = [strongSelf makeActionRow:branchTitle detail:detail color:ZXPalette(ZXPalText)
+                                                primary:NO width:w
+                                                 action:^{
+                                                     FlowWindow *s = weakSelf;
+                                                     if (!s) return;
+                                                     [s dismissSubAnimated:NO];
+                                                     [s pushBranchPageForStep:step key:key title:branchTitle];
+                                                 }];
+                y = [strongSelf subAddRow:row y:y];
+            }
+        }
+
+        y += 8;
+        UIView *deleteRow = [strongSelf makeActionRow:@"删除这一步" detail:nil color:ZXPalette(ZXPalDanger)
+                                              primary:NO width:w
+                                               action:^{
+                                                   FlowWindow *s = weakSelf;
+                                                   if (!s) return;
+                                                   [parentSteps removeObjectIdenticalTo:step];
+                                                   [s autosave];
+                                                   [s dismissSubAnimated:NO];
+                                                   [s refresh];
+                                               }];
+        y = [strongSelf subAddRow:deleteRow y:y];
+        return y;
+    }];
+
+    // 取点回来后重建这个子浮窗（回显新坐标 / 新模板名）
+    _subRebuilder = ^{
+        FlowWindow *strongSelf = weakSelf;
+        if (strongSelf) [strongSelf showParamsSubForStep:step parentSteps:parentSteps];
+    };
+}
+
+#pragma mark - 子浮窗：设置（运行方式 + 定时，全都改完即存）
+
+- (void)showSettings {
+    if (_bundlePath.length == 0 || !_flow) return;
+
+    // 从 info.plist 读当前的定时设置（默认值和 App 的设置页一致）
+    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:
+                          [_bundlePath stringByAppendingPathComponent:@"info.plist"]];
+    NSDictionary *schedule = [info[kScheduleKey] isKindOfClass:[NSDictionary class]] ? info[kScheduleKey] : nil;
+
+    __block NSString *startMode = [schedule[kStartMode] isEqual:kModeDaily] ? kModeDaily : kModeManual;
+    __block NSString *startTime = fwNormalizeTime(schedule[kStartTime]) ?: @"09:00";
+    __block NSMutableArray<NSNumber *> *weekdays = [NSMutableArray array];
+    for (id value in schedule[kWeekdays]) {
+        if ([value isKindOfClass:[NSNumber class]]) [weekdays addObject:value];
+    }
+    __block NSString *endMode = kModeManual;
+    if ([schedule[kEndMode] isEqualToString:kModeDuration]) endMode = kModeDuration;
+    else if ([schedule[kEndMode] isEqualToString:kModeDaily]) endMode = kModeDaily;
+    __block NSInteger durationMinutes = [schedule[kDurationMinutes] integerValue] ?: 30;
+    __block NSString *endTime = fwNormalizeTime(schedule[kEndTime]) ?: @"23:00";
+
+    __weak typeof(self) weakSelf = self;
+    void (^persist)(void) = ^{
+        FlowWindow *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        fwPersistSchedule(strongSelf->_bundlePath, startMode, startTime, weekdays,
+                          endMode, durationMinutes, endTime);
+    };
+
+    [self showSubWithTitle:@"设置" builder:^CGFloat(UIScrollView *content, CGFloat w) {
+        FlowWindow *strongSelf = weakSelf;
+        if (!strongSelf) return 0.0f;
+        CGFloat y = 8.0f;
+
+        // ---- 运行方式：写 flow.plist（随流程一起生成 main.py）----
+        y = [strongSelf subAddSection:@"运行方式" width:w y:y];
+        UIView *loopTimes = [strongSelf makeValueRow:@"循环次数（0 = 一直循环）" value:strongSelf->_flow[@"LoopTimes"]
+                                             integer:YES width:w
+                                            onChange:^(NSString *text) {
+                                                FlowWindow *s = weakSelf;
+                                                if (!s) return;
+                                                s->_flow[@"LoopTimes"] = [FlowScript valueFromText:text integer:YES];
+                                                [s autosave];
+                                            }];
+        y = [strongSelf subAddRow:loopTimes y:y];
+        UIView *loopInterval = [strongSelf makeValueRow:@"每轮之间停（秒）" value:strongSelf->_flow[@"LoopInterval"]
+                                               integer:NO width:w
+                                              onChange:^(NSString *text) {
+                                                  FlowWindow *s = weakSelf;
+                                                  if (!s) return;
+                                                  s->_flow[@"LoopInterval"] = [FlowScript valueFromText:text integer:NO];
+                                                  [s autosave];
+                                              }];
+        y = [strongSelf subAddRow:loopInterval y:y];
+
+        // ---- 定时启动 ----
+        y += 6;
+        y = [strongSelf subAddSection:@"定时启动" width:w y:y];
+        NSArray<NSString *> *startTitles = @[ @"手动", @"每天定时" ];
+        NSArray<NSString *> *startModes = @[ kModeManual, kModeDaily ];
+        for (NSInteger i = 0; i < 2; i++) {
+            BOOL selected = [startMode isEqualToString:startModes[i]];
+            NSString *mode = startModes[i];
+            UIView *row = [strongSelf makeActionRow:startTitles[i] detail:(selected ? @"✓" : nil)
+                                              color:ZXPalette(ZXPalAccent) primary:selected width:w
+                                             action:^{
+                                                 startMode = mode;
+                                                 persist();
+                                                 [weakSelf showSettings];   // 可见的行跟着模式变，重铺一遍
+                                             }];
+            y = [strongSelf subAddRow:row y:y];
+        }
+        if ([startMode isEqualToString:kModeDaily]) {
+            UIView *timeRow = [strongSelf makeValueRow:@"启动时间（如 09:30）" value:startTime integer:NO width:w
+                                              onChange:^(NSString *text) {
+                                                  NSString *t = fwNormalizeTime(text);
+                                                  if (!t) return;   // 不合法先不写，用户还在输
+                                                  startTime = t;
+                                                  persist();
+                                              }];
+            y = [strongSelf subAddRow:timeRow y:y];
+
+            // 周日 ~ 周七个小圆块，选中亮色；一个都不选 = 每天
+            y = [strongSelf subAddSection:@"重复（都不选 = 每天）" width:w y:y];
+            NSArray<NSString *> *dayTitles = @[ @"日", @"一", @"二", @"三", @"四", @"五", @"六" ];
+            CGFloat chipGap = 6.0f;
+            CGFloat chipW = floor((w - chipGap * 6) / 7.0f);
+            UIView *chipRow = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 32)];
+            for (NSInteger i = 0; i < 7; i++) {
+                NSNumber *day = @(i + 1);   // 1 = 周日
+                BOOL on = [weekdays containsObject:day];
+                UIButton *chip = [UIButton buttonWithType:UIButtonTypeSystem];
+                chip.frame = CGRectMake(i * (chipW + chipGap), 0, chipW, 32);
+                chip.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+                chip.layer.cornerRadius = 16;
+                chip.layer.borderWidth = 1;
+                [chip setTitle:dayTitles[i] forState:UIControlStateNormal];
+                void (^paint)(UIButton *, BOOL) = ^(UIButton *c, BOOL isOn) {
+                    c.backgroundColor = isOn ? [ZXPalette(ZXPalAccent) colorWithAlphaComponent:0.20] : ZXPalette(ZXPalField);
+                    c.layer.borderColor = (isOn ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalLine)).CGColor;
+                    [c setTitleColor:(isOn ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalSub)) forState:UIControlStateNormal];
+                };
+                paint(chip, on);
+                [chip addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                    BOOL nowOn = ![weekdays containsObject:day];
+                    if (nowOn) [weekdays addObject:day]; else [weekdays removeObject:day];
+                    paint(chip, nowOn);
+                    persist();
+                }] forControlEvents:UIControlEventTouchUpInside];
+                [chipRow addSubview:chip];
+            }
+            y = [strongSelf subAddRow:chipRow y:y];
+        }
+
+        // ---- 定时结束 ----
+        y += 6;
+        y = [strongSelf subAddSection:@"定时结束" width:w y:y];
+        NSArray<NSString *> *endTitles = @[ @"手动", @"跑够时长", @"到点停" ];
+        NSArray<NSString *> *endModes = @[ kModeManual, kModeDuration, kModeDaily ];
+        for (NSInteger i = 0; i < 3; i++) {
+            BOOL selected = [endMode isEqualToString:endModes[i]];
+            NSString *mode = endModes[i];
+            UIView *row = [strongSelf makeActionRow:endTitles[i] detail:(selected ? @"✓" : nil)
+                                              color:ZXPalette(ZXPalAccent) primary:selected width:w
+                                             action:^{
+                                                 endMode = mode;
+                                                 persist();
+                                                 [weakSelf showSettings];
+                                             }];
+            y = [strongSelf subAddRow:row y:y];
+        }
+        if ([endMode isEqualToString:kModeDuration]) {
+            UIView *durRow = [strongSelf makeValueRow:@"跑够多少分钟" value:@(durationMinutes) integer:YES width:w
+                                             onChange:^(NSString *text) {
+                                                 NSInteger m = [[FlowScript valueFromText:text integer:YES] integerValue];
+                                                 if (m <= 0) return;
+                                                 durationMinutes = m;
+                                                 persist();
+                                             }];
+            y = [strongSelf subAddRow:durRow y:y];
+        } else if ([endMode isEqualToString:kModeDaily]) {
+            UIView *endRow = [strongSelf makeValueRow:@"结束时间（如 23:00）" value:endTime integer:NO width:w
+                                            onChange:^(NSString *text) {
+                                                NSString *t = fwNormalizeTime(text);
+                                                if (!t) return;
+                                                endTime = t;
+                                                persist();
+                                            }];
+            y = [strongSelf subAddRow:endRow y:y];
+        }
+
+        return y;
+    }];
+
+    // 模式切换后重铺 = 重新走一遍 showSettings（数据刚 persist 过，重读是一致的）
+    _subRebuilder = ^{
+        FlowWindow *strongSelf = weakSelf;
+        if (strongSelf) [strongSelf showSettings];
+    };
 }
 
 #pragma mark - 内容刷新
@@ -875,14 +1255,6 @@ static FlowWindow *_fwShared = nil;
     row.frame = CGRectMake(4, y, row.frame.size.width, row.frame.size.height);
     [_scroll addSubview:row];
     return y + row.frame.size.height + FW_GAP;
-}
-
-- (void)addSectionLabel:(NSString *)text width:(CGFloat)pw y:(CGFloat)y {
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, y, pw - 24, 18)];
-    label.text = text;
-    label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
-    label.textColor = ZXPalette(ZXPalSub);
-    [_scroll addSubview:label];
 }
 
 - (FlowFieldSpec *)specForKey:(NSString *)key inType:(FlowStepType *)type {
@@ -895,9 +1267,11 @@ static FlowWindow *_fwShared = nil;
 - (UIView *)fieldRowForSpec:(FlowFieldSpec *)spec step:(NSMutableDictionary *)step width:(CGFloat)w {
     NSString *key = spec.key;
     BOOL integer = spec.integer;
+    __weak typeof(self) weakSelf = self;
     return [self makeValueRow:spec.title value:step[key] integer:integer width:w
                      onChange:^(NSString *text) {
                          step[key] = [FlowScript valueFromText:text integer:integer];
+                         [weakSelf autosave];   // 每敲一个字都落盘
                      }];
 }
 
@@ -910,7 +1284,6 @@ static FlowWindow *_fwShared = nil;
 
     NSMutableDictionary *page = _stack.lastObject;
     if (!page) return;
-    NSString *kind = page[@"kind"];
     CGFloat rowW = _pw - 8;
 
     [scroll endEditing:YES];
@@ -924,140 +1297,54 @@ static FlowWindow *_fwShared = nil;
     BOOL animate = _animateTransition;
     _animateTransition = NO;
 
-    if ([kind isEqualToString:kPagePreview]) {
-        [_host flowHostShowPreviewText:[FlowScript pythonSourceForFlow:_flow]];
-        return;
-    }
-    [_host flowHostShowPreviewText:nil];
-
     CGFloat y = 8;
 
-    if ([kind isEqualToString:kPageList]) {
-        NSArray *steps = page[@"steps"];
-        if (steps.count == 0) {
-            UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(12, y, _pw - 24, 38)];
-            hint.numberOfLines = 0;
-            hint.font = [UIFont systemFontOfSize:12];
-            hint.textColor = ZXPalette(ZXPalSub);
-            hint.text = isRoot ? @"还没有步骤。点下面的「添加步骤」开始拼一条流程。"
-                               : @"这一支还没有动作。";
-            [_scroll addSubview:hint];
-            y += 46;
-        } else {
-            _rowsTop = y;
-            for (NSInteger i = 0; i < (NSInteger)steps.count; i++) {
-                NSDictionary *step = steps[i];
-                if (![step isKindOfClass:[NSDictionary class]]) continue;
-                FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
-                FWStepRowView *row = [self makeStepRow:[FlowScript summaryForStep:step]
-                                                detail:[FlowScript detailForStep:step]
-                                                 index:i
-                                                symbol:type.symbolName
-                                                 color:fwTypeColor(type.kind)
-                                             deletable:YES
-                                              sortable:YES
-                                                 width:rowW
-                                                 onTap:^{
-                                                     [self pushParamsPageForStep:(NSMutableDictionary *)step];
-                                                 }
-                                              onDelete:^{
-                                                  [self deleteStep:(NSMutableDictionary *)step];
-                                              }];
-                __weak typeof(self) weakSelf = self;
-                __weak FWStepRowView *weakRow = row;   // 行持有 block、block 又持有行 → 这里必须弱引用，否则漏一组视图
-                row.onDragBegan = ^{ [weakSelf beginDragRow:weakRow]; };
-                row.onDragMoved = ^(CGFloat dy) { [weakSelf moveDragRow:weakRow dy:dy]; };
-                row.onDragEnded = ^{ [weakSelf endDragRow]; };
-                row.step = step;
-                [_rows addObject:row];
-                y = [self addRow:row y:y];
-            }
-        }
-
-        UIView *add = [self makeActionRow:@"＋  添加步骤" detail:nil color:ZXPalette(ZXPalAccent) primary:YES
-                                    width:rowW action:^{ [self showAddSheet]; }];
-        y = [self addRow:add y:y];
-
-        if (isRoot) {
-            y += 6;
-            [self addSectionLabel:@"运行方式" width:_pw y:y];
-            y += 24;
-            UIView *loopTimes = [self makeValueRow:@"循环次数（0 = 一直循环）" value:_flow[@"LoopTimes"] integer:YES width:rowW
-                                          onChange:^(NSString *text) {
-                                              self->_flow[@"LoopTimes"] = [FlowScript valueFromText:text integer:YES];
+    NSArray *steps = page[@"steps"];
+    if (steps.count == 0) {
+        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(12, y, _pw - 24, 38)];
+        hint.numberOfLines = 0;
+        hint.font = [UIFont systemFontOfSize:12];
+        hint.textColor = ZXPalette(ZXPalSub);
+        hint.text = isRoot ? @"还没有步骤。点下面的「添加步骤」开始拼一条流程。"
+                           : @"这一支还没有动作。";
+        [_scroll addSubview:hint];
+        y += 46;
+    } else {
+        _rowsTop = y;
+        for (NSInteger i = 0; i < (NSInteger)steps.count; i++) {
+            NSDictionary *step = steps[i];
+            if (![step isKindOfClass:[NSDictionary class]]) continue;
+            FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
+            __weak typeof(self) weakSelf = self;
+            FWStepRowView *row = [self makeStepRow:[FlowScript summaryForStep:step]
+                                            detail:[FlowScript detailForStep:step]
+                                             index:i
+                                            symbol:type.symbolName
+                                             color:fwTypeColor(type.kind)
+                                         deletable:YES
+                                          sortable:YES
+                                             width:rowW
+                                             onTap:^{
+                                                 [weakSelf showParamsSubForStep:(NSMutableDictionary *)step
+                                                                   parentSteps:[weakSelf currentSteps]];
+                                             }
+                                          onDelete:^{
+                                              [weakSelf deleteStep:(NSMutableDictionary *)step];
                                           }];
-            y = [self addRow:loopTimes y:y];
-            UIView *loopInterval = [self makeValueRow:@"每轮之间停（秒）" value:_flow[@"LoopInterval"] integer:NO width:rowW
-                                             onChange:^(NSString *text) {
-                                                 self->_flow[@"LoopInterval"] = [FlowScript valueFromText:text integer:NO];
-                                             }];
-            y = [self addRow:loopInterval y:y];
+            __weak FWStepRowView *weakRow = row;   // 行持有 block、block 又持有行 → 这里必须弱引用，否则漏一组视图
+            row.onCopy = ^{ [weakSelf showCopyMenuForRow:weakRow step:(NSMutableDictionary *)step]; };
+            row.onDragBegan = ^{ [weakSelf beginDragRow:weakRow]; };
+            row.onDragMoved = ^(CGFloat dy) { [weakSelf moveDragRow:weakRow dy:dy]; };
+            row.onDragEnded = ^{ [weakSelf endDragRow]; };
+            row.step = step;
+            [_rows addObject:row];
+            y = [self addRow:row y:y];
         }
-    } else if ([kind isEqualToString:kPageParams]) {
-        NSMutableDictionary *step = page[@"step"];
-        FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
-        if (!type) return;
-
-        if (type.pickMode != FlowPickModeNone) {
-            UIView *pick = [self makeActionRow:type.pickActionTitle
-                                        detail:[self pickDetailForStep:step type:type]
-                                         color:ZXPalette(ZXPalAccent) primary:YES width:rowW
-                                        action:^{ [self beginPickingForStep:step type:type]; }];
-            y = [self addRow:pick y:y];
-        }
-
-        NSArray<NSDictionary<NSString *, id> *> *groups = fwGroupsForKind(step[@"Kind"]);
-        NSMutableSet<NSString *> *used = [NSMutableSet set];
-        for (NSDictionary<NSString *, id> *group in groups) {
-            NSMutableArray<FlowFieldSpec *> *specs = [NSMutableArray array];
-            for (NSString *key in group[@"keys"]) {
-                FlowFieldSpec *spec = [self specForKey:key inType:type];
-                if (spec) { [specs addObject:spec]; [used addObject:key]; }
-            }
-            if (specs.count == 0) continue;
-            y += 4;
-            [self addSectionLabel:group[@"title"] width:_pw y:y];
-            y += 24;
-            for (FlowFieldSpec *spec in specs) {
-                y = [self addRow:[self fieldRowForSpec:spec step:step width:rowW] y:y];
-            }
-        }
-        // 兜底：分组表没列到的字段也要显示出来，别让参数凭空消失
-        NSMutableArray<FlowFieldSpec *> *rest = [NSMutableArray array];
-        for (FlowFieldSpec *spec in type.fields) {
-            if (![used containsObject:spec.key]) [rest addObject:spec];
-        }
-        if (rest.count > 0) {
-            y += 4;
-            [self addSectionLabel:@"其他" width:_pw y:y];
-            y += 24;
-            for (FlowFieldSpec *spec in rest) {
-                y = [self addRow:[self fieldRowForSpec:spec step:step width:rowW] y:y];
-            }
-        }
-
-        if (type.isCondition) {
-            y += 6;
-            [self addSectionLabel:@"成立 / 不成立时要做什么" width:_pw y:y];
-            y += 24;
-            NSArray<NSString *> *keys = @[ @"Then", @"Else" ];
-            NSArray<NSString *> *titles = @[ @"成立时", @"不成立时" ];
-            for (NSInteger i = 0; i < 2; i++) {
-                NSString *key = keys[i];
-                NSArray *actions = [step[key] isKindOfClass:[NSArray class]] ? step[key] : @[];
-                NSString *detail = [NSString stringWithFormat:@"%lu 个动作", (unsigned long)actions.count];
-                UIView *row = [self makeActionRow:titles[i] detail:detail color:ZXPalette(ZXPalText)
-                                          primary:NO width:rowW
-                                           action:^{ [self pushBranchPageForStep:step key:key title:titles[i]]; }];
-                y = [self addRow:row y:y];
-            }
-        }
-
-        y += 8;
-        UIView *deleteRow = [self makeActionRow:@"删除这一步" detail:nil color:ZXPalette(ZXPalDanger)
-                                        primary:NO width:rowW action:^{ [self deleteCurrentStep]; }];
-        y = [self addRow:deleteRow y:y];
     }
+
+    UIView *add = [self makeActionRow:@"＋  添加步骤" detail:nil color:ZXPalette(ZXPalAccent) primary:YES
+                                width:rowW action:^{ [self showAddSheet]; }];
+    y = [self addRow:add y:y];
 
     scroll.contentSize = CGSizeMake(_pw, y + 8);
     [scroll setContentOffset:CGPointZero animated:NO];

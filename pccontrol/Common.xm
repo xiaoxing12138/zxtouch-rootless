@@ -342,3 +342,92 @@ UIColor *ZXPalette(ZXPaletteRole role)
     if (role < 0 || role >= (NSInteger)colors.count) return colors[ZXPalText];
     return colors[role];
 }
+
+#pragma mark - 随行小菜单
+
+// 不是 alert：一个贴在锚点旁边的小卡片 + 一层透明遮罩，点别处就散
+void ZXShowMiniMenuNearView(UIView *anchor, NSArray<NSDictionary *> *items)
+{
+    UIWindow *window = anchor.window;
+    if (!window || items.count == 0) return;
+    UIView *root = window.rootViewController.view;
+    if (!root) return;
+
+    const CGFloat menuW = 172.0f, rowH = 40.0f, pad = 6.0f;
+    CGFloat menuH = pad * 2 + rowH * items.count;
+
+    UIView *dim = [[UIView alloc] initWithFrame:root.bounds];
+    dim.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    __weak UIView *weakDim = dim;
+
+    // 铺满的按钮当遮罩：点外层必然只走它（容器挂 tap 手势会和按钮抢触摸，踩过）
+    UIButton *backdrop = [UIButton buttonWithType:UIButtonTypeCustom];
+    backdrop.frame = dim.bounds;
+    backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [backdrop addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [weakDim removeFromSuperview];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [dim addSubview:backdrop];
+
+    UIView *menu = [[UIView alloc] initWithFrame:CGRectMake(0, 0, menuW, menuH)];
+    menu.backgroundColor = ZXPalette(ZXPalCard);
+    menu.layer.cornerRadius = 12;
+    menu.layer.borderWidth = 1;
+    menu.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
+    menu.layer.shadowColor = [UIColor blackColor].CGColor;
+    menu.layer.shadowOpacity = 0.3f;
+    menu.layer.shadowRadius = 10;
+    menu.layer.shadowOffset = CGSizeMake(0, 3);
+    [dim addSubview:menu];
+
+    for (NSUInteger i = 0; i < items.count; i++) {
+        NSDictionary *item = items[i];
+        UIButton *row = [UIButton buttonWithType:UIButtonTypeSystem];
+        row.frame = CGRectMake(pad, pad + rowH * i, menuW - pad * 2, rowH);
+        row.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+
+        BOOL destructive = [item[@"destructive"] boolValue];
+        UIColor *tint = destructive ? ZXPalette(ZXPalDanger) : ZXPalette(ZXPalText);
+        NSString *icon = item[@"icon"];
+        CGFloat textX = 10.0f;
+        if (icon.length > 0) {
+            UIImageView *iv = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:icon]];
+            iv.tintColor = tint;
+            iv.contentMode = UIViewContentModeScaleAspectFit;
+            iv.frame = CGRectMake(10, (rowH - 16) / 2.0f, 16, 16);
+            iv.userInteractionEnabled = NO;
+            [row addSubview:iv];
+            textX = 34.0f;
+        }
+        UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(textX, 0, menuW - pad * 2 - textX - 6, rowH)];
+        label.text = item[@"title"];
+        label.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+        label.textColor = tint;
+        label.userInteractionEnabled = NO;
+        [row addSubview:label];
+
+        [row addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            [weakDim removeFromSuperview];
+            dispatch_block_t action = item[@"action"];
+            if (action) action();
+        }] forControlEvents:UIControlEventTouchUpInside];
+        [menu addSubview:row];
+    }
+
+    // 位置：默认锚点下方、水平向屏幕中间靠；出屏就翻到锚点上方 / 夹回屏内
+    CGRect a = [anchor convertRect:anchor.bounds toView:root];
+    CGFloat x = CGRectGetMidX(a) - menuW / 2.0f;
+    x = MAX(8.0f, MIN(root.bounds.size.width - menuW - 8.0f, x));
+    CGFloat y = CGRectGetMaxY(a) + 6.0f;
+    if (y + menuH > root.bounds.size.height - 8.0f) y = CGRectGetMinY(a) - 6.0f - menuH;
+    if (y < 8.0f) y = 8.0f;
+    menu.frame = CGRectMake(x, y, menuW, menuH);
+
+    menu.alpha = 0;
+    menu.transform = CGAffineTransformMakeScale(0.92f, 0.92f);
+    [root addSubview:dim];
+    [UIView animateWithDuration:0.15 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        menu.alpha = 1;
+        menu.transform = CGAffineTransformIdentity;
+    } completion:nil];
+}

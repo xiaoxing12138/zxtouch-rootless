@@ -30,9 +30,9 @@ NSString * const kPickTemplate = @"template";
 #define PK_FOOT_H     40.0f
 #define PK_READ_H     26.0f     // 读数行（点 / 路径模式一行够）
 #define PK_READ_H2    40.0f     // 框选模式要两行放区域数字
-#define PK_COLOR_H    20.0f     // 颜色块那一行
-#define PK_CTRL_H     104.0f    // 微调盘 + 放大预览那一块
-#define PK_NUDGE_CELL 34.0f
+#define PK_COLOR_H    22.0f     // 颜色块那一行
+#define PK_CTRL_H     112.0f    // 微调盘 + 放大预览那一块
+#define PK_PAD_SIZE   108.0f    // 微调盘边长（3×3 格，每格 34）
 
 static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *outStride);
 
@@ -74,25 +74,34 @@ static UIButton *pkMakeButton(NSString *title, UIColor *color)
 
 #pragma mark - 画选择器 / 轨迹
 
-// 选中点：圆环 + 圆内十字。四段短线都指向圆心、正中留 2pt 空隙，
-// 圆心那颗像素始终不被挡住（取色读的就是它）。
+// 选中点：瞄准镜风 —— 细圆环 + 贯通到环外的细十字 + 圆心一颗小点。
+// 取色读的是冻帧像素缓冲不是屏幕，所以圆心点不会污染取色；放大预览里也能看清那颗像素。
 static void PKDrawSelector(CGPoint c, UIColor *tint, BOOL active)
 {
     CGFloat r = PK_RING_R;
+    UIColor *line = active ? tint : [tint colorWithAlphaComponent:0.7f];
+
     UIBezierPath *ring = [UIBezierPath bezierPathWithArcCenter:c radius:r startAngle:0 endAngle:M_PI * 2 clockwise:YES];
-    ring.lineWidth = 6; [[UIColor colorWithWhite:0 alpha:0.5] setStroke]; [ring stroke];
-    ring.lineWidth = active ? 3 : 2;
-    [(active ? tint : [tint colorWithAlphaComponent:0.65f]) setStroke];
+    ring.lineWidth = 4.0f; [[UIColor colorWithWhite:0 alpha:0.45] setStroke]; [ring stroke];
+    ring.lineWidth = active ? 1.8f : 1.4f;
+    [line setStroke];
     [ring stroke];
 
-    CGFloat gap = 2, len = r - 5;
+    CGFloat inner = 3.0f, outer = r + 7.0f;
     UIBezierPath *cross = [UIBezierPath bezierPath];
-    [cross moveToPoint:CGPointMake(c.x - len, c.y)]; [cross addLineToPoint:CGPointMake(c.x - gap, c.y)];
-    [cross moveToPoint:CGPointMake(c.x + gap, c.y)]; [cross addLineToPoint:CGPointMake(c.x + len, c.y)];
-    [cross moveToPoint:CGPointMake(c.x, c.y - len)]; [cross addLineToPoint:CGPointMake(c.x, c.y - gap)];
-    [cross moveToPoint:CGPointMake(c.x, c.y + gap)]; [cross addLineToPoint:CGPointMake(c.x, c.y + len)];
-    cross.lineWidth = 5; [[UIColor colorWithWhite:0 alpha:0.55] setStroke]; [cross stroke];
-    cross.lineWidth = 2.5; [[UIColor whiteColor] setStroke]; [cross stroke];
+    [cross moveToPoint:CGPointMake(c.x - outer, c.y)]; [cross addLineToPoint:CGPointMake(c.x - inner, c.y)];
+    [cross moveToPoint:CGPointMake(c.x + inner, c.y)]; [cross addLineToPoint:CGPointMake(c.x + outer, c.y)];
+    [cross moveToPoint:CGPointMake(c.x, c.y - outer)]; [cross addLineToPoint:CGPointMake(c.x, c.y - inner)];
+    [cross moveToPoint:CGPointMake(c.x, c.y + inner)]; [cross addLineToPoint:CGPointMake(c.x, c.y + outer)];
+    cross.lineWidth = 3.2f; [[UIColor colorWithWhite:0 alpha:0.45] setStroke]; [cross stroke];
+    cross.lineWidth = 1.4f; [[UIColor whiteColor] setStroke]; [cross stroke];
+
+    UIBezierPath *dot = [UIBezierPath bezierPathWithArcCenter:c radius:1.7f startAngle:0 endAngle:M_PI * 2 clockwise:YES];
+    [tint setFill];
+    [dot fill];
+    dot.lineWidth = 1;
+    [[UIColor colorWithWhite:0 alpha:0.5] setStroke];
+    [dot stroke];
 }
 
 static void PKDrawTag(CGPoint c, NSString *text, UIColor *bg)
@@ -106,10 +115,10 @@ static void PKDrawTag(CGPoint c, NSString *text, UIColor *bg)
     [text drawAtPoint:CGPointMake(box.origin.x + 7, box.origin.y + 3) withAttributes:attrs];
 }
 
-// 单个箭头：沿 angle 方向指的实心三角，带深色描边，压在轨迹线上也看得清
+// 单个箭头：沿 angle 方向指的实心小三角，带深色描边，压在轨迹线上也看得清
 static void PKDrawArrowHead(CGPoint p, CGFloat angle)
 {
-    CGFloat s = 9;
+    CGFloat s = 7;
     UIBezierPath *tri = [UIBezierPath bezierPath];
     [tri moveToPoint:CGPointMake(p.x + cos(angle) * s, p.y + sin(angle) * s)];
     [tri addLineToPoint:CGPointMake(p.x + cos(angle + 2.5f) * s, p.y + sin(angle + 2.5f) * s)];
@@ -117,28 +126,32 @@ static void PKDrawArrowHead(CGPoint p, CGFloat angle)
     [tri closePath];
     [[UIColor whiteColor] setFill];
     [tri fill];
-    tri.lineWidth = 3;
-    [[UIColor colorWithWhite:0 alpha:0.55] setStroke];
+    tri.lineWidth = 2;
+    [[UIColor colorWithWhite:0 alpha:0.5] setStroke];
     [tri stroke];
 }
 
-// 滑动轨迹：起终点之间一条线 + 沿线摆几个箭头，箭头只放中段，避开两个圆环
+// 滑动轨迹：起终点圆环外缘之间一条细线 + 中段三个小箭头指方向
 static void PKDrawTrail(CGPoint a, CGPoint b)
 {
     CGFloat dx = b.x - a.x, dy = b.y - a.y;
     CGFloat len = sqrt(dx * dx + dy * dy);
     if (len < 8) return;
 
-    UIBezierPath *line = [UIBezierPath bezierPath];
-    [line moveToPoint:a];
-    [line addLineToPoint:b];
-    line.lineCapStyle = kCGLineCapRound;
-    line.lineWidth = 8; [[UIColor colorWithWhite:0 alpha:0.4] setStroke]; [line stroke];
-    line.lineWidth = 3; [[UIColor colorWithWhite:1 alpha:0.9] setStroke]; [line stroke];
-
     CGFloat angle = atan2(dy, dx);
-    const CGFloat ts[] = { 0.24f, 0.38f, 0.5f, 0.62f, 0.76f };
-    for (int i = 0; i < 5; i++) {
+    CGFloat inset = PK_RING_R + 3.0f;
+    CGPoint p0 = CGPointMake(a.x + cos(angle) * inset, a.y + sin(angle) * inset);
+    CGPoint p1 = CGPointMake(b.x - cos(angle) * inset, b.y - sin(angle) * inset);
+
+    UIBezierPath *line = [UIBezierPath bezierPath];
+    [line moveToPoint:p0];
+    [line addLineToPoint:p1];
+    line.lineCapStyle = kCGLineCapRound;
+    line.lineWidth = 4.5f; [[UIColor colorWithWhite:0 alpha:0.4] setStroke]; [line stroke];
+    line.lineWidth = 2.0f; [[UIColor colorWithWhite:1 alpha:0.95] setStroke]; [line stroke];
+
+    const CGFloat ts[] = { 0.28f, 0.5f, 0.72f };
+    for (int i = 0; i < 3; i++) {
         PKDrawArrowHead(CGPointMake(a.x + dx * ts[i], a.y + dy * ts[i]), angle);
     }
 }
@@ -184,6 +197,24 @@ static void PKDrawTrail(CGPoint a, CGPoint b)
         edge.lineWidth = 2;
         [[UIColor systemYellowColor] setStroke];
         [edge stroke];
+
+        // 右上角拖柄：拖它实时改大小（左上角不动）。黄圆底 + 斜向双箭头
+        CGPoint hc = CGPointMake(CGRectGetMaxX(r), CGRectGetMinY(r));
+        UIBezierPath *knob = [UIBezierPath bezierPathWithArcCenter:hc radius:10 startAngle:0 endAngle:M_PI * 2 clockwise:YES];
+        [[UIColor systemYellowColor] setFill];
+        [knob fill];
+        knob.lineWidth = 2;
+        [[UIColor colorWithWhite:0 alpha:0.55] setStroke];
+        [knob stroke];
+        UIBezierPath *mark = [UIBezierPath bezierPath];
+        [mark moveToPoint:CGPointMake(hc.x - 3.5f, hc.y + 3.5f)];
+        [mark addLineToPoint:CGPointMake(hc.x + 3.5f, hc.y - 3.5f)];
+        [mark moveToPoint:CGPointMake(hc.x + 3.5f, hc.y - 0.5f)];
+        [mark addLineToPoint:CGPointMake(hc.x + 3.5f, hc.y - 3.5f)];
+        [mark addLineToPoint:CGPointMake(hc.x + 0.5f, hc.y - 3.5f)];
+        mark.lineWidth = 1.6f;
+        [[UIColor blackColor] setStroke];
+        [mark stroke];
         return;
     }
 
@@ -263,71 +294,112 @@ static void PKDrawTrail(CGPoint a, CGPoint b)
 
 @end
 
-#pragma mark - 微调按钮
+#pragma mark - 微调盘
 
-// 点一下走一步；按住不动就连续走，8 步之后自动加速（1px → 5px），省得一直戳
-@interface PKNudgeView : UIView
-@property (nonatomic, copy) void (^onStep)(BOOL fast);
+// 一整块方向盘：
+//   点按某个方向箭头 = 走一步；按住不动 = 连续走（8 步后加速 1px → 5px）；
+//   在盘上滑动 = 选择器跟着手指相对移动（支持斜向，1:1 屏点）。
+// 一个 view 自己收触摸，不和按钮手势互相抢。
+@interface PKNudgePadView : UIView
+@property (nonatomic, copy) void (^onStep)(CGFloat dx, CGFloat dy);       // 方向步进（指示器像素）
+@property (nonatomic, copy) void (^onSlide)(CGFloat dxPt, CGFloat dyPt);  // 盘上滑动位移（屏点）
 - (void)stop;
 @end
 
-@implementation PKNudgeView {
+@implementation PKNudgePadView {
     NSTimer  *_timer;
     NSInteger _count;
+    CGPoint   _dir;        // 按着的方向（四向单位向量）
+    BOOL      _sliding;    // 已进入滑动跟随
+    CGPoint   _began;      // 按下的点
+    CGPoint   _last;       // 上一次触摸点
 }
 
-- (instancetype)initWithSymbol:(NSString *)symbol {
-    self = [super initWithFrame:CGRectZero];
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
     if (self) {
-        self.backgroundColor = ZXPalette(ZXPalField);
-        self.layer.cornerRadius = 8;
+        self.backgroundColor = [ZXPalette(ZXPalField) colorWithAlphaComponent:0.7f];
+        self.layer.cornerRadius = 12;
         self.layer.borderWidth = 1;
         self.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
 
-        UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbol]];
-        icon.tintColor = ZXPalette(ZXPalText);
-        icon.contentMode = UIViewContentModeScaleAspectFit;
-        icon.tag = 1;
-        [self addSubview:icon];
-
-        // minimumPressDuration = 0：按下即 Began、抬手即 Ended，单击和长按用同一套
-        UILongPressGestureRecognizer *g = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handle:)];
-        g.minimumPressDuration = 0;
-        g.allowableMovement = 30;
-        [self addGestureRecognizer:g];
+        // 四个方向箭头：tag 1=上 2=下 3=左 4=右，位置在 layoutSubviews 里摆
+        NSArray<NSString *> *symbols = @[ @"chevron.up", @"chevron.down", @"chevron.left", @"chevron.right" ];
+        for (NSUInteger i = 0; i < symbols.count; i++) {
+            UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbols[i]]];
+            icon.tintColor = ZXPalette(ZXPalText);
+            icon.contentMode = UIViewContentModeScaleAspectFit;
+            icon.tag = (NSInteger)i + 1;
+            [self addSubview:icon];
+        }
     }
     return self;
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
-    [self viewWithTag:1].frame = CGRectInset(self.bounds, 9, 9);
-}
-
-- (void)handle:(UILongPressGestureRecognizer *)g {
-    if (g.state == UIGestureRecognizerStateBegan) {
-        _count = 0;
-        self.backgroundColor = ZXPalette(ZXPalRow);
-        [self tick];
-        __weak typeof(self) weakSelf = self;
-        _timer = [NSTimer timerWithTimeInterval:0.06 repeats:YES block:^(NSTimer *t) { [weakSelf tick]; }];
-        [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
-    } else if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled ||
-               g.state == UIGestureRecognizerStateFailed) {
-        [self stop];
+    CGFloat cell = self.bounds.size.width / 3.0f;
+    CGRect slots[4] = {
+        CGRectMake(cell, 0, cell, cell),                 // 上
+        CGRectMake(cell, cell * 2, cell, cell),          // 下
+        CGRectMake(0, cell, cell, cell),                 // 左
+        CGRectMake(cell * 2, cell, cell, cell),          // 右
+    };
+    for (NSInteger tag = 1; tag <= 4; tag++) {
+        UIView *icon = [self viewWithTag:tag];
+        if (icon) icon.frame = CGRectInset(slots[tag - 1], cell * 0.28f, cell * 0.28f);
     }
 }
 
-- (void)tick {
-    _count++;
-    if (self.onStep) self.onStep(_count > 8);
+// 以中心划四个扇区：手指落在哪个区就算哪个方向
+- (CGPoint)directionAtPoint:(CGPoint)p {
+    CGPoint c = CGPointMake(self.bounds.size.width / 2.0f, self.bounds.size.height / 2.0f);
+    CGFloat dx = p.x - c.x, dy = p.y - c.y;
+    if (fabs(dx) > fabs(dy)) return CGPointMake(dx > 0 ? 1 : -1, 0);
+    return CGPointMake(0, dy > 0 ? 1 : -1);
 }
 
-- (void)stop {
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *touch = touches.anyObject;
+    if (!touch) return;
+    _began = _last = [touch locationInView:self];
+    _sliding = NO;
+    _count = 0;
+    _dir = [self directionAtPoint:_began];
+    [self tick];
+    __weak typeof(self) weakSelf = self;
+    _timer = [NSTimer timerWithTimeInterval:0.06 repeats:YES block:^(NSTimer *t) { [weakSelf tick]; }];
+    [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
+}
+
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *touch = touches.anyObject;
+    if (!touch) return;
+    CGPoint p = [touch locationInView:self];
+    if (!_sliding && hypot(p.x - _began.x, p.y - _began.y) > 10.0f) {
+        _sliding = YES;
+        [self stopTimer];   // 滑起来之后就不再重复走步，选择器改跟手指
+    }
+    if (_sliding) {
+        if (self.onSlide) self.onSlide(p.x - _last.x, p.y - _last.y);
+        _last = p;
+    }
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self stopTimer]; }
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self stopTimer]; }
+
+- (void)tick {
+    _count++;
+    if (self.onStep) self.onStep(_dir.x * (_count > 8 ? 5 : 1), _dir.y * (_count > 8 ? 5 : 1));
+}
+
+- (void)stopTimer {
     [_timer invalidate];
     _timer = nil;
-    self.backgroundColor = ZXPalette(ZXPalField);
 }
+
+- (void)stop { [self stopTimer]; }
 
 @end
 
@@ -351,8 +423,10 @@ static PickOverlay *_pkShared = nil;
     UILabel          *_yLabel;
     UIView           *_swatch;
     UILabel          *_hexLabel;
+    UILabel          *_rgbLabel;       // 「255 136 0」：hex 右边的 RGB 数字
+    UIButton         *_cornerBtn;      // 框选模式：预览角在 左上 / 右上 之间切换
     PKMagnifierView  *_mag;
-    PKNudgeView      *_up, *_down, *_left, *_right;
+    PKNudgePadView   *_pad;
     UIButton         *_confirmBtn, *_cancelBtn, *_recaptureBtn;
 
     FlowPickMode  _mode;
@@ -373,6 +447,8 @@ static PickOverlay *_pkShared = nil;
     CGPoint   _rectStart, _rectEnd;
     CGRect    _pickedRectView;
     BOOL      _hasRect;
+    BOOL      _resizing;         // 正在拖框右上角的拖柄改大小（左上角不动）
+    BOOL      _previewTopRight;  // 框选模式：放大 / 颜色预览看右上角（默认左上角）
 
     CGPoint   _panelOrigin;
 }
@@ -417,6 +493,8 @@ static PickOverlay *_pkShared = nil;
     _pickedRectView = CGRectZero;
     _grabOffset = CGPointZero;
     _activeIsEnd = NO;
+    _resizing = NO;
+    _previewTopRight = NO;
 
     UIWindowScene *scene = [FloatingMenu preferredWindowScene];
     if (scene) _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
@@ -524,7 +602,7 @@ static PickOverlay *_pkShared = nil;
     [_panel addSubview:_yLabel];
 
     _swatch = [[UIView alloc] initWithFrame:CGRectZero];
-    _swatch.layer.cornerRadius = 4;
+    _swatch.layer.cornerRadius = 5;
     _swatch.layer.borderWidth = 1;
     _swatch.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
     [_panel addSubview:_swatch];
@@ -534,6 +612,28 @@ static PickOverlay *_pkShared = nil;
     _hexLabel.textColor = ZXPalette(ZXPalSub);
     [_panel addSubview:_hexLabel];
 
+    _rgbLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    _rgbLabel.font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightRegular];
+    _rgbLabel.textColor = ZXPalette(ZXPalSub);
+    [_panel addSubview:_rgbLabel];
+
+    // 框选模式专用：预览角在「左上 / 右上」之间切换（放大预览和颜色框都跟着它看）
+    _cornerBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    _cornerBtn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    _cornerBtn.backgroundColor = [ZXPalette(ZXPalField) colorWithAlphaComponent:0.9];
+    _cornerBtn.layer.cornerRadius = 7;
+    _cornerBtn.layer.borderWidth = 1;
+    _cornerBtn.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
+    [_cornerBtn setTitleColor:ZXPalette(ZXPalSub) forState:UIControlStateNormal];
+    [_cornerBtn setTitle:@"预览：左上" forState:UIControlStateNormal];
+    [_cornerBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        self->_previewTopRight = !self->_previewTopRight;
+        [self->_cornerBtn setTitle:(self->_previewTopRight ? @"预览：右上" : @"预览：左上")
+                          forState:UIControlStateNormal];
+        [self updateReadout];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [_panel addSubview:_cornerBtn];
+
     _mag = [[PKMagnifierView alloc] initWithFrame:CGRectZero];
     _mag.backgroundColor = [UIColor blackColor];
     _mag.layer.cornerRadius = 8;
@@ -542,10 +642,12 @@ static PickOverlay *_pkShared = nil;
     _mag.clipsToBounds = YES;
     [_panel addSubview:_mag];
 
-    _up = [self makeNudge:@"chevron.up" dx:0 dy:-1];
-    _down = [self makeNudge:@"chevron.down" dx:0 dy:1];
-    _left = [self makeNudge:@"chevron.left" dx:-1 dy:0];
-    _right = [self makeNudge:@"chevron.right" dx:1 dy:0];
+    // 微调盘：点箭头走一步、按住连走、在盘上滑动选择器跟着相对移动
+    _pad = [[PKNudgePadView alloc] initWithFrame:CGRectZero];
+    __weak typeof(self) weakSelf = self;
+    _pad.onStep = ^(CGFloat dx, CGFloat dy) { [weakSelf nudgeDX:dx dy:dy]; };
+    _pad.onSlide = ^(CGFloat dxPt, CGFloat dyPt) { [weakSelf slideDX:dxPt dy:dyPt]; };
+    [_panel addSubview:_pad];
 
     _cancelBtn = pkMakeButton(@"取消", ZXPalette(ZXPalDanger));
     [_cancelBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
@@ -567,15 +669,6 @@ static PickOverlay *_pkShared = nil;
     return label;
 }
 
-// 微调一格：dx/dy 是方向，按下去先慢慢走、久了自动加速
-- (PKNudgeView *)makeNudge:(NSString *)symbol dx:(CGFloat)dx dy:(CGFloat)dy {
-    PKNudgeView *v = [[PKNudgeView alloc] initWithFrame:CGRectZero];
-    __weak typeof(self) weakSelf = self;
-    v.onStep = ^(BOOL fast) { [weakSelf nudgeDX:dx * (fast ? 5 : 1) dy:dy * (fast ? 5 : 1)]; };
-    [_panel addSubview:v];
-    return v;
-}
-
 - (UIView *)subviewWithTag:(NSInteger)tag in:(UIView *)parent {
     for (UIView *v in parent.subviews) {
         if (v.tag == tag) return v;
@@ -587,13 +680,14 @@ static PickOverlay *_pkShared = nil;
     BOOL rectMode = (_mode == FlowPickModeRect || _mode == FlowPickModeTemplate);
     BOOL multi = (_mode == FlowPickModePath);
     CGFloat readH = rectMode ? PK_READ_H2 : PK_READ_H;
-    CGFloat colorH = rectMode ? 0 : PK_COLOR_H + 4;
-    CGFloat ctrlH = rectMode ? 0 : PK_CTRL_H + PK_GAP;
+    CGFloat colorH = PK_COLOR_H + 4;
+    CGFloat ctrlH = PK_CTRL_H + PK_GAP;
     CGFloat h = PK_PAD + PK_HEAD_H + PK_GAP + readH + colorH + ctrlH + PK_GAP + PK_FOOT_H + PK_PAD;
 
     CGRect b = _root.bounds;
     if (_panelOrigin.x <= 0 && _panelOrigin.y <= 0) {
-        _panelOrigin = CGPointMake(14, b.size.height - h - 14);
+        // 默认贴屏幕右侧、上下居中，和右边缘留一条小缝
+        _panelOrigin = CGPointMake(b.size.width - PK_PANEL_W - 12.0f, (b.size.height - h) / 2.0f);
     }
     _panelOrigin.x = MAX(PK_PAD, MIN(b.size.width - PK_PANEL_W - PK_PAD, _panelOrigin.x));
     _panelOrigin.y = MAX(PK_PAD, MIN(b.size.height - h - PK_PAD, _panelOrigin.y));
@@ -607,12 +701,16 @@ static PickOverlay *_pkShared = nil;
     _recaptureBtn.frame = CGRectMake(w - 54, 3, 54, PK_HEAD_H - 6);
     y += PK_HEAD_H + PK_GAP;
 
+    _tagLabel.hidden = !multi;
     _tagLabel.frame = multi ? CGRectMake(PK_PAD, y + 4, 40, 18) : CGRectZero;
     CGFloat readX = multi ? PK_PAD + 40 : PK_PAD;
     CGFloat readW = PK_PANEL_W - PK_PAD - readX;
     if (rectMode) {
-        _xLabel.frame = CGRectMake(readX, y, readW, 18);
-        _yLabel.frame = CGRectMake(readX, y + 20, readW, 18);
+        // 两行区域读数，右侧空出「预览角」切换按钮的位置
+        CGFloat textW = readW - 80.0f;
+        _xLabel.frame = CGRectMake(readX, y, textW, 18);
+        _yLabel.frame = CGRectMake(readX, y + 20, textW, 18);
+        _cornerBtn.frame = CGRectMake(PK_PANEL_W - PK_PAD - 74.0f, y + 10, 74, 20);
     } else {
         CGFloat half = (readW - PK_GAP) / 2.0f;
         _xLabel.frame = CGRectMake(readX, y + 3, half, 20);
@@ -620,31 +718,23 @@ static PickOverlay *_pkShared = nil;
     }
     y += readH;
 
-    if (!rectMode) {
-        _swatch.frame = CGRectMake(PK_PAD, y + 2, 14, 14);
-        _hexLabel.frame = CGRectMake(PK_PAD + 20, y, 110, 18);
-        y += colorH;
+    // 颜色行：色块 + #hex + RGB 三个数字
+    _swatch.frame = CGRectMake(PK_PAD, y + 1, 20, 20);
+    _hexLabel.frame = CGRectMake(PK_PAD + 26, y + 2, 68, 18);
+    _rgbLabel.frame = CGRectMake(PK_PAD + 98, y + 3, MAX(w - 98, 40), 16);
+    y += colorH;
 
-        // 微调盘：上排只放「上」，下排左 / 下 / 右
-        CGFloat cell = PK_NUDGE_CELL, gap = 3;
-        CGFloat padY = (PK_CTRL_H - (cell * 2 + gap)) / 2.0f;
-        _up.frame = CGRectMake(PK_PAD + cell + gap, y + padY, cell, cell);
-        _left.frame = CGRectMake(PK_PAD, y + padY + cell + gap, cell, cell);
-        _down.frame = CGRectMake(PK_PAD + cell + gap, y + padY + cell + gap, cell, cell);
-        _right.frame = CGRectMake(PK_PAD + (cell + gap) * 2, y + padY + cell + gap, cell, cell);
-        _mag.frame = CGRectMake(PK_PANEL_W - PK_PAD - PK_MAG_SIZE, y + (PK_CTRL_H - PK_MAG_SIZE) / 2.0f,
-                                PK_MAG_SIZE, PK_MAG_SIZE);
-        y += ctrlH;
-    }
+    // 微调盘在左、放大预览在右（框选模式下盘负责整体挪框，预览看选中的那个角）
+    _pad.frame = CGRectMake(PK_PAD, y + (PK_CTRL_H - PK_PAD_SIZE) / 2.0f, PK_PAD_SIZE, PK_PAD_SIZE);
+    _mag.frame = CGRectMake(PK_PANEL_W - PK_PAD - PK_MAG_SIZE, y + (PK_CTRL_H - PK_MAG_SIZE) / 2.0f,
+                            PK_MAG_SIZE, PK_MAG_SIZE);
+    y += ctrlH;
 
     CGFloat btnW = (w - PK_GAP) / 2.0f;
     _cancelBtn.frame = CGRectMake(PK_PAD, y + PK_GAP, btnW, PK_FOOT_H);
     _confirmBtn.frame = CGRectMake(PK_PAD + btnW + PK_GAP, y + PK_GAP, btnW, PK_FOOT_H);
 
-    _swatch.hidden = rectMode;
-    _hexLabel.hidden = rectMode;
-    _mag.hidden = rectMode;
-    for (PKNudgeView *v in @[ _up, _down, _left, _right ]) v.hidden = rectMode;
+    _cornerBtn.hidden = !rectMode;
 }
 
 - (void)layoutOverlay {
@@ -702,8 +792,13 @@ static PickOverlay *_pkShared = nil;
 
 #pragma mark - 微调
 
+// 微调步进：dx/dy 单位是「指示器像素」。框选模式下整体挪框，其余模式挪选择器
 - (void)nudgeDX:(CGFloat)dx dy:(CGFloat)dy {
     CGFloat k = [self viewPointsPerIndicatorPixel];
+    if (_mode == FlowPickModeRect || _mode == FlowPickModeTemplate) {
+        if (_hasRect) [self moveRectByViewDX:dx * k dy:dy * k];
+        return;
+    }
     if (_mode == FlowPickModePath) {
         CGPoint p = _activeIsEnd ? _end : _start;
         p = [self clampViewPoint:CGPointMake(p.x + dx * k, p.y + dy * k)];
@@ -712,6 +807,35 @@ static PickOverlay *_pkShared = nil;
         _crosshair = [self clampViewPoint:CGPointMake(_crosshair.x + dx * k, _crosshair.y + dy * k)];
     }
     [self pushGeometry];
+}
+
+// 盘上滑动：dx/dy 单位是「屏点」，选择器 / 框跟着手指 1:1 相对移动
+- (void)slideDX:(CGFloat)dx dy:(CGFloat)dy {
+    if (_mode == FlowPickModeRect || _mode == FlowPickModeTemplate) {
+        if (_hasRect) [self moveRectByViewDX:dx dy:dy];
+        return;
+    }
+    if (_mode == FlowPickModePath) {
+        CGPoint p = _activeIsEnd ? _end : _start;
+        p = [self clampViewPoint:CGPointMake(p.x + dx, p.y + dy)];
+        if (_activeIsEnd) _end = p; else _start = p;
+    } else {
+        _crosshair = [self clampViewPoint:CGPointMake(_crosshair.x + dx, _crosshair.y + dy)];
+    }
+    [self pushGeometry];
+}
+
+// 框整体平移（视图坐标），不改大小只挪位置
+- (void)moveRectByViewDX:(CGFloat)dx dy:(CGFloat)dy {
+    CGRect b = _root.bounds;
+    CGRect r = _pickedRectView;
+    r.origin.x = MAX(0, MIN(b.size.width - r.size.width, r.origin.x + dx));
+    r.origin.y = MAX(0, MIN(b.size.height - r.size.height, r.origin.y + dy));
+    _pickedRectView = r;
+    _rectStart = r.origin;
+    _rectEnd = CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r));
+    _canvas.pickedRect = r;
+    [self updateReadout];
 }
 
 #pragma mark - 手势
@@ -723,17 +847,38 @@ static PickOverlay *_pkShared = nil;
         if (g.state == UIGestureRecognizerStateBegan) {
             // pan 要挪够最小距离才起手，began 时的点已经偏了：减掉这段位移回到真正按下的位置
             CGPoint t = [g translationInView:_root];
-            _rectStart = CGPointMake(p.x - t.x, p.y - t.y);
-            _rectEnd = _rectStart;
-            _hasRect = NO;
-            _pickedRectView = CGRectZero;
+            CGPoint down = CGPointMake(p.x - t.x, p.y - t.y);
+            // 已有框时落在右上角拖柄附近 = 改大小（左上角不动）；否则重新框一个
+            if (_hasRect && hypot(down.x - CGRectGetMaxX(_pickedRectView),
+                                  down.y - CGRectGetMinY(_pickedRectView)) <= 26.0f) {
+                _resizing = YES;
+                _rectStart = _pickedRectView.origin;
+                _rectEnd = CGPointMake(CGRectGetMaxX(_pickedRectView), CGRectGetMaxY(_pickedRectView));
+            } else {
+                _resizing = NO;
+                _rectStart = down;
+                _rectEnd = _rectStart;
+                _hasRect = NO;
+                _pickedRectView = CGRectZero;
+            }
         } else if (g.state == UIGestureRecognizerStateChanged) {
             CGRect b = _root.bounds;
-            _rectEnd = CGPointMake(MAX(0, MIN(b.size.width, p.x)), MAX(0, MIN(b.size.height, p.y)));
-            _pickedRectView = CGRectMake(MIN(_rectStart.x, _rectEnd.x), MIN(_rectStart.y, _rectEnd.y),
-                                         fabs(_rectEnd.x - _rectStart.x), fabs(_rectEnd.y - _rectStart.y));
-            _hasRect = (_pickedRectView.size.width >= 6 && _pickedRectView.size.height >= 6);
+            CGPoint now = CGPointMake(MAX(0, MIN(b.size.width, p.x)), MAX(0, MIN(b.size.height, p.y)));
+            if (_resizing) {
+                // 左上角钉死：横向拽右边缘、纵向拽下边缘，各留 6pt 最小尺寸
+                CGFloat w = MAX(6.0f, now.x - _rectStart.x);
+                CGFloat h = MAX(6.0f, now.y - _rectStart.y);
+                _rectEnd = CGPointMake(_rectStart.x + w, _rectStart.y + h);
+                _pickedRectView = CGRectMake(_rectStart.x, _rectStart.y, w, h);
+                _hasRect = YES;
+            } else {
+                _rectEnd = now;
+                _pickedRectView = CGRectMake(MIN(_rectStart.x, _rectEnd.x), MIN(_rectStart.y, _rectEnd.y),
+                                             fabs(_rectEnd.x - _rectStart.x), fabs(_rectEnd.y - _rectStart.y));
+                _hasRect = (_pickedRectView.size.width >= 6 && _pickedRectView.size.height >= 6);
+            }
         } else {
+            _resizing = NO;
             return;
         }
         _canvas.pickedRect = _pickedRectView;
@@ -827,6 +972,7 @@ static PickOverlay *_pkShared = nil;
         if (!_hasRect) {
             _xLabel.text = @"在画面上拖一个框";
             _yLabel.text = @"";
+            [self showColor:NSNotFound];
             return;
         }
         CGRect ind = [self indicatorRectFromViewRect:_pickedRectView];
@@ -834,6 +980,15 @@ static PickOverlay *_pkShared = nil;
                         (long)llround(CGRectGetMinX(ind)), (long)llround(CGRectGetMinY(ind))];
         _yLabel.text = [NSString stringWithFormat:@"宽 %ld   高 %ld",
                         (long)llround(ind.size.width), (long)llround(ind.size.height)];
+
+        // 放大预览 / 颜色框看选中的那个角（默认左上角，可切右上角）
+        CGPoint cornerView = _previewTopRight
+            ? CGPointMake(CGRectGetMaxX(_pickedRectView), CGRectGetMinY(_pickedRectView))
+            : _pickedRectView.origin;
+        CGPoint ci = [self indicatorFromView:cornerView];
+        CGPoint corner = CGPointMake(llround(ci.x), llround(ci.y));
+        [_mag setCenterPoint:corner];
+        [self showColor:[self pixelAtIndicator:corner]];
         return;
     }
 
@@ -852,16 +1007,22 @@ static PickOverlay *_pkShared = nil;
 
     // 放大预览 / 颜色块都读冻帧，不读实时屏幕：画面冻住了，实时帧早就是别的内容了
     [_mag setCenterPoint:pixel];
-    NSUInteger rgba = [self pixelAtIndicator:pixel];
+    [self showColor:[self pixelAtIndicator:pixel]];
+}
+
+// 把 0xRRGGBB 铺到色块 + hex + RGB 数字三处；NSNotFound = 那颗像素读不到
+- (void)showColor:(NSUInteger)rgba {
     if (rgba == NSNotFound) {
         _swatch.backgroundColor = [UIColor clearColor];
         _hexLabel.text = @"----";
+        _rgbLabel.text = @"";
         return;
     }
-    _swatch.backgroundColor = [UIColor colorWithRed:((rgba >> 16) & 0xFF) / 255.0
-                                              green:((rgba >> 8) & 0xFF) / 255.0
-                                               blue:(rgba & 0xFF) / 255.0 alpha:1];
+    NSUInteger r = (rgba >> 16) & 0xFF, g = (rgba >> 8) & 0xFF, b = rgba & 0xFF;
+    _swatch.backgroundColor = [UIColor colorWithRed:r / 255.0 green:g / 255.0 blue:b / 255.0 alpha:1];
     _hexLabel.text = [NSString stringWithFormat:@"#%06lX", (unsigned long)rgba];
+    _rgbLabel.text = [NSString stringWithFormat:@"%lu %lu %lu",
+                      (unsigned long)r, (unsigned long)g, (unsigned long)b];
 }
 
 // 冻帧上某颗像素的 0xRRGGBB
@@ -889,8 +1050,12 @@ static PickOverlay *_pkShared = nil;
     if (w == 0 || h == 0) return NO;
 
     // 立刻拷成独立位图：这张 CGImage 直接指着抓屏用的 IOSurface，下一次抓屏会把它整块覆盖
+    // 注意：CGImage 原点在左下、UIGraphics 上下文在左上，不翻一下画出来整张图是上下颠倒的
+    // （横屏再转 90° 就表现成左右镜像，踩过）
     UIGraphicsBeginImageContextWithOptions(CGSizeMake(w, h), NO, 1.0);
     CGContextRef ctx = UIGraphicsGetCurrentContext();
+    CGContextTranslateCTM(ctx, 0, h);
+    CGContextScaleCTM(ctx, 1, -1);
     CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), cg);
     UIImage *raw = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
@@ -931,6 +1096,9 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
         free(buf);
         return NULL;
     }
+    // 位图上下文也是 Quartz 坐标：同样要翻，否则像素缓冲上下颠倒、取色读到错位的点
+    CGContextTranslateCTM(ctx, 0, h);
+    CGContextScaleCTM(ctx, 1, -1);
     CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), cg);
     CGContextRelease(ctx);
 
@@ -987,7 +1155,7 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
 
 // 重截：先把窗口隐掉再抓，否则自己的面板会被截进画面
 - (void)recaptureTapped {
-    [_up stop]; [_down stop]; [_left stop]; [_right stop];
+    [_pad stop];
     _window.alpha = 0;
     ZXSafeMainAsync(^{
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -1091,7 +1259,7 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
 
 - (void)teardown {
     if (!_window && !_root) return;
-    [_up stop]; [_down stop]; [_left stop]; [_right stop];
+    [_pad stop];
     [_root endEditing:YES];
     _window.hidden = YES;
     _window.rootViewController = nil;
@@ -1108,9 +1276,11 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
     _yLabel = nil;
     _swatch = nil;
     _hexLabel = nil;
+    _rgbLabel = nil;
+    _cornerBtn = nil;
     [_mag setSourceImage:NULL];
     _mag = nil;
-    _up = _down = _left = _right = nil;
+    _pad = nil;
     _confirmBtn = _cancelBtn = _recaptureBtn = nil;
     _rawFrame = nil;
     _shownFrame = nil;
@@ -1119,6 +1289,7 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
     _pixels = NULL;
     _pixelW = _pixelH = _pixelStride = 0;
     _panelOrigin = CGPointZero;
+    _resizing = NO;
     _completion = nil;
     _cancelHandler = nil;
 }

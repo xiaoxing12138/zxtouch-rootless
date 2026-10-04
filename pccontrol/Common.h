@@ -69,6 +69,13 @@ typedef NS_ENUM(NSInteger, ZXPaletteRole) {
 };
 UIColor *ZXPalette(ZXPaletteRole role);
 
+/*
+ 随行小菜单（非强弹窗）：锚在 anchor 旁弹出，点别处或选中后消失。
+ items 每项：@{ @"title": 文字（必填）, @"icon": SF Symbol 名（可省）,
+               @"destructive": @YES（可省，红色）, @"action": dispatch_block_t（选中执行） }
+*/
+void ZXShowMiniMenuNearView(UIView *anchor, NSArray<NSDictionary *> *items);
+
 static inline void ZXSafeMainAsync(dispatch_block_t block)
 {
     dispatch_async(dispatch_get_main_queue(), ^{

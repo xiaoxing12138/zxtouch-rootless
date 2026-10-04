@@ -79,6 +79,131 @@ static UIImage *fnSymbol(NSString *name) {
 }
 @end
 
+#define FN_SCRIPT_DELETE_W 72.0f   // 脚本行左滑露出的「删除」宽度
+
+// 脚本列表里的脚本行：左滑露「删除」，长按弹菜单（复制 / 导出），点按选择
+@interface FNScriptRowView : UIView <UIGestureRecognizerDelegate>
+@property (nonatomic, strong) UIView   *content;
+@property (nonatomic, copy) void (^onTap)(void);
+@property (nonatomic, copy) void (^onDelete)(void);
+@property (nonatomic, copy) void (^onMenu)(void);
+@end
+
+@implementation FNScriptRowView {
+    BOOL    _open;
+    CGFloat _panStartX;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.layer.cornerRadius = 8;
+        self.clipsToBounds = YES;
+
+        UIButton *del = [UIButton buttonWithType:UIButtonTypeSystem];
+        del.backgroundColor = [UIColor systemRedColor];
+        del.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        [del setTitle:@"删除" forState:UIControlStateNormal];
+        [del setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        del.hidden = YES;
+        del.tag = 9;
+        __weak typeof(self) weakSelf = self;
+        [del addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            FNScriptRowView *row = weakSelf;
+            if (row && row.onDelete) row.onDelete();
+        }] forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:del];
+
+        _content = [[UIView alloc] initWithFrame:self.bounds];
+        _content.backgroundColor = [UIColor secondarySystemBackgroundColor];
+        _content.layer.cornerRadius = 8;
+        [self addSubview:_content];
+
+        UILongPressGestureRecognizer *press =
+            [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handlePress:)];
+        press.minimumPressDuration = 0.45;
+        [self addGestureRecognizer:press];
+
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)];
+        [tap requireGestureRecognizerToFail:press];
+        [_content addGestureRecognizer:tap];
+
+        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+        pan.delegate = self;
+        [self addGestureRecognizer:pan];
+    }
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [self viewWithTag:9].frame = CGRectMake(self.bounds.size.width - FN_SCRIPT_DELETE_W, 0,
+                                            FN_SCRIPT_DELETE_W, self.bounds.size.height);
+    if (CGAffineTransformIsIdentity(_content.transform)) _content.frame = self.bounds;
+}
+
+- (void)handleTap {
+    if (_open) { [self setOpen:NO animated:YES]; return; }
+    if (self.onTap) self.onTap();
+}
+
+- (void)handlePress:(UILongPressGestureRecognizer *)g {
+    if (g.state != UIGestureRecognizerStateBegan) return;
+    [self setOpen:NO animated:NO];
+    if (self.onMenu) self.onMenu();
+}
+
+- (void)handlePan:(UIPanGestureRecognizer *)g {
+    if (g.state == UIGestureRecognizerStateBegan) _panStartX = _content.transform.tx;
+    CGFloat x = _panStartX + [g translationInView:self].x;
+    if (x > 0) x = 0;
+    if (x < -FN_SCRIPT_DELETE_W) x = -FN_SCRIPT_DELETE_W;
+    [self viewWithTag:9].hidden = (x > -1.0f);
+    _content.transform = CGAffineTransformMakeTranslation(x, 0);
+    if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
+        [self setOpen:(x < -FN_SCRIPT_DELETE_W / 2.0f) animated:YES];
+    }
+}
+
+- (void)setOpen:(BOOL)open animated:(BOOL)animated {
+    _open = open;
+    [self viewWithTag:9].hidden = !open;
+    void (^apply)(void) = ^{
+        self->_content.transform = CGAffineTransformMakeTranslation(open ? -FN_SCRIPT_DELETE_W : 0, 0);
+    };
+    if (animated) [UIView animateWithDuration:0.18 animations:apply];
+    else apply();
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
+    if ([g isKindOfClass:[UIPanGestureRecognizer class]]) {
+        CGPoint v = [(UIPanGestureRecognizer *)g velocityInView:self];
+        return fabs(v.x) > fabs(v.y);   // 竖直方向留给列表自己滚
+    }
+    return YES;
+}
+@end
+
+// 可视化脚本的总步骤数（读包内 flow.plist 的 Steps）；不是可视化脚本返回 -1
+static NSInteger fnFlowStepCount(NSString *bundlePath) {
+    NSDictionary *flow = [NSDictionary dictionaryWithContentsOfFile:
+                          [bundlePath stringByAppendingPathComponent:kFlowFileName]];
+    NSArray *steps = [flow[@"Steps"] isKindOfClass:[NSArray class]] ? flow[@"Steps"] : nil;
+    return steps ? (NSInteger)steps.count : -1;
+}
+
+// 步骤数分档上色：0 灰，之后每 5 步换一色，30 步以上红
+static UIColor *fnStepCountColor(NSInteger count) {
+    if (count <= 0)  return [UIColor systemGrayColor];
+    if (count <= 5)  return [UIColor systemBlueColor];
+    if (count <= 10) return [UIColor systemGreenColor];
+    if (count <= 15) return [UIColor systemOrangeColor];
+    if (count <= 20) return [UIColor systemPurpleColor];
+    if (count <= 25) return [UIColor systemPinkColor];
+    if (count <= 30) return [UIColor systemTealColor];
+    return [UIColor systemRedColor];
+}
+
 // 文件最后修改时间：今年的只显示「月-日 时:分」，往年带上年份
 static NSString *fnDateText(NSDate *date) {
     if (!date) return @"";
@@ -135,9 +260,8 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     UIButton        *_saveBtn;
     UIButton        *_runBtn;
     UIButton        *_recordBtn;
-    UIButton        *_newScriptBtn;  // 挑脚本时顶行的「＋」：新建可视化脚本并直接开编辑器
-    UIButton        *_previewBtn;    // 可视化脚本根页的「预览」：看生成的 main.py
-    UITextView      *_previewView;   // 预览页（盖在内容区上，只有流程预览时才显示）
+    UIButton        *_newScriptBtn;  // 挑脚本时顶行的「＋」：弹菜单（新建 / 导入）
+    UIButton        *_flowSettingsBtn; // 流程编辑页的「设置」：循环次数/间隔 + 定时启动结束
     UIImageView     *_resizeGrip;   // 右下角把手：拖它改面板大小
     FNPanelMode      _panelMode;    // 功能页 / 流程编辑页
     BOOL             _flowCanGoBack; // 流程编辑器在子页（顶栏左键 = 返回）
@@ -270,16 +394,6 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     _functionScrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [_cardView addSubview:_functionScrollView];
 
-    // 流程编辑器的「预览」页：显示生成的 main.py，盖在内容区上（默认隐藏）
-    _previewView = [[UITextView alloc] initWithFrame:_functionScrollView.frame];
-    _previewView.editable = NO;
-    _previewView.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
-    _previewView.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    _previewView.textContainerInset = UIEdgeInsetsMake(8, 8, 8, 8);
-    _previewView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _previewView.hidden = YES;
-    [_cardView addSubview:_previewView];
-
     // 顶行右侧：运行 / 保存（都在 ✕ 左边，位置在 layoutCard 里排）
     _runBtn = fnMakeButton(@"运行", [UIColor systemGreenColor]);
     _runBtn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
@@ -292,20 +406,17 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     _saveBtn = fnMakeButton(@"保存", [UIColor systemBlueColor]);
     _saveBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
     [_saveBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        if (self->_panelMode == FNPanelModeFlow && !self->_pickingScript) {
-            if ([[FlowWindow shared] save]) [self hide];   // 流程：写 flow.plist + 重新生成 main.py
-        } else {
-            [self saveAndHide];   // 功能页：存「选项值 + 功能参数 + 功能勾选」再关闭
-        }
+        [self saveAndHide];   // 功能页：存「选项值 + 功能参数 + 功能勾选」再关闭（流程页每次改动实时落盘，没有保存按钮）
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_saveBtn];
 
-    // 可视化脚本根页才显示：看一眼生成的 main.py
-    _previewBtn = fnMakeButton(@"预览", [UIColor systemTealColor]);
-    [_previewBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [[FlowWindow shared] showPreviewPage];
+    // 流程编辑页顶行：设置（循环次数/间隔 + 定时启动结束，按脚本实时保存）
+    _flowSettingsBtn = fnMakeButton(@"", [UIColor systemBlueColor]);
+    [_flowSettingsBtn setImage:fnSymbol(@"gearshape") forState:UIControlStateNormal];
+    [_flowSettingsBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [[FlowWindow shared] showSettings];
     }] forControlEvents:UIControlEventTouchUpInside];
-    [_cardView addSubview:_previewBtn];
+    [_cardView addSubview:_flowSettingsBtn];
 
     // 顶行右侧：录制（未录制显示「录制」，录制中显示「停止」）
     _recordBtn = fnMakeButton(@"录制", [UIColor systemRedColor]);
@@ -314,11 +425,11 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_recordBtn];
 
-    // 挑脚本时才显示：新建一个可视化脚本，建完直接开它的编辑器卡片
+    // 挑脚本时才显示：弹菜单（新建可视化脚本 / 从「导入导出」文件夹导入）
     _newScriptBtn = fnMakeButton(@"＋", [UIColor systemBlueColor]);
     _newScriptBtn.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
     [_newScriptBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self createVisualScriptHere];
+        [self showNewScriptMenu];
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_newScriptBtn];
 
@@ -389,22 +500,22 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 
     _cardView.frame = CGRectMake(originX, originY, cardW, cardH);
 
-    // 顶行按钮按内容切换：挑脚本时「＋ / 录制」；功能页「运行 / 保存」；流程页「预览 / 保存」
+    // 顶行按钮按内容切换：挑脚本时「＋ / 录制」；功能页「运行 / 保存」；流程页「设置」（流程实时落盘，没有保存/预览）
     BOOL flow = (!_pickingScript && _panelMode == FNPanelModeFlow);
     _runBtn.hidden = (_pickingScript || flow);
-    _saveBtn.hidden = _pickingScript;
-    _previewBtn.hidden = (!flow || _flowCanGoBack);   // 「预览」只在流程根页
+    _saveBtn.hidden = (_pickingScript || flow);
+    _flowSettingsBtn.hidden = !flow;
     _recordBtn.hidden = !_pickingScript;
     _newScriptBtn.hidden = !_pickingScript;
 
-    // 顶行从右往左排：✕ / 保存 / 运行 / 预览 / 录制 / ＋（隐藏的不占位），剩下的左边给脚本选择（约占卡片 1/3）
+    // 顶行从右往左排：✕ / 保存 / 运行 / 设置 / 录制 / ＋（隐藏的不占位），剩下的左边给脚本选择（约占卡片 1/3）
     CGFloat topY = 6.0f, topH = 36.0f, gap = 6.0f;
     CGFloat rightX = cardW - 8.0f;
     _closeBtn.frame = CGRectMake(rightX - 32.0f, topY, 32.0f, topH);
     rightX -= (32.0f + gap);
 
-    NSArray<UIButton *> *topButtons = @[ _saveBtn, _runBtn, _previewBtn, _recordBtn, _newScriptBtn ];
-    NSArray<NSNumber *> *topWidths = @[ @64.0, @64.0, @56.0, @60.0, @40.0 ];
+    NSArray<UIButton *> *topButtons = @[ _saveBtn, _runBtn, _flowSettingsBtn, _recordBtn, _newScriptBtn ];
+    NSArray<NSNumber *> *topWidths = @[ @64.0, @64.0, @40.0, @60.0, @40.0 ];
     for (NSUInteger i = 0; i < topButtons.count; i++) {
         UIButton *btn = topButtons[i];
         if (btn.hidden) continue;
@@ -418,7 +529,6 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     _functionScriptBtn.frame = CGRectMake(8, topY, scriptW, topH);
 
     _functionScrollView.frame = CGRectMake(0, FN_TOP_H, cardW, MAX(cardH - FN_TOP_H, 0));
-    _previewView.frame = _functionScrollView.frame;
 
     // 右下角把手（往内缩 8pt，免得被圆角裁掉）
     _resizeGrip.frame = CGRectMake(cardW - 8.0f - FN_GRIP, cardH - 8.0f - FN_GRIP, FN_GRIP, FN_GRIP);
@@ -894,7 +1004,6 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
         : @"（点这里选脚本）";
     [_functionScriptBtn setTitle:[NSString stringWithFormat:@"脚本：%@", title] forState:UIControlStateNormal];
 
-    _previewView.hidden = YES;
     [_cardView endEditing:YES];
     for (UIView *v in _functionScrollView.subviews) [v removeFromSuperview];
     _functionSwitches = [NSMutableArray array];
@@ -1054,7 +1163,8 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
     [state writeToFile:PANEL_STATE_CONFIG_PATH atomically:YES];
 }
 
-// 递归铺目录：文件夹点一下展开 / 收起，脚本行右边显示最后编辑时间
+// 递归铺目录：文件夹点一下展开 / 收起；脚本行支持左滑删除、长按菜单（复制/导出），
+// 行右显示最后编辑时间，名字左边是可视化脚本的总步骤数（按档上色）
 - (CGFloat)addScriptEntriesAtDir:(NSString *)dir depth:(NSInteger)depth y:(CGFloat)y width:(CGFloat)pw {
     __weak typeof(self) weakSelf = self;
     CGFloat indent = 8.0f + depth * 18.0f;
@@ -1066,37 +1176,32 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
         NSString *path = entry[@"path"];
         BOOL expanded = isFolder && [_expandedFolders containsObject:path];
 
-        FNTapView *row = [[FNTapView alloc] initWithFrame:CGRectMake(4, y, rowW, FN_ROW_H)];
-        row.backgroundColor = [UIColor secondarySystemBackgroundColor];
-        row.layer.cornerRadius = 8;
-
-        // 文件夹前面有折叠箭头，脚本行把箭头那格空着，名字才能跟文件夹名对齐
         if (isFolder) {
+            FNTapView *row = [[FNTapView alloc] initWithFrame:CGRectMake(4, y, rowW, FN_ROW_H)];
+            row.backgroundColor = [UIColor secondarySystemBackgroundColor];
+            row.layer.cornerRadius = 8;
+
             UIImageView *arrow = [[UIImageView alloc] initWithFrame:CGRectMake(indent + 8, (FN_ROW_H - 12) / 2.0f, 12, 12)];
             arrow.image = fnSymbol(expanded ? @"chevron.down" : @"chevron.right");
             arrow.tintColor = [UIColor secondaryLabelColor];
             arrow.contentMode = UIViewContentModeScaleAspectFit;
             [row addSubview:arrow];
-        }
 
-        UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(indent + 26, (FN_ROW_H - 16) / 2.0f, 16, 16)];
-        icon.image = fnSymbol(isFolder ? (expanded ? @"folder.fill" : @"folder") : @"doc.text.fill");
-        icon.tintColor = isFolder ? [UIColor systemBlueColor] : [UIColor secondaryLabelColor];
-        icon.contentMode = UIViewContentModeScaleAspectFit;
-        [row addSubview:icon];
+            UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(indent + 26, (FN_ROW_H - 16) / 2.0f, 16, 16)];
+            icon.image = fnSymbol(expanded ? @"folder.fill" : @"folder");
+            icon.tintColor = [UIColor systemBlueColor];
+            icon.contentMode = UIViewContentModeScaleAspectFit;
+            [row addSubview:icon];
 
-        CGFloat nameX = indent + 48.0f;
-        CGFloat nameW = rowW - nameX - 10.0f;
-        if (!isFolder) nameW -= (timeW + 8.0f);
-        UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(nameX, 0, MAX(nameW, 40.0f), FN_ROW_H)];
-        name.text = isFolder ? entry[@"name"] : [entry[@"name"] stringByDeletingPathExtension];
-        name.font = [UIFont systemFontOfSize:13];
-        name.textColor = [UIColor labelColor];
-        name.adjustsFontSizeToFitWidth = YES;
-        name.minimumScaleFactor = 0.8;
-        [row addSubview:name];
+            CGFloat nameX = indent + 48.0f;
+            UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(nameX, 0, MAX(rowW - nameX - 10.0f, 40.0f), FN_ROW_H)];
+            name.text = entry[@"name"];
+            name.font = [UIFont systemFontOfSize:13];
+            name.textColor = [UIColor labelColor];
+            name.adjustsFontSizeToFitWidth = YES;
+            name.minimumScaleFactor = 0.8;
+            [row addSubview:name];
 
-        if (isFolder) {
             row.onTap = ^{
                 FunctionWindow *window = weakSelf;
                 if (!window) return;
@@ -1105,25 +1210,79 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
                 [window savePanelState];
                 [window reloadScriptPicker];
             };
-        } else {
-            UILabel *time = [[UILabel alloc] initWithFrame:CGRectMake(rowW - 10.0f - timeW, 0, timeW, FN_ROW_H)];
-            time.text = fnDateText(entry[@"date"]);
-            time.font = [UIFont systemFontOfSize:11];
-            time.textColor = [UIColor secondaryLabelColor];
-            time.textAlignment = NSTextAlignmentRight;
-            [row addSubview:time];
 
-            row.onTap = ^{
-                FunctionWindow *window = weakSelf;
-                if (!window) return;
-                [window selectFunctionScript:path];
-            };
+            [_functionScrollView addSubview:row];
+            y += FN_ROW_H + FN_ROW_GAP;
+            if (expanded) y = [self addScriptEntriesAtDir:path depth:depth + 1 y:y width:pw];
+            continue;
         }
+
+        // ---- 脚本行 ----
+        FNScriptRowView *row = [[FNScriptRowView alloc] initWithFrame:CGRectMake(4, y, rowW, FN_ROW_H)];
+        // 当前选中的脚本用浅色标出来，下次进列表一眼看到
+        if ([path isEqualToString:_functionScriptPath]) {
+            row.content.backgroundColor = [[UIColor systemBlueColor] colorWithAlphaComponent:0.14];
+        }
+
+        // 脚本行把箭头那格空着，名字才能跟文件夹名对齐
+        UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(indent + 26, (FN_ROW_H - 16) / 2.0f, 16, 16)];
+        icon.image = fnSymbol(@"doc.text.fill");
+        icon.tintColor = [UIColor secondaryLabelColor];
+        icon.contentMode = UIViewContentModeScaleAspectFit;
+        [row.content addSubview:icon];
+
+        // 可视化脚本：名字左边显示总步骤数，0 步灰色，每 5 步换一色，30+ 红
+        NSInteger stepCount = fnFlowStepCount(path);
+        CGFloat nameX = indent + 48.0f;
+        if (stepCount >= 0) {
+            UILabel *count = [[UILabel alloc] initWithFrame:CGRectMake(nameX, 0, 34, FN_ROW_H)];
+            count.text = [NSString stringWithFormat:@"%ld步", (long)stepCount];
+            count.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightSemibold];
+            count.textColor = fnStepCountColor(stepCount);
+            count.adjustsFontSizeToFitWidth = YES;
+            count.minimumScaleFactor = 0.8;
+            [row.content addSubview:count];
+            nameX += 36.0f;
+        }
+
+        CGFloat nameW = rowW - nameX - 10.0f - (timeW + 8.0f);
+        UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(nameX, 0, MAX(nameW, 40.0f), FN_ROW_H)];
+        name.text = [entry[@"name"] stringByDeletingPathExtension];
+        name.font = [UIFont systemFontOfSize:13];
+        name.textColor = [UIColor labelColor];
+        name.adjustsFontSizeToFitWidth = YES;
+        name.minimumScaleFactor = 0.8;
+        [row.content addSubview:name];
+
+        UILabel *time = [[UILabel alloc] initWithFrame:CGRectMake(rowW - 10.0f - timeW, 0, timeW, FN_ROW_H)];
+        time.text = fnDateText(entry[@"date"]);
+        time.font = [UIFont systemFontOfSize:11];
+        time.textColor = [UIColor secondaryLabelColor];
+        time.textAlignment = NSTextAlignmentRight;
+        [row.content addSubview:time];
+
+        __weak FNScriptRowView *weakRow = row;
+        row.onTap = ^{
+            FunctionWindow *window = weakSelf;
+            if (!window) return;
+            [window selectFunctionScript:path];
+        };
+        row.onDelete = ^{
+            FunctionWindow *window = weakSelf;
+            if (!window) return;
+            [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+            // 删掉的如果正是当前选中的脚本，把选择也清掉，免得面板还去读一个已不存在的包
+            if ([path isEqualToString:window->_functionScriptPath]) window->_functionScriptPath = nil;
+            [window reloadScriptPicker];
+        };
+        row.onMenu = ^{
+            FunctionWindow *window = weakSelf;
+            if (!window) return;
+            [window showScriptActionMenuForPath:path anchor:weakRow];
+        };
 
         [_functionScrollView addSubview:row];
         y += FN_ROW_H + FN_ROW_GAP;
-
-        if (expanded) y = [self addScriptEntriesAtDir:path depth:depth + 1 y:y width:pw];
     }
     return y;
 }
@@ -1133,7 +1292,6 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
     if (!_window) return;
     CGFloat pw = [self cardWidth];
 
-    _previewView.hidden = YES;
     [_cardView endEditing:YES];
     // 正在挑脚本：左上角不能还挂着上一个脚本的名字，容易让人以为点的是它
     [_functionScriptBtn setTitle:@"选择脚本" forState:UIControlStateNormal];
@@ -1242,11 +1400,123 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
     [self createFlowScriptAtPath:path];
 }
 
+#pragma mark - 脚本的 新建 / 导入 / 复制 / 导出
+
+// 导入导出的固定文件夹：SpringBoard 里用不了系统文件选择器，就用这个目录中转
+static NSString *fnImportExportFolder(void) {
+    return @"/var/mobile/Library/ZXTouch/导入导出";
+}
+
+// 顶行「＋」：随行小菜单（不是强弹窗）
+- (void)showNewScriptMenu {
+    __weak typeof(self) weakSelf = self;
+    ZXShowMiniMenuNearView(_newScriptBtn, @[
+        @{ @"title": @"新建脚本", @"icon": @"plus", @"action": ^{
+            [weakSelf createVisualScriptHere];
+        } },
+        @{ @"title": @"导入脚本", @"icon": @"square.and.arrow.down", @"action": ^{
+            [weakSelf importScriptHere];
+        } },
+    ]);
+}
+
+// 列出「导入导出」文件夹里的 .bdl，选一个拷进脚本目录
+- (void)importScriptHere {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *dir = fnImportExportFolder();
+    NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:dir error:nil] ?: @[];
+    NSMutableArray<NSString *> *bundles = [NSMutableArray array];
+    for (NSString *name in items) {
+        if ([name hasPrefix:@"."]) continue;
+        if ([[name pathExtension].lowercaseString isEqualToString:@"bdl"]) [bundles addObject:name];
+    }
+    if (bundles.count == 0) {
+        showAlertBox(@"导入脚本",
+                     [NSString stringWithFormat:@"把 .bdl 脚本包放进：\n%@\n再点「导入脚本」。", dir], 4);
+        return;
+    }
+
+    __weak typeof(self) weakSelf = self;
+    NSMutableArray<NSDictionary *> *menuItems = [NSMutableArray array];
+    for (NSString *name in bundles) {
+        [menuItems addObject:@{ @"title": [name stringByDeletingPathExtension],
+                                @"icon": @"doc.text.fill",
+                                @"action": ^{
+            FunctionWindow *window = weakSelf;
+            if (!window) return;
+            NSString *src = [dir stringByAppendingPathComponent:name];
+            NSString *base = [name stringByDeletingPathExtension];
+            NSString *dest = [[getScriptsFolder() stringByAppendingPathComponent:base]
+                              stringByAppendingPathExtension:@"bdl"];
+            NSInteger seq = 2;
+            while ([[NSFileManager defaultManager] fileExistsAtPath:dest]) {
+                dest = [[getScriptsFolder() stringByAppendingPathComponent:
+                         [NSString stringWithFormat:@"%@-%ld", base, (long)seq++]] stringByAppendingPathExtension:@"bdl"];
+            }
+            NSError *err = nil;
+            if ([[NSFileManager defaultManager] copyItemAtPath:src toPath:dest error:&err]) {
+                [window reloadScriptPicker];
+            } else {
+                showAlertBox(@"错误", [NSString stringWithFormat:@"导入失败：%@", err.localizedDescription], 999);
+            }
+        } }];
+    }
+    ZXShowMiniMenuNearView(_newScriptBtn, menuItems);
+}
+
+// 长按脚本行：复制 / 导出
+- (void)showScriptActionMenuForPath:(NSString *)path anchor:(UIView *)anchor {
+    if (!anchor) return;
+    __weak typeof(self) weakSelf = self;
+    ZXShowMiniMenuNearView(anchor, @[
+        @{ @"title": @"复制", @"icon": @"doc.on.doc", @"action": ^{
+            [weakSelf duplicateScriptAtPath:path];
+        } },
+        @{ @"title": @"导出", @"icon": @"square.and.arrow.up", @"action": ^{
+            [weakSelf exportScriptAtPath:path];
+        } },
+    ]);
+}
+
+// 在同目录复制一份「名称 副本.bdl」（重名就 副本2、副本3）
+- (void)duplicateScriptAtPath:(NSString *)path {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *dir = [path stringByDeletingLastPathComponent];
+    NSString *base = [[path lastPathComponent] stringByDeletingPathExtension];
+    NSString *copy = [[dir stringByAppendingPathComponent:[base stringByAppendingString:@" 副本"]]
+                      stringByAppendingPathExtension:@"bdl"];
+    NSInteger seq = 2;
+    while ([fm fileExistsAtPath:copy]) {
+        copy = [[dir stringByAppendingPathComponent:
+                 [NSString stringWithFormat:@"%@ 副本%ld", base, (long)seq++]] stringByAppendingPathExtension:@"bdl"];
+    }
+    NSError *err = nil;
+    if ([fm copyItemAtPath:path toPath:copy error:&err]) {
+        [self reloadScriptPicker];
+    } else {
+        showAlertBox(@"错误", [NSString stringWithFormat:@"复制失败：%@", err.localizedDescription], 999);
+    }
+}
+
+// 导出 = 拷进「导入导出」文件夹（同名直接覆盖，导出就是为了带走）
+- (void)exportScriptAtPath:(NSString *)path {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *dir = fnImportExportFolder();
+    [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    NSString *dest = [dir stringByAppendingPathComponent:[path lastPathComponent]];
+    if ([fm fileExistsAtPath:dest]) [fm removeItemAtPath:dest error:nil];
+    NSError *err = nil;
+    if ([fm copyItemAtPath:path toPath:dest error:&err]) {
+        showAlertBox(@"已导出", [NSString stringWithFormat:@"文件在：\n%@", dest], 3);
+    } else {
+        showAlertBox(@"错误", [NSString stringWithFormat:@"导出失败：%@", err.localizedDescription], 999);
+    }
+}
+
 // 按当前状态重画内容：挑脚本 / 功能页 / 流程编辑，三选一
 - (void)reloadCurrentPage {
     if (!_window) return;
     if (_pickingScript) {
-        _previewView.hidden = YES;
         [self reloadScriptPicker];
         return;
     }
@@ -1277,12 +1547,6 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
 
 - (void)flowHostSetCardHidden:(BOOL)hidden {
     _cardView.hidden = hidden;
-}
-
-- (void)flowHostShowPreviewText:(NSString *)text {
-    _previewView.text = text ?: @"";
-    _previewView.hidden = (text == nil);
-    if (text) [_previewView setContentOffset:CGPointZero animated:NO];
 }
 
 #pragma mark - 运行
