@@ -489,7 +489,7 @@ static FlowWindow *_fwShared = nil;
 // 取点按钮右侧的回显：已经取到的值
 - (NSString *)pickDetailForStep:(NSDictionary *)step type:(FlowStepType *)type {
     NSArray<NSString *> *t = type.pickTargets;
-    NSString *v = ^NSString *(NSUInteger i) {
+    NSString *(^v)(NSUInteger) = ^NSString *(NSUInteger i) {
         return (i < t.count) ? [FlowScript textForValue:step[t[i]]] : @"";
     };
     switch (type.pickMode) {
@@ -739,9 +739,17 @@ static FlowWindow *_fwShared = nil;
     CGFloat panelH = MIN(14.0f + 30.0f + contentH + 20.0f, hostH - 60.0f);
 
     UIView *dim = [[UIView alloc] initWithFrame:host.bounds];
-    dim.backgroundColor = [UIColor colorWithWhite:0 alpha:0.34];
+    dim.backgroundColor = [UIColor clearColor];
     dim.alpha = 0;
-    [dim addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissAddSheet)]];
+
+    // 点面板外面关掉：用一个铺满的按钮当遮罩，比给容器挂 tap 手势稳（不会把面板上的按钮点吃掉）
+    UIButton *backdrop = [UIButton buttonWithType:UIButtonTypeCustom];
+    backdrop.frame = dim.bounds;
+    backdrop.backgroundColor = [UIColor colorWithWhite:0 alpha:0.34];
+    [backdrop addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [self dismissAddSheet];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [dim addSubview:backdrop];
 
     UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, hostH - panelH, hostW, panelH)];
     panel.backgroundColor = ZXPalette(ZXPalCard);

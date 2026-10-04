@@ -721,8 +721,10 @@ static PickOverlay *_pkShared = nil;
 
     if (_mode == FlowPickModeRect || _mode == FlowPickModeTemplate) {
         if (g.state == UIGestureRecognizerStateBegan) {
-            _rectStart = p;
-            _rectEnd = p;
+            // pan 要挪够最小距离才起手，began 时的点已经偏了：减掉这段位移回到真正按下的位置
+            CGPoint t = [g translationInView:_root];
+            _rectStart = CGPointMake(p.x - t.x, p.y - t.y);
+            _rectEnd = _rectStart;
             _hasRect = NO;
             _pickedRectView = CGRectZero;
         } else if (g.state == UIGestureRecognizerStateChanged) {
@@ -918,7 +920,7 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
     if (w == 0 || h == 0) return NULL;
 
     size_t stride = w * 4;
-    UInt8 *buf = malloc(h * stride);
+    UInt8 *buf = (UInt8 *)malloc(h * stride);
     if (!buf) return NULL;
 
     CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
