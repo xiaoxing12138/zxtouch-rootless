@@ -7,7 +7,7 @@
 #import "Play.h"
 #import "Record.h"           // 录制开关：startRecording / stopRecording / isRecordingStart
 #import "PickOverlay.h"      // 参数行「取点」：悬浮十字取坐标
-#import "FlowWindow.h"       // 可视化脚本：列表里点到就开它的编辑器卡片
+#import "FlowWindow.h"       // 可视化流程编辑器（内容挂在本面板里）+ FlowEditorHost
 #import "FlowScript.h"       // bundleHasFlow：判断脚本包里有没有可视化流程
 #import <UIKit/UIKit.h>
 
@@ -113,8 +113,14 @@ void applyPanelAppearanceMode(NSInteger mode) {
     [[FunctionWindow shared] setAppearanceMode:mode];
 }
 
+// 面板两种内容：手写脚本 = 功能 + 选项；可视化脚本 = 流程编辑（同一张卡片，不另开窗口）
+typedef NS_ENUM(NSInteger, FNPanelMode) {
+    FNPanelModeFunctions = 0,
+    FNPanelModeFlow,
+};
+
 // 拖动卡片：只认从顶栏开始的手势，中间那块滚动内容不抢
-@interface FunctionWindow () <UIGestureRecognizerDelegate>
+@interface FunctionWindow () <UIGestureRecognizerDelegate, FlowEditorHost>
 - (void)savePanelState;
 - (void)handleResizePan:(UIPanGestureRecognizer *)pan;
 @end
@@ -130,7 +136,11 @@ void applyPanelAppearanceMode(NSInteger mode) {
     UIButton        *_runBtn;
     UIButton        *_recordBtn;
     UIButton        *_newScriptBtn;  // 挑脚本时顶行的「＋」：新建可视化脚本并直接开编辑器
+    UIButton        *_previewBtn;    // 可视化脚本根页的「预览」：看生成的 main.py
+    UITextView      *_previewView;   // 预览页（盖在内容区上，只有流程预览时才显示）
     UIImageView     *_resizeGrip;   // 右下角把手：拖它改面板大小
+    FNPanelMode      _panelMode;    // 功能页 / 流程编辑页
+    BOOL             _flowCanGoBack; // 流程编辑器在子页（顶栏左键 = 返回）
 
     NSArray<NSString *>        *_functionNames;
     NSMutableArray<UISwitch *> *_functionSwitches;
@@ -216,7 +226,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
     cardPan.delegate = self;
     [_cardView addGestureRecognizer:cardPan];
 
-    // 顶行：当前脚本（点一下去挑脚本）+ 右上角 ✕
+    // 顶行左边：当前脚本（点一下去挑脚本）；流程编辑器在子页时它是「← 返回」
     _functionScriptBtn = fnMakeButton(@"脚本：", [UIColor systemBlueColor]);
     _functionScriptBtn.frame = CGRectMake(8, 6, FN_CARD_W - 8 - 40 - 6, 36);
     _functionScriptBtn.titleLabel.font = [UIFont systemFontOfSize:13];
@@ -226,9 +236,11 @@ void applyPanelAppearanceMode(NSInteger mode) {
     [_functionScriptBtn setImage:fnSymbol(@"list.bullet") forState:UIControlStateNormal];
     [_functionScriptBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
         if (self->_pickingScript) {
-            // 再点一下 = 放弃挑选，回到功能页
+            // 再点一下 = 放弃挑选，回到原来的内容
             self->_pickingScript = NO;
-            [self reloadFunctionPage];
+            [self reloadCurrentPage];
+        } else if (self->_panelMode == FNPanelModeFlow && self->_flowCanGoBack) {
+            [[FlowWindow shared] goBack];   // 流程子页：回上一页
         } else {
             [self beginScriptPicking];
         }
@@ -258,6 +270,16 @@ void applyPanelAppearanceMode(NSInteger mode) {
     _functionScrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [_cardView addSubview:_functionScrollView];
 
+    // 流程编辑器的「预览」页：显示生成的 main.py，盖在内容区上（默认隐藏）
+    _previewView = [[UITextView alloc] initWithFrame:_functionScrollView.frame];
+    _previewView.editable = NO;
+    _previewView.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
+    _previewView.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    _previewView.textContainerInset = UIEdgeInsetsMake(8, 8, 8, 8);
+    _previewView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _previewView.hidden = YES;
+    [_cardView addSubview:_previewView];
+
     // 顶行右侧：运行 / 保存（都在 ✕ 左边，位置在 layoutCard 里排）
     _runBtn = fnMakeButton(@"运行", [UIColor systemGreenColor]);
     _runBtn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
@@ -270,9 +292,20 @@ void applyPanelAppearanceMode(NSInteger mode) {
     _saveBtn = fnMakeButton(@"保存", [UIColor systemBlueColor]);
     _saveBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
     [_saveBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self saveAndHide];   // 存「选项值 + 功能参数 + 功能勾选」再关闭
+        if (self->_panelMode == FNPanelModeFlow && !self->_pickingScript) {
+            if ([[FlowWindow shared] save]) [self hide];   // 流程：写 flow.plist + 重新生成 main.py
+        } else {
+            [self saveAndHide];   // 功能页：存「选项值 + 功能参数 + 功能勾选」再关闭
+        }
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_saveBtn];
+
+    // 可视化脚本根页才显示：看一眼生成的 main.py
+    _previewBtn = fnMakeButton(@"预览", [UIColor systemTealColor]);
+    [_previewBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [[FlowWindow shared] showPreviewPage];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [_cardView addSubview:_previewBtn];
 
     // 顶行右侧：录制（未录制显示「录制」，录制中显示「停止」）
     _recordBtn = fnMakeButton(@"录制", [UIColor systemRedColor]);
@@ -309,8 +342,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
         object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
             if (!self->_shown) return;
             [self persistAllValues];
-            if (self->_pickingScript) [self reloadScriptPicker];
-            else [self reloadFunctionPage];
+            [self reloadCurrentPage];
         }];
 }
 
@@ -357,20 +389,22 @@ void applyPanelAppearanceMode(NSInteger mode) {
 
     _cardView.frame = CGRectMake(originX, originY, cardW, cardH);
 
-    // 顶行按钮：挑脚本的时候只留「＋ / 录制」，挑完了只留「运行 / 保存」
-    _runBtn.hidden = _pickingScript;
+    // 顶行按钮按内容切换：挑脚本时「＋ / 录制」；功能页「运行 / 保存」；流程页「预览 / 保存」
+    BOOL flow = (!_pickingScript && _panelMode == FNPanelModeFlow);
+    _runBtn.hidden = (_pickingScript || flow);
     _saveBtn.hidden = _pickingScript;
+    _previewBtn.hidden = (!flow || _flowCanGoBack);   // 「预览」只在流程根页
     _recordBtn.hidden = !_pickingScript;
     _newScriptBtn.hidden = !_pickingScript;
 
-    // 顶行从右往左排：✕ / 保存 / 运行 / 录制 / ＋（隐藏的不占位），剩下的左边给脚本选择（约占卡片 1/3）
+    // 顶行从右往左排：✕ / 保存 / 运行 / 预览 / 录制 / ＋（隐藏的不占位），剩下的左边给脚本选择（约占卡片 1/3）
     CGFloat topY = 6.0f, topH = 36.0f, gap = 6.0f;
     CGFloat rightX = cardW - 8.0f;
     _closeBtn.frame = CGRectMake(rightX - 32.0f, topY, 32.0f, topH);
     rightX -= (32.0f + gap);
 
-    NSArray<UIButton *> *topButtons = @[ _saveBtn, _runBtn, _recordBtn, _newScriptBtn ];
-    NSArray<NSNumber *> *topWidths = @[ @64.0, @64.0, @60.0, @40.0 ];
+    NSArray<UIButton *> *topButtons = @[ _saveBtn, _runBtn, _previewBtn, _recordBtn, _newScriptBtn ];
+    NSArray<NSNumber *> *topWidths = @[ @64.0, @64.0, @56.0, @60.0, @40.0 ];
     for (NSUInteger i = 0; i < topButtons.count; i++) {
         UIButton *btn = topButtons[i];
         if (btn.hidden) continue;
@@ -384,6 +418,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
     _functionScriptBtn.frame = CGRectMake(8, topY, scriptW, topH);
 
     _functionScrollView.frame = CGRectMake(0, FN_TOP_H, cardW, MAX(cardH - FN_TOP_H, 0));
+    _previewView.frame = _functionScrollView.frame;
 
     // 右下角把手（往内缩 8pt，免得被圆角裁掉）
     _resizeGrip.frame = CGRectMake(cardW - 8.0f - FN_GRIP, cardH - 8.0f - FN_GRIP, FN_GRIP, FN_GRIP);
@@ -436,8 +471,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
         [self persistAllValues];
         [self savePanelState];
         // 行是按宽度算好位置的，换宽度后要重排一遍
-        if (_pickingScript) [self reloadScriptPicker];
-        else [self reloadFunctionPage];
+        [self reloadCurrentPage];
     }
 }
 
@@ -860,6 +894,7 @@ void applyPanelAppearanceMode(NSInteger mode) {
         : @"（点这里选脚本）";
     [_functionScriptBtn setTitle:[NSString stringWithFormat:@"脚本：%@", title] forState:UIControlStateNormal];
 
+    _previewView.hidden = YES;
     [_cardView endEditing:YES];
     for (UIView *v in _functionScrollView.subviews) [v removeFromSuperview];
     _functionSwitches = [NSMutableArray array];
@@ -1081,13 +1116,7 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
             row.onTap = ^{
                 FunctionWindow *window = weakSelf;
                 if (!window) return;
-                if ([FlowScript bundleHasFlow:path]) {
-                    // 可视化脚本（包里有 flow.plist）：点开直接进它的编辑器，而不是选成「功能」脚本
-                    [window hide];
-                    [[FlowWindow shared] openBundle:path];
-                } else {
-                    [window selectFunctionScript:path];
-                }
+                [window selectFunctionScript:path];
             };
         }
 
@@ -1104,6 +1133,7 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
     if (!_window) return;
     CGFloat pw = [self cardWidth];
 
+    _previewView.hidden = YES;
     [_cardView endEditing:YES];
     for (UIView *v in _functionScrollView.subviews) [v removeFromSuperview];
 
@@ -1130,7 +1160,7 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
 - (void)beginScriptPicking {
     [_cardView endEditing:YES];
     _pickingScript = YES;
-    [self reloadScriptPicker];
+    [self reloadCurrentPage];
 }
 
 - (void)selectFunctionScript:(NSString *)path {
@@ -1139,10 +1169,61 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
     _pickingScript = NO;
     _functionScriptPath = [path copy];
     ZXSaveLastFunctionScriptPath(_functionScriptPath);
+    // 可视化脚本（包里有 flow.plist）没有「功能」可勾，直接进流程编辑；手写脚本才看功能页
+    if ([FlowScript bundleHasFlow:path]) {
+        [self enterFlowMode];
+        return;
+    }
+    _panelMode = FNPanelModeFunctions;
     [self reloadFunctionPage];
 }
 
-// 挑脚本时点「＋」：按 App 同样的命名规则新建一个可视化脚本包，建完直接开它的编辑器
+// 切到流程编辑：功能页留下的参数值是别的脚本的，清掉免得被写进可视化脚本的配置
+- (void)enterFlowMode {
+    _panelMode = FNPanelModeFlow;
+    _flowCanGoBack = NO;
+    _functionNames = @[];
+    _functionSwitches = nil;
+    _functionOptionValues = [NSMutableDictionary dictionary];
+    _functionParamValues = [NSMutableDictionary dictionary];
+    [[FlowWindow shared] setHost:self];
+    [[FlowWindow shared] loadBundle:_functionScriptPath];
+    [self layoutCard];
+}
+
+// 打开某个可视化脚本包并显示面板（面板里点脚本、App 发 44 命令都走这里）
+- (void)openFlowBundle:(NSString *)bundlePath {
+    ZXSafeMainAsync(^{
+        if (bundlePath.length == 0) return;
+        [self ensureWindow];
+        if (!self->_window) return;
+        self->_shown = YES;
+        self->_pickingScript = NO;
+        self->_functionScriptPath = [bundlePath copy];
+        ZXSaveLastFunctionScriptPath(self->_functionScriptPath);
+        [[FlowWindow shared] setHost:self];
+        [self enterFlowMode];
+        [self refreshRecordingButton];
+        self->_window.hidden = NO;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (self->_shown) [self layoutCard];
+        });
+    });
+}
+
+// 新建可视化脚本包并直接打开编辑器（挑脚本时的「＋」与 App 的 44;;new;; 都走这里）
+- (void)createFlowScriptAtPath:(NSString *)bundlePath {
+    ZXSafeMainAsync(^{
+        NSError *error = nil;
+        if (![FlowScript createVisualScriptAtPath:bundlePath error:&error]) {
+            showAlertBox(@"错误", error.localizedDescription ?: @"创建失败。", 999);
+            return;
+        }
+        [self openFlowBundle:bundlePath];
+    });
+}
+
+// 挑脚本时点「＋」：按 App 同样的命名规则新建一个可视化脚本包，建完直接开编辑器
 - (void)createVisualScriptHere {
     NSString *folder = getScriptsFolder();
     NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
@@ -1156,9 +1237,48 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
         path = [[folder stringByAppendingPathComponent:
                  [NSString stringWithFormat:@"%@-%ld", name, (long)seq++]] stringByAppendingPathExtension:@"bdl"];
     }
+    [self createFlowScriptAtPath:path];
+}
 
-    [self hide];
-    [[FlowWindow shared] createBundleAtPath:path];
+// 按当前状态重画内容：挑脚本 / 功能页 / 流程编辑，三选一
+- (void)reloadCurrentPage {
+    if (!_window) return;
+    if (_pickingScript) {
+        _previewView.hidden = YES;
+        [self reloadScriptPicker];
+        return;
+    }
+    if (_panelMode == FNPanelModeFlow) {
+        [[FlowWindow shared] setHost:self];
+        [[FlowWindow shared] refresh];
+        [self layoutCard];
+        return;
+    }
+    [self reloadFunctionPage];
+}
+
+#pragma mark - 把面板借给流程编辑器（FlowEditorHost）
+
+- (UIScrollView *)flowHostScrollView { return _functionScrollView; }
+- (CGFloat)flowHostContentWidth { return [self cardWidth]; }
+
+- (void)flowHostSetNavigationTitle:(NSString *)title canGoBack:(BOOL)canGoBack {
+    _flowCanGoBack = canGoBack;
+    // 流程子页左键 = 返回；根页左键 = 挑脚本（和功能页一致）
+    [_functionScriptBtn setTitle:(canGoBack ? [NSString stringWithFormat:@"← %@", title]
+                                            : [NSString stringWithFormat:@"脚本：%@", title])
+                        forState:UIControlStateNormal];
+    [self layoutCard];   // 「预览」只在流程根页显示
+}
+
+- (void)flowHostSetCardHidden:(BOOL)hidden {
+    _cardView.hidden = hidden;
+}
+
+- (void)flowHostShowPreviewText:(NSString *)text {
+    _previewView.text = text ?: @"";
+    _previewView.hidden = (text == nil);
+    if (text) [_previewView setContentOffset:CGPointZero animated:NO];
 }
 
 #pragma mark - 运行
@@ -1237,7 +1357,13 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
         if (!valid) self->_functionScriptPath = ZXFirstScriptPathWithFunctions();
 
         self->_pickingScript = NO;
-        [self reloadFunctionPage];
+        // 可视化脚本没有「功能」可勾，直接进流程编辑；手写脚本才看功能页
+        if (self->_functionScriptPath.length > 0 && [FlowScript bundleHasFlow:self->_functionScriptPath]) {
+            [self enterFlowMode];
+        } else {
+            self->_panelMode = FNPanelModeFunctions;
+            [self reloadFunctionPage];
+        }
         [self refreshRecordingButton];   // 录制可能在面板关着的时候被别人起停过
         self->_window.hidden = NO;
 

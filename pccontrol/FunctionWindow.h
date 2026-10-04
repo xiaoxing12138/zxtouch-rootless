@@ -13,6 +13,11 @@
 
 // 界面外观：0 跟随系统 1 浅色 2 深色
 - (void) setAppearanceMode:(NSInteger)mode;
+
+// 可视化脚本：打开某个脚本包的流程编辑（面板里点脚本、App 发 44 命令都走这里）
+- (void) openFlowBundle:(NSString *)bundlePath;
+// 新建可视化脚本包并直接打开编辑器（App 发 44;;new;; 时用）
+- (void) createFlowScriptAtPath:(NSString *)bundlePath;
 @end
 
 // 界面外观取自配置：appearance_mode 直接存 UIUserInterfaceStyle

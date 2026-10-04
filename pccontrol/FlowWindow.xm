@@ -1,21 +1,18 @@
 //
 //  FlowWindow.xm
-//  小新Lap 可视化脚本编辑器（悬浮卡片）
+//  小新Lap 可视化流程编辑器（内容挂在选项面板里，自己不弹窗）
 //
 
 #import "FlowWindow.h"
-#import "FloatingMenu.h"      // FMPassthroughWindow / preferredWindowScene
-#import "Common.h"            // ZXSafeMainAsync
+#import "FunctionWindow.h"    // 同一张面板：编辑器不再自己开窗口
 #import "FlowScript.h"
 #import "PickOverlay.h"
 #import "AlertBox.h"
 
 #import <math.h>   // llround / fabs
 
-#define FW_TOP_H   49.0f
-#define FW_CARD_W  560.0f
-#define FW_ROW_H   46.0f
-#define FW_GAP     6.0f
+#define FW_ROW_H    46.0f
+#define FW_GAP      6.0f
 #define FW_DELETE_W 80.0f   // 左滑露出来的「删除」宽度
 
 // 页面种类
@@ -23,27 +20,6 @@ static NSString * const kPageList    = @"list";     // 步骤列表（整条流�
 static NSString * const kPageTypes   = @"types";    // 「添加步骤」的候选类型
 static NSString * const kPageParams  = @"params";   // 某一步的参数
 static NSString * const kPagePreview = @"preview";  // 生成出来的 Python 源码
-
-@interface FWRootView : UIView
-@end
-
-@implementation FWRootView
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    UIView *hit = [super hitTest:point withEvent:event];
-    return (hit == self) ? nil : hit;   // 卡片外面穿给下面的游戏
-}
-@end
-
-@interface FWRootViewController : UIViewController
-@end
-
-@implementation FWRootViewController
-- (void)loadView {
-    FWRootView *root = [[FWRootView alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    root.backgroundColor = [UIColor clearColor];
-    self.view = root;
-}
-@end
 
 // 列表里的一行：左滑露出「删除」，长按拿起后上下拖动换顺序
 @interface FWStepRowView : UIView <UIGestureRecognizerDelegate>
@@ -181,39 +157,20 @@ static NSString * const kPagePreview = @"preview";  // 生成出来的 Python �
 }
 @end
 
-static UIButton *fwMakeButton(NSString *title, UIColor *color) {
-    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-    [b setTitle:title forState:UIControlStateNormal];
-    b.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-    b.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    b.layer.cornerRadius = 8;
-    b.layer.borderColor = color.CGColor;
-    b.layer.borderWidth = 1;
-    [b setTitleColor:color forState:UIControlStateNormal];
-    return b;
-}
-
 @interface FlowWindow ()
 @end
 
 static FlowWindow *_fwShared = nil;
 
 @implementation FlowWindow {
-    UIWindow     *_window;
-    UIView       *_cardView;
-    UIScrollView *_scroll;
-    UITextView   *_previewView;
-    UILabel      *_titleLabel;
-    UIButton     *_backBtn;
-    UIButton     *_previewBtn;
-    UIButton     *_saveBtn;
-    UIButton     *_closeBtn;
+    __weak id<FlowEditorHost> _host;
+    __weak UIScrollView      *_scroll;      // 面板的内容区，由 FunctionWindow 提供
+    CGFloat                   _pw;          // 行宽基准
 
     NSString                    *_bundlePath;
     NSMutableDictionary         *_flow;
     NSMutableArray<NSMutableDictionary *> *_stack;
     BOOL                         _handwritten;   // main.py 是手写的，保存会用流程覆盖它
-    CGFloat                      _contentHeight;
 
     NSMutableArray<FWStepRowView *> *_rows;      // 当前这一页的步骤行（长按排序要用）
     CGFloat                      _rowsTop;       // 第一行的 y（排序时算目标位置）
@@ -228,40 +185,41 @@ static FlowWindow *_fwShared = nil;
     return _fwShared;
 }
 
-#pragma mark - 打开 / 新建
+- (void)setHost:(id<FlowEditorHost>)host { _host = host; }
 
-- (void)openBundle:(NSString *)bundlePath {
-    ZXSafeMainAsync(^{
-        if (bundlePath.length == 0) return;
-        self->_bundlePath = [bundlePath copy];
-        if ([FlowScript bundleHasFlow:bundlePath]) {
-            self->_flow = [FlowScript loadFlowFromBundle:bundlePath];
-            self->_handwritten = NO;
-        } else {
-            self->_flow = [FlowScript emptyFlow];
-            // 手写脚本开进编辑器：第一次改动会覆盖 main.py，先说一声
-            self->_handwritten = ![FlowScript bundleHasGeneratedScript:bundlePath];
-        }
-        if (!self->_flow) self->_flow = [FlowScript emptyFlow];
+#pragma mark - 载入 / 保存
 
-        self->_stack = [NSMutableArray array];
-        [self->_stack addObject:[self rootPage]];
-        [self show];
-        if (self->_handwritten) {
-            showAlertBox(@"提示", @"这个脚本的 main.py 是手写的，在这里保存会用流程覆盖它。", 3);
-        }
-    });
+- (void)loadBundle:(NSString *)bundlePath {
+    if (bundlePath.length == 0) return;
+    _bundlePath = [bundlePath copy];
+    if ([FlowScript bundleHasFlow:bundlePath]) {
+        _flow = [FlowScript loadFlowFromBundle:bundlePath];
+        _handwritten = NO;
+    } else {
+        _flow = [FlowScript emptyFlow];
+        // 手写脚本开进编辑器：第一次改动会覆盖 main.py，先说一声
+        _handwritten = ![FlowScript bundleHasGeneratedScript:bundlePath];
+    }
+    if (!_flow) _flow = [FlowScript emptyFlow];
+
+    _stack = [NSMutableArray array];
+    [_stack addObject:[self rootPage]];
+    [self refresh];
+    if (_handwritten) {
+        showAlertBox(@"提示", @"这个脚本的 main.py 是手写的，在这里保存会用流程覆盖它。", 3);
+    }
 }
 
-- (void)createBundleAtPath:(NSString *)bundlePath {
-    ZXSafeMainAsync(^{
-        NSError *error = nil;
-        if (![FlowScript createVisualScriptAtPath:bundlePath error:&error]) {
-            showAlertBox(@"错误", error.localizedDescription ?: @"创建失败。", 999);
-            return;
-        }
-        [self openBundle:bundlePath];
-    });
+- (BOOL)save {
+    [_scroll endEditing:YES];
+    NSError *error = nil;
+    if (![FlowScript saveFlow:_flow toBundle:_bundlePath error:&error] ||
+        ![FlowScript writeGeneratedScriptForFlow:_flow toBundle:_bundlePath error:&error]) {
+        showAlertBox(@"错误", error.localizedDescription ?: @"保存失败。", 999);
+        return NO;
+    }
+    showAlertBox(@"小新Lap", @"已保存，并重新生成了 main.py。", 1);
+    return YES;
 }
 
 - (NSMutableDictionary *)rootPage {
@@ -270,161 +228,6 @@ static FlowWindow *_fwShared = nil;
                @"isRoot": @YES,
                @"title": name.length ? name : @"可视化脚本",
                @"steps": _flow[@"Steps"] } mutableCopy];
-}
-
-#pragma mark - 窗口
-
-- (void)ensureWindow {
-    if (_window) return;
-
-    // iOS 13+ 必须用 initWithWindowScene:，initWithFrame: 创建的窗口不会显示
-    UIWindowScene *scene = [FloatingMenu preferredWindowScene];
-    if (scene) _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
-    else _window = [[FMPassthroughWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    _window.windowLevel = UIWindowLevelAlert + 1;
-    _window.backgroundColor = [UIColor clearColor];
-    _window.rootViewController = [[FWRootViewController alloc] init];
-
-    _cardView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, FW_CARD_W, 300)];
-    _cardView.backgroundColor = [UIColor systemBackgroundColor];
-    _cardView.layer.cornerRadius = 14;
-    _cardView.layer.borderColor = [UIColor separatorColor].CGColor;
-    _cardView.layer.borderWidth = 1;
-    _cardView.clipsToBounds = YES;
-    [_window.rootViewController.view addSubview:_cardView];
-
-    _backBtn = fwMakeButton(@"← 返回", [UIColor systemBlueColor]);
-    _backBtn.hidden = YES;
-    [_backBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self popPage];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [_cardView addSubview:_backBtn];
-
-    _titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 6, 200, 36)];
-    _titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-    _titleLabel.textColor = [UIColor labelColor];
-    _titleLabel.adjustsFontSizeToFitWidth = YES;
-    _titleLabel.minimumScaleFactor = 0.75;
-    [_cardView addSubview:_titleLabel];
-
-    _previewBtn = fwMakeButton(@"预览", [UIColor systemTealColor]);
-    [_previewBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self pushPage:@{ @"kind": kPagePreview, @"title": @"生成的 main.py" }];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [_cardView addSubview:_previewBtn];
-
-    _saveBtn = fwMakeButton(@"保存", [UIColor systemBlueColor]);
-    [_saveBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self saveAndHide];
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [_cardView addSubview:_saveBtn];
-
-    _closeBtn = fwMakeButton(@"✕", [UIColor secondaryLabelColor]);
-    [_closeBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self hide];   // ✕ 只关闭、不存盘
-    }] forControlEvents:UIControlEventTouchUpInside];
-    [_cardView addSubview:_closeBtn];
-
-    UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, FW_TOP_H - 1, FW_CARD_W, 1)];
-    sep.backgroundColor = [UIColor separatorColor];
-    sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [_cardView addSubview:sep];
-
-    _scroll = [[UIScrollView alloc] initWithFrame:CGRectMake(0, FW_TOP_H, FW_CARD_W, 200)];
-    _scroll.backgroundColor = [UIColor clearColor];
-    _scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [_cardView addSubview:_scroll];
-
-    _previewView = [[UITextView alloc] initWithFrame:CGRectMake(0, FW_TOP_H, FW_CARD_W, 200)];
-    _previewView.editable = NO;
-    _previewView.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
-    _previewView.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    _previewView.textContainerInset = UIEdgeInsetsMake(8, 8, 8, 8);
-    _previewView.hidden = YES;
-    _previewView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [_cardView addSubview:_previewView];
-
-    [self layoutCard];
-    _window.hidden = YES;
-
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIDeviceOrientationDidChangeNotification
-        object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
-            [self layoutCard];
-        }];
-}
-
-- (CGFloat)cardWidth {
-    CGFloat screenW = _window ? _window.bounds.size.width : [UIScreen mainScreen].bounds.size.width;
-    if (screenW <= 0) screenW = 375.0f;
-    CGFloat w = MIN(FW_CARD_W, screenW - 40.0f);
-    if (w < 240.0f) w = MAX(screenW - 20.0f, 240.0f);
-    if (w > screenW) w = screenW;
-    return w;
-}
-
-- (void)layoutCard {
-    if (!_window || !_cardView) return;
-    CGFloat screenW = _window.bounds.size.width;
-    CGFloat screenH = _window.bounds.size.height;
-    if (screenW <= 0) screenW = [UIScreen mainScreen].bounds.size.width;
-    if (screenH <= 0) screenH = [UIScreen mainScreen].bounds.size.height;
-
-    CGFloat cardW = [self cardWidth];
-    CGFloat maxH = screenH * 0.78f;
-    CGFloat cardH = FW_TOP_H + _contentHeight;
-    if (cardH > maxH) cardH = maxH;
-    if (cardH < FW_TOP_H + 90.0f) cardH = FW_TOP_H + 90.0f;
-    if (cardH > screenH - 40.0f) cardH = screenH - 40.0f;
-    if (cardH < 120.0f) cardH = 120.0f;
-
-    // 靠右摆：编辑时左边尽量露着游戏画面
-    CGFloat originX = screenW - cardW - 20.0f;
-    if (originX < 10.0f) originX = 10.0f;
-    _cardView.frame = CGRectMake(originX, (screenH - cardH) / 2.0f, cardW, cardH);
-
-    CGFloat topY = 6, topH = 36, gap = 6, rightX = cardW - 8;
-    _closeBtn.frame = CGRectMake(rightX - 32, topY, 32, topH);
-    rightX -= 32 + gap;
-    _saveBtn.frame = CGRectMake(rightX - 64, topY, 64, topH);
-    rightX -= 64 + gap;
-    _previewBtn.frame = CGRectMake(rightX - 56, topY, 56, topH);
-    rightX -= 56 + gap;
-
-    CGFloat titleX = 12;
-    if (!_backBtn.hidden) {
-        _backBtn.frame = CGRectMake(8, topY, 72, topH);
-        titleX = 88;
-    }
-    _titleLabel.frame = CGRectMake(titleX, topY, MAX(rightX - titleX - 6, 60), topH);
-
-    _scroll.frame = CGRectMake(0, FW_TOP_H, cardW, MAX(cardH - FW_TOP_H, 0));
-    _previewView.frame = _scroll.frame;
-}
-
-- (void)show {
-    ZXSafeMainAsync(^{
-        [self ensureWindow];
-        if (!self->_window) return;
-        [self reload];
-        self->_window.hidden = NO;
-        // window 刚建时 bounds 可能是 0，等 scene 摆正后再量一次
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (!self->_window) return;
-            [self layoutCard];
-        });
-    });
-}
-
-- (void)hide {
-    ZXSafeMainAsync(^{
-        if (!self->_window) return;
-        [self->_cardView endEditing:YES];
-        self->_window.hidden = YES;
-    });
-}
-
-- (BOOL)isShown {
-    return _window != nil && !_window.hidden;
 }
 
 #pragma mark - 页面栈
@@ -436,12 +239,16 @@ static FlowWindow *_fwShared = nil;
 
 - (void)pushPage:(NSDictionary *)page {
     [_stack addObject:[page mutableCopy]];
-    [self reload];
+    [self refresh];
 }
 
-- (void)popPage {
+- (void)goBack {
     if (_stack.count > 1) [_stack removeLastObject];
-    [self reload];
+    [self refresh];
+}
+
+- (void)showPreviewPage {
+    [self pushPage:@{ @"kind": kPagePreview, @"title": @"生成的 main.py" }];
 }
 
 - (void)pushParamsPageForStep:(NSMutableDictionary *)step {
@@ -535,7 +342,7 @@ static FlowWindow *_fwShared = nil;
 - (void)endDragRow {
     _dragRow = nil;
     _scroll.scrollEnabled = YES;
-    [self reload];   // 数据已经是新顺序了，重建一遍最省事（顺带恢复行的缩放和阴影）
+    [self refresh];   // 数据已经是新顺序了，重建一遍最省事（顺带恢复行的缩放和阴影）
 }
 
 // 左滑删除：从当前这一页的数组里摘掉这一步
@@ -545,7 +352,7 @@ static FlowWindow *_fwShared = nil;
     NSUInteger index = [steps indexOfObjectIdenticalTo:step];
     if (index == NSNotFound) return;
     [steps removeObjectAtIndex:index];
-    [self reload];
+    [self refresh];
 }
 
 - (void)deleteCurrentStep {
@@ -554,43 +361,27 @@ static FlowWindow *_fwShared = nil;
     NSMutableArray *steps = _stack[_stack.count - 2][@"steps"];
     if (!step || ![steps isKindOfClass:[NSMutableArray class]]) return;
     [steps removeObjectIdenticalTo:step];
-    [self popPage];
-}
-
-#pragma mark - 保存
-
-- (void)saveAndHide {
-    [_cardView endEditing:YES];
-    NSError *error = nil;
-    if (![FlowScript saveFlow:_flow toBundle:_bundlePath error:&error] ||
-        ![FlowScript writeGeneratedScriptForFlow:_flow toBundle:_bundlePath error:&error]) {
-        showAlertBox(@"错误", error.localizedDescription ?: @"保存失败。", 999);
-        return;
-    }
-    showAlertBox(@"小新Lap", @"已保存，并重新生成了 main.py。", 1);
-    [self hide];
+    [self goBack];
 }
 
 #pragma mark - 取点
 
-// 取点器要盖在游戏上，编辑器先让开；取完再把卡片放回来
+// 取点器要盖在游戏上，面板先让开；取完再放回来
 - (void)beginPickingForStep:(NSMutableDictionary *)step type:(FlowStepType *)type {
-    [_cardView endEditing:YES];
-    _cardView.hidden = YES;
+    [_scroll endEditing:YES];
+    [_host flowHostSetCardHidden:YES];
 
     __weak typeof(self) weakSelf = self;
     [PickOverlay presentWithMode:type.pickMode completion:^(NSDictionary *result) {
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return;
         [strongSelf applyPickResult:result toStep:step type:type];
-        strongSelf->_cardView.hidden = NO;
-        [strongSelf layoutCard];
-        [strongSelf reload];
+        [strongSelf->_host flowHostSetCardHidden:NO];
+        [strongSelf refresh];
     } cancel:^{
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return;
-        strongSelf->_cardView.hidden = NO;
-        [strongSelf layoutCard];
+        [strongSelf->_host flowHostSetCardHidden:NO];
     }];
 }
 
@@ -747,7 +538,7 @@ static FlowWindow *_fwShared = nil;
 }
 
 - (void)dismissKeyboard {
-    [_cardView endEditing:YES];
+    [_scroll endEditing:YES];
 }
 
 #pragma mark - 内容刷新
@@ -766,42 +557,38 @@ static FlowWindow *_fwShared = nil;
     [_scroll addSubview:label];
 }
 
-- (void)reload {
-    if (!_window) return;
+- (void)refresh {
+    if (!_host) return;
+    UIScrollView *scroll = [_host flowHostScrollView];
+    if (!scroll) return;
+    _scroll = scroll;
+    _pw = [_host flowHostContentWidth];
+
     NSMutableDictionary *page = _stack.lastObject;
     if (!page) return;
     NSString *kind = page[@"kind"];
-    CGFloat pw = [self cardWidth];
-    CGFloat rowW = pw - 8;
+    CGFloat rowW = _pw - 8;
 
-    [_cardView endEditing:YES];
-    for (UIView *v in _scroll.subviews) [v removeFromSuperview];
+    [scroll endEditing:YES];
+    for (UIView *v in scroll.subviews) [v removeFromSuperview];
     _rows = [NSMutableArray array];   // 每次重建都清空：换页后旧行不该再被排序逻辑引用
     _dragRow = nil;
-    _scroll.hidden = NO;
-    _previewView.hidden = YES;
 
     BOOL isRoot = [page[@"isRoot"] boolValue];
-    _backBtn.hidden = isRoot;
-    _previewBtn.hidden = !isRoot;
-    _titleLabel.text = isRoot ? [NSString stringWithFormat:@"可视化编辑：%@", page[@"title"]] : page[@"title"];
+    [_host flowHostSetNavigationTitle:page[@"title"] canGoBack:!isRoot];
 
     if ([kind isEqualToString:kPagePreview]) {
-        _scroll.hidden = YES;
-        _previewView.hidden = NO;
-        _previewView.text = [FlowScript pythonSourceForFlow:_flow];
-        [_previewView setContentOffset:CGPointZero animated:NO];
-        _contentHeight = 0;
-        [self layoutCard];
+        [_host flowHostShowPreviewText:[FlowScript pythonSourceForFlow:_flow]];
         return;
     }
+    [_host flowHostShowPreviewText:nil];
 
     CGFloat y = 8;
 
     if ([kind isEqualToString:kPageList]) {
         NSArray *steps = page[@"steps"];
         if (steps.count == 0) {
-            [self addSectionLabel:(isRoot ? @"还没有步骤。点下面「添加步骤」开始拼。" : @"这一支还没有动作。") width:pw y:y];
+            [self addSectionLabel:(isRoot ? @"还没有步骤。点下面「添加步骤」开始拼。" : @"这一支还没有动作。") width:_pw y:y];
             y += 24;
         } else {
             _rowsTop = y;
@@ -840,7 +627,7 @@ static FlowWindow *_fwShared = nil;
 
         if (isRoot) {
             y += 6;
-            [self addSectionLabel:@"运行方式" width:pw y:y];
+            [self addSectionLabel:@"运行方式" width:_pw y:y];
             y += 22;
             UIView *loopTimes = [self makeValueRow:@"循环次数（0 = 一直循环）" value:_flow[@"LoopTimes"] integer:YES width:rowW
                                           onChange:^(NSString *text) {
@@ -891,7 +678,7 @@ static FlowWindow *_fwShared = nil;
 
         if (type.isCondition) {
             y += 4;
-            [self addSectionLabel:@"成立 / 不成立时要做什么" width:pw y:y];
+            [self addSectionLabel:@"成立 / 不成立时要做什么" width:_pw y:y];
             y += 22;
             NSArray<NSString *> *keys = @[ @"Then", @"Else" ];
             NSArray<NSString *> *titles = @[ @"成立时", @"不成立时" ];
@@ -913,10 +700,8 @@ static FlowWindow *_fwShared = nil;
         y = [self addRow:deleteRow y:y];
     }
 
-    _scroll.contentSize = CGSizeMake(pw, y + 4);
-    [_scroll setContentOffset:CGPointZero animated:NO];
-    _contentHeight = y + 8;
-    [self layoutCard];
+    scroll.contentSize = CGSizeMake(_pw, y + 4);
+    [scroll setContentOffset:CGPointZero animated:NO];
 }
 
 @end
@@ -940,10 +725,11 @@ NSString *handleFlowEditorTaskWithRawData(UInt8 *eventData, NSError **error) {
         return nil;
     }
 
+    // 编辑器就在选项面板里，所以「打开可视化编辑」= 让面板切到流程编辑模式
     if ([action isEqualToString:@"new"]) {
-        [[FlowWindow shared] createBundleAtPath:path];
+        [[FunctionWindow shared] createFlowScriptAtPath:path];
     } else {
-        [[FlowWindow shared] openBundle:path];
+        [[FunctionWindow shared] openFlowBundle:path];
     }
     return @"0\r\n";
 }
