@@ -16,6 +16,10 @@
 #define FN_ROW_GAP   6.0f
 #define FN_MIN_W     260.0f                // 面板最小宽度
 #define FN_MIN_H     (FN_TOP_H + 120.0f)   // 面板最小高度
+// 面板第一次打开（plist 里还没存过尺寸）时用的初始宽高：按用户实际调好的尺寸来，
+// 别再退回「按内容自适应」（那样偏小）
+#define FN_DEFAULT_W 553.0f
+#define FN_DEFAULT_H 598.5f
 #define FN_GRIP      26.0f                 // 右下角缩放把手的边长
 
 // window 内空白区域透传：只有真正落在卡片子视图上的触摸才拦截，
@@ -308,11 +312,11 @@ void applyPanelAppearanceMode(NSInteger mode) {
 }
 
 // 面板尺寸是全局的：所有脚本、所有页面共用同一个宽高（存 plist）。
-// 第一次打开（plist 里还没有）按当前这页内容定一个初始值，之后就固定下来，只有拖右下角把手才会变。
+// 第一次打开（plist 里还没有）用 FN_DEFAULT_W/H 当初始值，之后就固定下来，只有拖右下角把手才会变。
 - (CGSize)cardSizeInScreen:(CGSize)screen {
     if (_panelW <= 0 || _panelH <= 0) {
-        _panelW = MIN(FN_CARD_W, MAX(screen.width - 40.0f, 200.0f));
-        _panelH = MIN(MAX(FN_TOP_H + _contentHeight, FN_MIN_H), screen.height * 0.72f);
+        _panelW = MIN(FN_DEFAULT_W, MAX(screen.width - 40.0f, 200.0f));
+        _panelH = MIN(FN_DEFAULT_H, screen.height - 40.0f);
         [self savePanelState];
     }
     CGFloat w = MIN(MAX(_panelW, FN_MIN_W), screen.width - 16.0f);
