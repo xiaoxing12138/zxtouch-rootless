@@ -1224,30 +1224,31 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
             row.content.backgroundColor = [[UIColor systemBlueColor] colorWithAlphaComponent:0.14];
         }
 
-        // 脚本行把箭头那格空着，名字才能跟文件夹名对齐
-        UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(indent + 26, (FN_ROW_H - 16) / 2.0f, 16, 16)];
-        icon.image = fnSymbol(@"doc.text.fill");
-        icon.tintColor = [UIColor secondaryLabelColor];
-        icon.contentMode = UIViewContentModeScaleAspectFit;
-        [row.content addSubview:icon];
-
-        // 可视化脚本：名字左边显示总步骤数，0 步灰色，每 5 步换一色，30+ 红
+        // 步数在最左边（占文件夹箭头那格），然后才是图标和文件名
         NSInteger stepCount = fnFlowStepCount(path);
-        CGFloat nameX = indent + 48.0f;
+        CGFloat countX = indent + 6.0f;
+        CGFloat countW = 34.0f;
         if (stepCount >= 0) {
-            UILabel *count = [[UILabel alloc] initWithFrame:CGRectMake(nameX, 0, 34, FN_ROW_H)];
+            UILabel *count = [[UILabel alloc] initWithFrame:CGRectMake(countX, 0, countW, FN_ROW_H)];
             count.text = [NSString stringWithFormat:@"%ld步", (long)stepCount];
             count.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightSemibold];
             count.textColor = fnStepCountColor(stepCount);
             count.adjustsFontSizeToFitWidth = YES;
             count.minimumScaleFactor = 0.8;
             [row.content addSubview:count];
-            nameX += 36.0f;
         }
 
+        UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(countX + countW + 2.0f,
+                                                                          (FN_ROW_H - 16) / 2.0f, 16, 16)];
+        icon.image = fnSymbol(@"doc.text.fill");
+        icon.tintColor = [UIColor secondaryLabelColor];
+        icon.contentMode = UIViewContentModeScaleAspectFit;
+        [row.content addSubview:icon];
+
+        CGFloat nameX = countX + countW + 2.0f + 16.0f + 4.0f;
         CGFloat nameW = rowW - nameX - 10.0f - (timeW + 8.0f);
         UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(nameX, 0, MAX(nameW, 40.0f), FN_ROW_H)];
-        name.text = [entry[@"name"] stringByDeletingPathExtension];
+        name.text = entry[@"name"];   // 保留 .bdl 后缀，和文件 App 里看到的名字一致
         name.font = [UIFont systemFontOfSize:13];
         name.textColor = [UIColor labelColor];
         name.adjustsFontSizeToFitWidth = YES;

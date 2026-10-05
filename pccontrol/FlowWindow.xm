@@ -43,6 +43,7 @@ static UIColor *fwTypeColor(NSString *kind)
     if ([kind isEqualToString:kFlowColor])     return fwColor(0xD9551F, 0xFF8F5E);
     if ([kind isEqualToString:kFlowFindColor]) return fwColor(0xC22E7A, 0xF0559B);
     if ([kind isEqualToString:kFlowImage])     return fwColor(0x1B8F49, 0x35C46B);
+    if ([kind isEqualToString:kFlowOCR])       return fwColor(0x0E7490, 0x2AA6C4);
     return fwColor(0x4C8DFF, 0x6EA8FF);
 }
 
@@ -71,6 +72,11 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
     if ([kind isEqualToString:kFlowImage]) return @[
         @{ @"title": @"模板", @"keys": @[ @"Template" ] },
         @{ @"title": @"匹配", @"keys": @[ @"Threshold" ] },
+    ];
+    if ([kind isEqualToString:kFlowOCR]) return @[
+        @{ @"title": @"区域", @"keys": @[ @"X1", @"Y1", @"X2", @"Y2" ] },
+        @{ @"title": @"判据", @"keys": @[ @"Match", @"Text" ] },
+        @{ @"title": @"识别", @"keys": @[ @"Languages" ] },
     ];
     return @[];
 }
@@ -616,6 +622,7 @@ static FlowWindow *_fwShared = nil;
 // 列表里的一行：序号 + 左侧色条 + 图标底 + 标题 / 细节 + 右侧把手
 // deletable = 能左滑删除，sortable = 右侧把手拖动排序
 - (FWStepRowView *)makeStepRow:(NSString *)title
+                    customName:(NSString *)customName
                         detail:(NSString *)detail
                          index:(NSInteger)index
                         symbol:(NSString *)symbol
@@ -662,11 +669,25 @@ static FlowWindow *_fwShared = nil;
     CGFloat textW = MAX(w - textX - (sortable ? 34.0f : 12.0f), 60.0f);
     UILabel *main = [[UILabel alloc] initWithFrame:CGRectMake(textX, detail.length ? 3 : 0,
                                                               textW, detail.length ? 18 : FW_ROW_H)];
-    main.text = title;
-    main.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-    main.textColor = ZXPalette(ZXPalText);
     main.adjustsFontSizeToFitWidth = YES;
     main.minimumScaleFactor = 0.8;
+    if (customName.length > 0) {
+        // 自定义名用青绿色加粗跟在最前，系统原名灰色小字跟在右边，一眼能分清
+        NSMutableAttributedString *s = [[NSMutableAttributedString alloc] init];
+        [s appendAttributedString:[[NSAttributedString alloc] initWithString:customName attributes:@{
+            NSFontAttributeName: [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold],
+            NSForegroundColorAttributeName: ZXPalette(ZXPalAccent),
+        }]];
+        [s appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"  %@", title] attributes:@{
+            NSFontAttributeName: [UIFont systemFontOfSize:12 weight:UIFontWeightRegular],
+            NSForegroundColorAttributeName: ZXPalette(ZXPalSub),
+        }]];
+        main.attributedText = s;
+    } else {
+        main.text = title;
+        main.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+        main.textColor = ZXPalette(ZXPalText);
+    }
     [row.content addSubview:main];
 
     if (detail.length > 0) {
@@ -802,7 +823,7 @@ static FlowWindow *_fwShared = nil;
 
     CGFloat hostW = MAX(host.bounds.size.width, 240.0f);
     CGFloat hostH = MAX(host.bounds.size.height, 320.0f);
-    CGFloat cardW = MIN(hostW - 72.0f, 400.0f);
+    CGFloat cardW = MIN(hostW - 96.0f, 340.0f);
     CGFloat titleH = 46.0f;
 
     UIView *dim = [[UIView alloc] initWithFrame:host.bounds];
@@ -833,6 +854,13 @@ static FlowWindow *_fwShared = nil;
     titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
     titleLabel.textColor = ZXPalette(ZXPalText);
     [card addSubview:titleLabel];
+
+    // 整条标题栏是拖动手柄（✕ 按钮在它之上，不挡关闭）
+    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, cardW, titleH)];
+    UIPanGestureRecognizer *titlePan = [[UIPanGestureRecognizer alloc] initWithTarget:self
+                                                                               action:@selector(handleSubTitlePan:)];
+    [titleBar addGestureRecognizer:titlePan];
+    [card addSubview:titleBar];
 
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
     close.frame = CGRectMake(cardW - 40, (titleH - 28) / 2.0f, 28, 28);
@@ -871,6 +899,28 @@ static FlowWindow *_fwShared = nil;
         dim.alpha = 1;
         card.transform = CGAffineTransformIdentity;
     } completion:nil];
+}
+
+// 拖标题栏移动子浮窗；松手夹回屏幕内
+- (void)handleSubTitlePan:(UIPanGestureRecognizer *)g {
+    UIView *card = g.view.superview;
+    UIView *host = card.superview;
+    if (!card || !host) return;
+    CGPoint t = [g translationInView:host];
+    [g setTranslation:CGPointZero inView:host];
+    CGPoint c = card.center;
+    c.x += t.x;
+    c.y += t.y;
+    if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
+        CGRect b = host.bounds;
+        c.x = MAX(card.bounds.size.width / 2.0f,  MIN(b.size.width  - card.bounds.size.width  / 2.0f, c.x));
+        c.y = MAX(card.bounds.size.height / 2.0f, MIN(b.size.height - card.bounds.size.height / 2.0f, c.y));
+        [UIView animateWithDuration:0.16 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+            card.center = c;
+        } completion:nil];
+    } else {
+        card.center = c;
+    }
 }
 
 - (void)dismissSubAnimated:(BOOL)animated {
@@ -1003,6 +1053,33 @@ static FlowWindow *_fwShared = nil;
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return 0.0f;
         CGFloat y = 8.0f;
+
+        // 第一行：自定义名称（留空就用系统默认名）
+        {
+            UIView *nameRow = [strongSelf makeValueRow:@"名称"
+                                                  value:step[@"Name"]
+                                                integer:NO width:w
+                                               onChange:^(NSString *text) {
+                FlowWindow *s = weakSelf;
+                if (!s) return;
+                NSString *trimmed = [text stringByTrimmingCharactersInSet:
+                                     [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                if (trimmed.length > 0) step[@"Name"] = trimmed;
+                else [step removeObjectForKey:@"Name"];
+                [s autosave];
+            }];
+            y = [strongSelf subAddRow:nameRow y:y];
+            y += 4;
+            // 输入完收起键盘时刷新主列表，让自定义名立刻上屏
+            for (UIView *v in nameRow.subviews) {
+                if (![v isKindOfClass:[UITextField class]]) continue;
+                [(UITextField *)v addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                    FlowWindow *s = weakSelf;
+                    if (s) [s refresh];
+                }] forControlEvents:UIControlEventEditingDidEnd];
+                break;
+            }
+        }
 
         if (type.pickMode != FlowPickModeNone) {
             UIView *pick = [strongSelf makeActionRow:type.pickActionTitle
@@ -1268,11 +1345,87 @@ static FlowWindow *_fwShared = nil;
     NSString *key = spec.key;
     BOOL integer = spec.integer;
     __weak typeof(self) weakSelf = self;
+
+    // 分段选择型字段（判据之类）：不做输入框，点哪段就存对应的值
+    if (spec.choiceTitles.count > 0) {
+        NSArray<NSString *> *titles = spec.choiceTitles;
+        NSArray<NSString *> *values = (spec.choiceValues.count == titles.count) ? spec.choiceValues : titles;
+        NSString *current = [step[key] isKindOfClass:[NSString class]] ? step[key] : nil;
+        NSInteger selected = current ? (NSInteger)[values indexOfObject:current] : 0;
+        if (selected == NSNotFound) selected = 0;
+        return [self makeChoiceRow:spec.title titles:titles selected:selected width:w
+                          onChange:^(NSInteger idx) {
+            step[key] = values[idx];
+            [weakSelf autosave];
+        }];
+    }
+
     return [self makeValueRow:spec.title value:step[key] integer:integer width:w
                      onChange:^(NSString *text) {
                          step[key] = [FlowScript valueFromText:text integer:integer];
                          [weakSelf autosave];   // 每敲一个字都落盘
                      }];
+}
+
+// 一行「标签 + 分段按钮」：选项不多时比输入框直观（如 包含 / 等于 / 不包含）
+- (UIView *)makeChoiceRow:(NSString *)title
+                   titles:(NSArray<NSString *> *)titles
+                 selected:(NSInteger)selected
+                    width:(CGFloat)w
+                 onChange:(void (^)(NSInteger idx))onChange
+{
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, FW_ROW_H - 10.0f)];
+    row.backgroundColor = ZXPalette(ZXPalRow);
+    row.layer.cornerRadius = 10;
+    row.layer.borderWidth = 1;
+    row.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
+
+    CGFloat labelW = MIN(120.0f, w * 0.34f);
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, labelW, row.frame.size.height)];
+    label.text = title;
+    label.font = [UIFont systemFontOfSize:13];
+    label.textColor = ZXPalette(ZXPalSub);
+    label.adjustsFontSizeToFitWidth = YES;
+    label.minimumScaleFactor = 0.75;
+    [row addSubview:label];
+
+    CGFloat x = 12 + labelW + 6;
+    CGFloat avail = MAX(w - x - 12, 60);
+    CGFloat gap = 6.0f;
+    CGFloat count = MAX((CGFloat)titles.count, 1);
+    CGFloat bw = floor((avail - gap * (count - 1)) / count);
+    CGFloat bh = row.frame.size.height - 12.0f;
+
+    NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
+    for (NSInteger i = 0; i < (NSInteger)titles.count; i++) {
+        UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+        b.frame = CGRectMake(x + i * (bw + gap), 6, bw, bh);
+        b.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+        b.layer.cornerRadius = 8;
+        b.layer.borderWidth = 1;
+        b.clipsToBounds = YES;
+        [b setTitle:titles[i] forState:UIControlStateNormal];
+        [row addSubview:b];
+        [buttons addObject:b];
+    }
+    void (^paint)(NSInteger) = ^(NSInteger idx) {
+        for (NSInteger i = 0; i < (NSInteger)buttons.count; i++) {
+            BOOL on = (i == idx);
+            UIButton *b = buttons[i];
+            b.backgroundColor = on ? [ZXPalette(ZXPalAccent) colorWithAlphaComponent:0.20] : ZXPalette(ZXPalField);
+            b.layer.borderColor = (on ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalLine)).CGColor;
+            [b setTitleColor:(on ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalSub)) forState:UIControlStateNormal];
+        }
+    };
+    paint(selected);
+    for (NSInteger i = 0; i < (NSInteger)buttons.count; i++) {
+        UIButton *b = buttons[i];
+        [b addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            paint(i);
+            if (onChange) onChange(i);
+        }] forControlEvents:UIControlEventTouchUpInside];
+    }
+    return row;
 }
 
 - (void)refresh {
@@ -1317,7 +1470,8 @@ static FlowWindow *_fwShared = nil;
             FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
             __weak typeof(self) weakSelf = self;
             FWStepRowView *row = [self makeStepRow:[FlowScript summaryForStep:step]
-                                            detail:[FlowScript detailForStep:step]
+                                         customName:[step[@"Name"] isKindOfClass:[NSString class]] ? step[@"Name"] : nil
+                                             detail:[FlowScript detailForStep:step]
                                              index:i
                                             symbol:type.symbolName
                                              color:fwTypeColor(type.kind)

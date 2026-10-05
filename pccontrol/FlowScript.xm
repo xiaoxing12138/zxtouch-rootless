@@ -17,6 +17,7 @@ NSString * const kFlowToast = @"toast";
 NSString * const kFlowColor = @"color";
 NSString * const kFlowFindColor = @"findColor";
 NSString * const kFlowImage = @"image";
+NSString * const kFlowOCR = @"ocr";
 
 // 点击的默认值：改这里，生成器与弹窗默认值一起跟着变
 static const double kDefaultTapInterval = 0.05;
@@ -112,10 +113,28 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         image.pickTargets = @[@"Template"];
         image.fields = @[
             [FlowFieldSpec key:@"Template" title:@"模板图（用下面的按钮框选）" integer:NO def:@""],
-            [FlowFieldSpec key:@"Threshold" title:@"相似度（0.5-1）" integer:NO def:@"0.8"],
+            [FlowFieldSpec key:@"Threshold" title:@"相似度（0-1）" integer:NO def:@"0.8"],
         ];
 
-        types = @[tap, swipe, wait, toast, color, findColor, image];
+        // 识字：把框选区域里的文字/数字识别出来，只用来判断，不改变脚本流程
+        FlowStepType *ocr = [self type:kFlowOCR title:@"识字" symbol:@"text.viewfinder" condition:YES];
+        ocr.pickActionTitle = @"从屏幕框选识字区域";
+        ocr.pickMode = FlowPickModeRect;
+        ocr.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
+        FlowFieldSpec *ocrMatch = [FlowFieldSpec key:@"Match" title:@"判据" integer:NO def:@"contains"];
+        ocrMatch.choiceTitles = @[ @"包含", @"等于", @"不包含" ];
+        ocrMatch.choiceValues = @[ @"contains", @"equals", @"notContains" ];
+        ocr.fields = @[
+            [FlowFieldSpec key:@"X1" title:@"区域左" integer:YES def:@"0"],
+            [FlowFieldSpec key:@"Y1" title:@"区域上" integer:YES def:@"0"],
+            [FlowFieldSpec key:@"X2" title:@"区域右" integer:YES def:@"1000"],
+            [FlowFieldSpec key:@"Y2" title:@"区域下" integer:YES def:@"600"],
+            ocrMatch,
+            [FlowFieldSpec key:@"Text" title:@"要比对的文字或数字" integer:NO def:@""],
+            [FlowFieldSpec key:@"Languages" title:@"识别语言（zh-Hans 中文 / en-US 英文）" integer:NO def:@"zh-Hans,en-US"],
+        ];
+
+        types = @[tap, swipe, wait, toast, color, findColor, image, ocr];
     });
     return types;
 }
@@ -230,6 +249,16 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
         return [NSString stringWithFormat:@"如果画面里有模板「%@」（≥%@）",
                 name.length ? name : @"未框选", [self textForValue:step[@"Threshold"]]];
+    }
+    if ([kind isEqualToString:kFlowOCR]) {
+        NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+        NSString *match = [step[@"Match"] isKindOfClass:[NSString class]] ? step[@"Match"] : @"contains";
+        NSString *word = [match isEqualToString:@"equals"] ? @"等于"
+                       : ([match isEqualToString:@"notContains"] ? @"不含" : @"包含");
+        return [NSString stringWithFormat:@"如果 (%@,%@)-(%@,%@) 的文字%@「%@」",
+                [self textForValue:step[@"X1"]], [self textForValue:step[@"Y1"]],
+                [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]],
+                word, text.length ? text : @"（没填）"];
     }
     return @"未知步骤";
 }
@@ -470,6 +499,16 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
      "    return (float(结果[\"x\"]) + float(结果[\"width\"]) / 2.0,\n"
      "            float(结果[\"y\"]) + float(结果[\"height\"]) / 2.0)\n"
      "\n"
+     "\n"
+     "def 识字(x, y, 宽, 高, 语言=\"zh-Hans,en-US\"):\n"
+     "    \"\"\"识别区域里的文字，返回识别到的全部文字拼起来的字符串；识别不到或出错时返回空字符串。\n"
+     "    语言用逗号分隔：zh-Hans = 简体中文，en-US = 英文。\"\"\"\n"
+     "    语言列表 = [s for s in str(语言).replace(\"，\", \",\").split(\",\") if s]\n"
+     "    ok, 结果 = 设备.ocr((int(x), int(y), int(宽), int(高)), languages=语言列表)\n"
+     "    if not ok:\n"
+     "        return \"\"\n"
+     "    return \"\".join(str(项.get(\"text\", \"\")) for 项 in 结果)\n"
+     "\n"
      "\n"];
 
     [out appendString:@"轮数 = 0\n"];
@@ -524,6 +563,25 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
         NSString *path = [kFlowTemplateFolder stringByAppendingPathComponent:name.length ? name : @"未框选.png"];
         condition = [NSString stringWithFormat:@"找图(\"%@\", %@)", path, [self textForValue:step[@"Threshold"]]];
+    } else if ([kind isEqualToString:kFlowOCR]) {
+        NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
+        NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
+        NSInteger x = MIN(left, right), y = MIN(top, bottom);
+        NSInteger w = labs(right - left), h = labs(bottom - top);
+        NSString *langs = [step[@"Languages"] isKindOfClass:[NSString class]] ? step[@"Languages"] : @"";
+        if (langs.length == 0) langs = @"zh-Hans,en-US";
+        NSString *target = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+        target = [target stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+        NSString *match = [step[@"Match"] isKindOfClass:[NSString class]] ? step[@"Match"] : @"contains";
+        NSString *call = [NSString stringWithFormat:@"识字(%ld, %ld, %ld, %ld, \"%@\")",
+                          (long)x, (long)y, (long)MAX(w, 1), (long)MAX(h, 1), langs];
+        if ([match isEqualToString:@"equals"]) {
+            condition = [NSString stringWithFormat:@"(\"%@\" == %@)", target, call];
+        } else if ([match isEqualToString:@"notContains"]) {
+            condition = [NSString stringWithFormat:@"(\"%@\" not in %@)", target, call];
+        } else {
+            condition = [NSString stringWithFormat:@"(\"%@\" in %@)", target, call];
+        }
     } else {
         condition = @"True";
     }
