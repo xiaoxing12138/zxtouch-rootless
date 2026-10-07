@@ -17,8 +17,6 @@ static CFAbsoluteTime lastEventTimeStampForRecording;
 static CGFloat device_screen_width = 0;
 static CGFloat device_screen_height = 0;
 
-UIWindow *_recordIndicator;
-
 
 void startRecording(CFWriteStreamRef requestClient, NSError **error)
 {
@@ -99,38 +97,6 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
         notifyClient((UInt8*)[scriptDirectory UTF8String], requestClient);
 
         isRecording = true;
-
-        // show indicator
-        ZXSafeMainAsync(^{
-            // Attach to a UIWindowScene. A scene-less UIWindow is tolerated on
-            // iOS 15-16 but is fatal from iOS 17 on, which sent SpringBoard into
-            // safe mode every time recording started. Every other window in the
-            // tweak (Toast, Popup, AlertBox, TouchIndicator) already does this.
-            CGRect indicatorFrame = CGRectMake(0, 0, 10*2, 10*2);
-            UIWindowScene *scene = (UIWindowScene *)[[UIApplication sharedApplication].connectedScenes anyObject];
-            if (scene) {
-                _recordIndicator = [[UIWindow alloc] initWithWindowScene:scene];
-                _recordIndicator.frame = indicatorFrame;
-            } else {
-                _recordIndicator = [[UIWindow alloc] initWithFrame:indicatorFrame];
-            }
-            // iOS 17 also asserts on a visible window with no root view controller.
-            UIViewController *indicatorRoot = [[UIViewController alloc] init];
-            indicatorRoot.view.backgroundColor = [UIColor clearColor];
-            _recordIndicator.rootViewController = indicatorRoot;
-            _recordIndicator.windowLevel = UIWindowLevelStatusBar;
-            [_recordIndicator setBackgroundColor:[UIColor clearColor]];
-            [_recordIndicator setUserInteractionEnabled:NO];
-
-            UIView *circleView = [[UIView alloc] initWithFrame:indicatorFrame];
-
-            //circleView.alpha = 1;
-            circleView.layer.cornerRadius = 10;  // half the width/height
-            circleView.backgroundColor = [UIColor redColor];
-            [_recordIndicator addSubview:circleView];
-
-            _recordIndicator.hidden = NO;
-        });
 
         scriptRecordingFileHandle = [NSFileHandle fileHandleForWritingAtPath:rawFilePath];
 
@@ -267,12 +233,6 @@ void stopRecording()
     // Stop the event callback from writing anything else before the recording
     // thread gets a chance to close the file handle.
     isRecording = false;
-
-    // remove indicator
-    ZXSafeMainAsync(^{
-        _recordIndicator.hidden = YES;
-        _recordIndicator = nil;
-    });
 
     // Ask the recording thread to return from CFRunLoopRun(). It unschedules the
     // HID client and closes the file handle itself, on the thread that owns them.

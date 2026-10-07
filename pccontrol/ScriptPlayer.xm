@@ -103,10 +103,8 @@ static NSString *ZXPythonModulePath(void)
     float interval;
     float speed;
     NSString* scriptBundlePath;
-    UIWindow *_playIndicator;
     int currentScriptType; // -1 no task has specified; 0 not playing but has upcoming task; 1 raw file playing; 2 py file playing
     NSTimer *replayTimer;
-    UIView *circleView;
     Boolean scriptPlayForceStop;
     volatile sig_atomic_t scriptStopRequested;
     volatile sig_atomic_t scriptPauseRequested;
@@ -261,36 +259,6 @@ static NSString *ZXPythonModulePath(void)
     NSString *fileExtension = [entryFileName pathExtension];
 
     NSString *foregroundApp = scriptInfo[@"FrontApp"];
-    // call different functions depending on file extension
-
-    // show indicator
-    ZXSafeMainAsync(^{
-        // Attach to a UIWindowScene — a scene-less UIWindow is fatal from iOS 17
-        // on. See the matching comment in Record.xm's startRecording.
-        CGRect indicatorFrame = CGRectMake(0, 0, 10*2, 10*2);
-        UIWindowScene *scene = (UIWindowScene *)[[UIApplication sharedApplication].connectedScenes anyObject];
-        if (scene) {
-            _playIndicator = [[UIWindow alloc] initWithWindowScene:scene];
-            _playIndicator.frame = indicatorFrame;
-        } else {
-            _playIndicator = [[UIWindow alloc] initWithFrame:indicatorFrame];
-        }
-        UIViewController *indicatorRoot = [[UIViewController alloc] init];
-        indicatorRoot.view.backgroundColor = [UIColor clearColor];
-        _playIndicator.rootViewController = indicatorRoot;
-        _playIndicator.windowLevel = UIWindowLevelStatusBar;
-        [_playIndicator setBackgroundColor:[UIColor clearColor]];
-        [_playIndicator setUserInteractionEnabled:NO];
-
-        circleView = [[UIView alloc] initWithFrame:indicatorFrame];
-
-        //circleView.alpha = 1;
-        circleView.layer.cornerRadius = 10;  // half the width/height
-        circleView.backgroundColor = [UIColor greenColor];
-        [_playIndicator addSubview:circleView];
-
-        _playIndicator.hidden = NO;
-    });
 
     NSString *entryFilePath = [scriptBundlePath stringByAppendingPathComponent:entryFileName];
     NSLog(@"com.zjx.sprinboard: currently playing: %@. Repeat time: %d", entryFilePath, repeatTime);
@@ -512,10 +480,6 @@ static NSString *ZXPythonModulePath(void)
     // check whether need to replay
     if (repeatTime != 0)
     {    
-        ZXSafeMainAsync(^{
-            circleView.backgroundColor = [UIColor orangeColor];
-        });
-
         NSLog(@"com.zjx.springboard: need replay. Replay time: %d", repeatTime);
 
         replayTimer = [NSTimer scheduledTimerWithTimeInterval:interval
@@ -546,12 +510,6 @@ static NSString *ZXPythonModulePath(void)
     scriptPauseRequested = 0;
     currentScriptType = -1;
     //scriptPlayForceStop = false;
-
-    // remove indicator
-    ZXSafeMainAsync(^{
-        _playIndicator.hidden = YES;
-        _playIndicator = nil;
-    });
 
     if (replayTimer)
         [replayTimer invalidate];
