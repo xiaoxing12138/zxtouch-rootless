@@ -2,7 +2,7 @@ name: Build ZXTouch Package
 
 # Actions 列表里显示的构建名。取提交信息的话会把多行正文一起塞进去，很难看，
 # 所以直接写死版本号 —— 发版时和 control / pbxproj 一起改（见 HANDOFF「版本号」一节）。
-run-name: v3.0.61 python3 改为硬依赖，装小新Lap 自动拉 python3
+run-name: v3.0.62 常驻 HID client 改为按需启停（触发键全关则不监听）
 
 on:
   push:

@@ -7,6 +7,7 @@
 #define UPDATE_APPEARANCE_MODE 3
 
 void updateSwtichAppBeforeRunScript(BOOL value);
+void ZXPopupListenerReloadFromConfig();
 
 extern BOOL openPopUpByDoubleVolumnDown;
 
@@ -26,6 +27,7 @@ void updateCacheFromRawData(UInt8* eventData, NSError **error)
         {
             openPopUpByDoubleVolumnDown = [config[@"double_click_volume_show_popup"] boolValue];
         }
+        ZXPopupListenerReloadFromConfig();
     }
     if (type == UPDATE_SWITCH_APP_BEFORE_RUN_SCRIPT)
     {

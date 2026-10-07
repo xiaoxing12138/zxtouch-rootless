@@ -105,6 +105,7 @@ BOOL openPopUpByDoubleVolumnDown = true;
 
 // -------------
 IOHIDEventSystemClientRef ioHIDEventSystemForPopupDectect = NULL;
+CFRunLoopRef popupListenerRunLoop = NULL;
 
 #define ZX_ACTION_SMART_TOGGLE @"smart_toggle"
 #define ZX_ACTION_TOGGLE_PANEL @"toggle_panel"
@@ -318,14 +319,58 @@ static void popupWindowCallBack(void* target, void* refcon, IOHIDServiceRef serv
 /**
 Start the callback for setting sender id
 */
+void startPopupListeningCallBack();
+void stopPopupListeningCallBack();
+
+static BOOL ZXAnyTriggerEnabled(NSDictionary *config)
+{
+    NSDictionary *triggers = config[@"trigger_configs"];
+    for (NSString *key in @[ZX_TRIGGER_VOLUME_UP, ZX_TRIGGER_VOLUME_DOWN, ZX_TRIGGER_HOME]) {
+        NSDictionary *t = [triggers isKindOfClass:[NSDictionary class]] ? triggers[key] : nil;
+        if ([t isKindOfClass:[NSDictionary class]] && [t[@"enabled"] boolValue]) {
+            return YES;
+        }
+    }
+    // legacy fallback: double_click_volume_show_popup
+    if ([[config[@"double_click_volume_show_popup"] description] boolValue]) {
+        return YES;
+    }
+    return NO;
+}
+
+static void ZXReloadPopupListener(void)
+{
+    NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:getCommonConfigFilePath()] ?: @{};
+    BOOL need = ZXAnyTriggerEnabled(config);
+    BOOL running = ioHIDEventSystemForPopupDectect != NULL;
+    if (need && !running) startPopupListeningCallBack();
+    else if (!need && running) stopPopupListeningCallBack();
+}
+
 void startPopupListeningCallBack()
 {
     ioHIDEventSystemForPopupDectect = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
-
-    IOHIDEventSystemClientScheduleWithRunLoop(ioHIDEventSystemForPopupDectect, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+    CFRunLoopRef rl = CFRunLoopGetCurrent();
+    popupListenerRunLoop = rl;
+    IOHIDEventSystemClientScheduleWithRunLoop(ioHIDEventSystemForPopupDectect, rl, kCFRunLoopDefaultMode);
     IOHIDEventSystemClientRegisterEventCallback(ioHIDEventSystemForPopupDectect, (IOHIDEventSystemClientEventCallback)popupWindowCallBack, NULL, NULL);
-    //NSLog(@"### com.zjx.springboard: screen width: %f, screen height: %f", device_screen_width, device_screen_height);
+    NSLog(@"com.zjx.springboard: popup listening started");
 }
+
+void stopPopupListeningCallBack()
+{
+    if (!ioHIDEventSystemForPopupDectect) return;
+    CFRunLoopRef rl = popupListenerRunLoop ?: CFRunLoopGetCurrent();
+    IOHIDEventSystemClientUnregisterEventCallback(ioHIDEventSystemForPopupDectect);
+    IOHIDEventSystemClientUnscheduleWithRunLoop(ioHIDEventSystemForPopupDectect, rl, kCFRunLoopDefaultMode);
+    CFRelease(ioHIDEventSystemForPopupDectect);
+    ioHIDEventSystemForPopupDectect = NULL;
+    popupListenerRunLoop = NULL;
+    NSLog(@"com.zjx.springboard: popup listening stopped");
+}
+
+// 给 UpdateCache.xm 用，config 变更时动态启停
+void ZXPopupListenerReloadFromConfig() { ZXReloadPopupListener(); }
 
 
 Boolean initConfig()
@@ -395,12 +440,10 @@ Boolean init()
             [@"3-screen-set" writeToFile:@"/var/mobile/d3.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
             initSenderId();
-            startPopupListeningCallBack();
             initTouchGetScreenSize();
+            init();  // 读 config、启动触摸指示器等
+            ZXReloadPopupListener();  // 按配置决定是否启动键盘监听
             [@"5-sender-init" writeToFile:@"/var/mobile/d5.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
-
-            if (!init()) { return; }
-            [@"6-init-done" writeToFile:@"/var/mobile/d6.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
             call_system("chown -R mobile:mobile /var/mobile/Library/ZXTouch");
             [@"7-before-socketServer" writeToFile:@"/var/mobile/d7.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
