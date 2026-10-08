@@ -109,26 +109,13 @@ jobs:
       - name: Save Rootless .deb
         run: |
           mkdir -p artifacts
-          echo "=== packages/ dir ==="
-          ls -la packages/ 2>&1 || true
-          echo "=== all .deb files in repo ==="
-          find . -name "*.deb" 2>&1 || true
-          echo "=== packages/ dir count ==="
-          ls packages/*.deb 2>&1 | wc -l || true
-          DEB=$(find . -name "*.deb" 2>/dev/null | head -1)
+          sleep 2
+          ls -la packages/
+          DEB=$(ls -t packages/*.deb 2>/dev/null | head -1)
           echo "DEB=$DEB"
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           echo "VERSION=$VERSION"
-          if [ -n "$DEB" ]; then
-            cp "$DEB" "artifacts/com.zjx.ioscontrol_${VERSION}_rootless.deb"
-            echo "Copied OK"
-          else
-            echo "ERROR: No .deb found!"
-            ls -la layout/ 2>&1 || true
-            ls -la . 2>&1 | head -20 || true
-            exit 1
-          fi
-          echo "=== artifacts/ ==="
+          cp "$DEB" "artifacts/com.zjx.ioscontrol_${VERSION}_rootless.deb"
           ls -la artifacts/
 
       # ── Upload artifact ────────────────────────────────────────────────────
