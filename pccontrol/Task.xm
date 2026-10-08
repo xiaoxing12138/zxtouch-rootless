@@ -593,13 +593,22 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             root[@"found_path"] = found ?: @"";
 
             if (found) {
-                // 只用文件读写，不调 call_system
-                NSString *tmpOut = [NSTemporaryDirectory() stringByAppendingPathComponent:@"zxpy_check.txt"];
-                [@"test" writeToFile:tmpOut atomically:YES encoding:NSUTF8StringEncoding error:nil];
-                NSString *output = [NSString stringWithContentsOfFile:tmpOut encoding:NSUTF8StringEncoding error:nil] ?: @"";
-                root[@"version"] = output;
-                root[@"spawn_exit_code"] = @"0";
-                unlink(tmpOut.UTF8String);
+                // 检查 zxtouch 模块路径
+                NSMutableArray<NSString *> *modulePaths = [NSMutableArray array];
+                NSArray<NSString *> *moduleCandidates = @[
+                    jbroot(@"/usr/share/zxtouch/python"),
+                    jbroot(@"/usr/lib/python3/site-packages"),
+                    jbroot(@"/usr/lib/python3/dist-packages"),
+                    @"/var/jb/usr/share/zxtouch/python",
+                    @"/var/jb/usr/lib/python3/site-packages",
+                    @"/var/jb/usr/lib/python3/dist-packages",
+                    @"/usr/lib/python3/site-packages",
+                    @"/usr/lib/python3/dist-packages"
+                ];
+                for (NSString *p in moduleCandidates) {
+                    if ([fm fileExistsAtPath:p]) [modulePaths addObject:p];
+                }
+                root[@"module_paths_found"] = modulePaths;
             }
 
             NSError *jsonErr = nil;
