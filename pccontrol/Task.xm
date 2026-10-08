@@ -599,7 +599,7 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 NSString *cmd = [NSString stringWithFormat:@"%@ --version > %@ 2>&1; echo $? >> %@",
                                  [found stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"],
                                  tmpOut, tmpOut];
-                system([jbroot("/bin/sh") stringByAppendingFormat:@" -c '%@'", cmd].UTF8String);
+                call_system([jbroot("/bin/sh") stringByAppendingFormat:@" -c '%@'", cmd].UTF8String);
                 NSString *output = [NSString stringWithContentsOfFile:tmpOut encoding:NSUTF8StringEncoding error:nil] ?: @"";
                 NSArray *lines = [output componentsSeparatedByString:@"\n"];
                 NSString *versionLine = lines.firstObject ?: @"";

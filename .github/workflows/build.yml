@@ -95,9 +95,18 @@ jobs:
 
       # ── Rootless (Dopamine) build ──────────────────────────────────────────
       - name: Build Rootless .deb
-        run: make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
+        run: |
+          set -o pipefail
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 2>&1 | tee theos_build.log | tail -80
         env:
           THEOS: ${{ github.workspace }}/theos
+
+      - name: Upload Theos build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: theos-build-log
+          path: theos_build.log
 
       - name: Save Rootless .deb
         run: |
