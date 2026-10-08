@@ -95,9 +95,7 @@ jobs:
 
       # ── Rootless (Dopamine) build ──────────────────────────────────────────
       - name: Build Rootless .deb
-        run: |
-          set -o pipefail
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 2>&1 | tee theos_build.log | tail -80
+        run: make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 2>&1 | tee theos_build.log
         env:
           THEOS: ${{ github.workspace }}/theos
 
