@@ -1,4 +1,4 @@
-﻿Package: com.zjx.pccontrol
+Package: com.zjx.pccontrol
 Name: 小新Lap 触摸引擎
 Version: 3.0.64
 Depends: mobilesubstrate | ellekit, firmware (>= 15.0), python3

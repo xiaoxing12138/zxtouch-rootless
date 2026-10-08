@@ -1,4 +1,4 @@
-﻿Package: com.zjx.ioscontrol
+Package: com.zjx.ioscontrol
 Name: 小新Lap
 Version: 3.0.64
 Depends: mobilesubstrate | ellekit, firmware (>= 15.0)
