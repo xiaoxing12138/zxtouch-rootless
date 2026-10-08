@@ -44,6 +44,8 @@
 @end
 
 
+%group ZXKeyboard
+
 %hook UIKeyboardImpl
 
     - (id)initWithFrame:(CGRect)arg1 forCustomInputView:(UIView*)view
@@ -67,7 +69,9 @@
 	}
 
 	- (void)dealloc {
-        [[NSDistributedNotificationCenter defaultCenter] removeObserver:self name:@"com.zjx.zxtouch.textinput" object:nil];
+        // 修正：注册用的是 com.zjx.zxtouch.keyboardcontrol，这里必须移除同名，
+        // 否则观察者永远残留（原来误写成 textinput）。
+        [[NSDistributedNotificationCenter defaultCenter] removeObserver:self name:@"com.zjx.zxtouch.keyboardcontrol" object:nil];
 		//NSLog(@"com.zjx.appdelegate: UIKeyboardImpl instance deallocated");
 		return %orig;
 	}
@@ -138,3 +142,16 @@
 	}
 
 %end
+
+%end
+
+// 微信（com.tencent.xin）不注入键盘 hook。
+// 微信支付/转账会调起安全键盘（走 UIKeyboardImpl initWithFrame:forCustomInputView:），
+// 替换该方法实现会被其安全校验判定为篡改，导致进转账页闪退。
+// 其余 App 照常注入（脚本向 App 输入文字仍可用）。
+%ctor {
+    NSString *bid = [NSBundle mainBundle].bundleIdentifier;
+    if (![bid isEqualToString:@"com.tencent.xin"]) {
+        %init(ZXKeyboard);
+    }
+}

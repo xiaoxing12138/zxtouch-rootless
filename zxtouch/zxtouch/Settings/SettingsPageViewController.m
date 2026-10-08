@@ -670,7 +670,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Python 依赖检测"
         message:@"正在检测，请稍候..."
         preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
@@ -749,11 +749,11 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             // 复制到剪贴板
             [UIPasteboard generalPasteboard].string = report;
 
-            UIAlertController *result = [UIAlertController alertControllerWithTitle:@"Python 依赖检测"
-                message:[report stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]]
-                preferredStyle:UIAlertControllerStyleAlert];
-            [result addAction:[UIAlertAction actionWithTitle:@"已复制到剪贴板" style:UIAlertActionStyleDefault handler:nil]];
-            [self presentViewController:result animated:YES completion:nil];
+            // 直接在已弹出的 alert 上就地更新内容。
+            // 不能再 present 第二个 alert —— 上一个还没消失时系统会静默丢弃，
+            // 表现为一直停在“正在检测，请稍候...”。
+            NSString *body = [report stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+            alert.message = [body stringByAppendingString:@"\n\n（以上内容已自动复制到剪贴板）"];
         });
     });
 }
