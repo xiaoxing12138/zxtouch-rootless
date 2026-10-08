@@ -711,7 +711,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
                         NSString *ec = dict[@"spawn_exit_code"];
                         if (ver.length > 0) {
                             [report appendFormat:@"版本：%@\n", ver];
-                            if ([ec isEqualToString:@"0"] || [ec hasSuffix:@"0"]) {
+                            if ([ec isEqualToString:@"0"]) {
                                 [report appendString:@"✅ 能正常启动\n"];
                             } else {
                                 [report appendFormat:@"❌ 启动失败（exit %@）—— 很可能是 dylib 依赖损坏\n", ec];

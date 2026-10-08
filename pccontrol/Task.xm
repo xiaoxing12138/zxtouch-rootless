@@ -14,6 +14,7 @@
 #include "DeviceInfo.h"
 #include "TouchIndicator/TouchIndicatorWindow.h"
 #import <mach/mach.h>
+#include <sys/wait.h>
 #include <Foundation/NSDistributedNotificationCenter.h>
 #include <TextRecognization/TextRecognizer.h>
 #include "UpdateCache.h"
@@ -593,6 +594,17 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             root[@"found_path"] = found ?: @"";
 
             if (found) {
+                // 真实运行检测：跑一次 python3 --version，确认解释器真能启动。
+                // 只有执行权限不代表能跑起来 —— rootless 下常见 libpython 找不到、在 dyld 阶段就退出。
+                NSString *probeFile = @"/var/mobile/Library/ZXTouch/.pycheck_version";
+                NSString *probeCmd = [NSString stringWithFormat:@"'%@' --version > '%@' 2>&1", found, probeFile];
+                int probeStatus = call_system(probeCmd.UTF8String);
+                int exitCode = (probeStatus == -1) ? -1 : (WIFEXITED(probeStatus) ? WEXITSTATUS(probeStatus) : -1);
+                NSString *ver = [NSString stringWithContentsOfFile:probeFile encoding:NSUTF8StringEncoding error:nil];
+                [[NSFileManager defaultManager] removeItemAtPath:probeFile error:nil];
+                root[@"version"] = [ver stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+                root[@"spawn_exit_code"] = [NSString stringWithFormat:@"%d", exitCode];
+
                 // 检查 zxtouch 模块路径
                 NSMutableArray<NSString *> *modulePaths = [NSMutableArray array];
                 NSArray<NSString *> *moduleCandidates = @[

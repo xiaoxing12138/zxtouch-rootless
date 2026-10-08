@@ -2,7 +2,7 @@ name: Build ZXTouch Package
 
 # Actions 列表里显示的构建名。取提交信息的话会把多行正文一起塞进去，很难看，
 # 所以直接写死版本号 —— 发版时和 control / pbxproj 一起改（见 HANDOFF「版本号」一节）。
-run-name: v3.0.65 修 Python 检测弹窗卡住 + 微信转账闪退（appdelegate 排除微信）
+run-name: v3.0.66 Python 检测增加真实运行检测（python3 --version）
 
 on:
   push:
