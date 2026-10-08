@@ -111,6 +111,7 @@ static NSString *ZXPythonModulePath(void)
     pid_t pythonProcessGroup;
     Boolean switchAppBeforePlaying;
     int _completedRuns;
+    CFRunLoopRef replayRunLoop;
 }
 
 - (BOOL)isPlaying {
@@ -488,8 +489,9 @@ static NSString *ZXPythonModulePath(void)
         repeatTime--;
 
         currentScriptType = 0;
-
+        replayRunLoop = CFRunLoopGetCurrent();
         CFRunLoopRun();
+        replayRunLoop = NULL;
     }
     else
     {
@@ -527,6 +529,8 @@ static NSString *ZXPythonModulePath(void)
 
     if (currentScriptType == 0)
     {
+        // Waiting in CFRunLoopRun() for replayTimer — must break out before clear()
+        if (replayRunLoop) CFRunLoopStop(replayRunLoop);
         [self clear];
     }
     else if (currentScriptType == 1)
