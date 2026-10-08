@@ -549,6 +549,15 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             }
         }
     }
+    else if (taskType == TASK_PYTHON_CHECK)
+    {
+        @autoreleasepool {
+            NSData *payload = [@"{\"ok\":true}" dataUsingEncoding:NSUTF8StringEncoding];
+            NSMutableData *data = [NSMutableData dataWithData:payload];
+            [data appendBytes:"\r\n" length:2];
+            notifyClientData((UInt8 *)data.bytes, (CFIndex)data.length, writeStreamRef);
+        }
+    }
     else if (taskType == TASK_TAP_TEST)
     {
         @autoreleasepool {
