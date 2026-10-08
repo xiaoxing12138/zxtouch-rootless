@@ -2,7 +2,7 @@ name: Build ZXTouch Package
 
 # Actions 列表里显示的构建名。取提交信息的话会把多行正文一起塞进去，很难看，
 # 所以直接写死版本号 —— 发版时和 control / pbxproj 一起改（见 HANDOFF「版本号」一节）。
-run-name: v3.0.63 修复脚本停止卡死 + 设置页加 Python 依赖检测
+run-name: v3.0.64 修 Settings sections 缺失 + initSenderId 懒加载（微信闪退）
 
 on:
   push:

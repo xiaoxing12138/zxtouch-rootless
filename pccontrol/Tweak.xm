@@ -439,7 +439,6 @@ Boolean init()
             [Screen setScreenSize:(width<height?width:height) height:(width>height?width:height)];
             [@"3-screen-set" writeToFile:@"/var/mobile/d3.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
-            initSenderId();
             initTouchGetScreenSize();
             init();  // 读 config、启动触摸指示器等
             ZXReloadPopupListener();  // 按配置决定是否启动键盘监听

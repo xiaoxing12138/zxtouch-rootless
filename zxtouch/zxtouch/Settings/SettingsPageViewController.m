@@ -213,7 +213,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     // Do any additional setup after loading the view.
     self.title = @"设置";
     
-    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"关于"];
+    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"关于小新Lap", @"Python 依赖检测"];
     configManager = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
     BOOL doubleClickPopup = YES;
     if ([configManager getValueFromKey:@"double_click_volume_show_popup"])
@@ -326,7 +326,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([configManager getValueFromKey:@"floating_menu_enabled"])
         floatingMenu = [[configManager getValueFromKey:@"floating_menu_enabled"] boolValue];
 
-    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"关于"];
+    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"关于小新Lap", @"Python 依赖检测"];
     cellsForEachSection = @[
         [self remoteManagementCells],
         @[

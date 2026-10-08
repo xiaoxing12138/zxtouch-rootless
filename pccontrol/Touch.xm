@@ -231,13 +231,15 @@ static void postIOHIDEvent(IOHIDEventRef event)
     if (!ioSystemClient){
         ioSystemClient = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
     }
-	if (senderID != 0)
-    	IOHIDEventSetSenderID(event, senderID);
-	else
-	{		
-		NSLog(@"### com.zjx.springboard: sender id is 0!");
-		return;
-	}
+    if (senderID == 0) {
+        // 懒加载：第一次发触摸时才初始化 senderID（避免 SpringBoard 启动时就注册全局 HID 回调）
+        initSenderId();
+        if (senderID == 0) {
+            NSLog(@"### com.zjx.springboard: sender id still 0 after init, skip event");
+            return;
+        }
+    }
+    IOHIDEventSetSenderID(event, senderID);
     IOHIDEventSystemClientDispatchEvent(ioSystemClient, event);
 }
 
