@@ -593,8 +593,13 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             root[@"found_path"] = found ?: @"";
 
             if (found) {
-                // DEBUG: 暂时只用 NSLog，不用 call_system
-                NSLog(@"ZX Python check found: %@", found);
+                // 只用文件读写，不调 call_system
+                NSString *tmpOut = [NSTemporaryDirectory() stringByAppendingPathComponent:@"zxpy_check.txt"];
+                [@"test" writeToFile:tmpOut atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                NSString *output = [NSString stringWithContentsOfFile:tmpOut encoding:NSUTF8StringEncoding error:nil] ?: @"";
+                root[@"version"] = output;
+                root[@"spawn_exit_code"] = @"0";
+                unlink(tmpOut.UTF8String);
             }
 
             NSError *jsonErr = nil;
