@@ -593,19 +593,8 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             root[@"found_path"] = found ?: @"";
 
             if (found) {
-                // 跑一下 `python3 --version` 验证 dyld 能否加载
-                NSString *tmpOut = [NSTemporaryDirectory() stringByAppendingPathComponent:@"zxpy_check.txt"];
-                NSString *cmd = [NSString stringWithFormat:@"%@ --version > %@ 2>&1; echo $? >> %@",
-                                 [found stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"],
-                                 tmpOut, tmpOut];
-                call_system([jbroot("/bin/sh") stringByAppendingFormat:@" -c '%@'", cmd].UTF8String);
-                NSString *output = [NSString stringWithContentsOfFile:tmpOut encoding:NSUTF8StringEncoding error:nil] ?: @"";
-                NSArray *lines = [output componentsSeparatedByString:@"\n"];
-                NSString *versionLine = lines.firstObject ?: @"";
-                NSString *exitLine = lines.count > 1 ? lines.lastObject ?: @"" : @"";
-                root[@"version"] = versionLine;
-                root[@"spawn_exit_code"] = exitLine;
-                unlink(tmpOut.UTF8String);
+                // DEBUG: 暂时只用 NSLog，不用 call_system
+                NSLog(@"ZX Python check found: %@", found);
             }
 
             NSError *jsonErr = nil;
