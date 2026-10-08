@@ -42,6 +42,8 @@
 // 44;;open;;<脚本包绝对路径> 打开已存在的可视化脚本
 // 44;;new;;<脚本包绝对路径>  新建可视化脚本包（建目录 + flow.plist + main.py）
 #define TASK_FLOW_EDITOR 44
+// 45：Python 依赖诊断，返回 JSON
+#define TASK_PYTHON_CHECK 45
 
 #define TASK_UPDATE_CACHE 90
 
