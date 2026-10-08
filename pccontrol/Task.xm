@@ -552,10 +552,36 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
     else if (taskType == TASK_PYTHON_CHECK)
     {
         @autoreleasepool {
-            NSData *payload = [@"{\"ok\":true}" dataUsingEncoding:NSUTF8StringEncoding];
-            NSMutableData *data = [NSMutableData dataWithData:payload];
-            [data appendBytes:"\r\n" length:2];
-            notifyClientData((UInt8 *)data.bytes, (CFIndex)data.length, writeStreamRef);
+            NSMutableDictionary *root = [NSMutableDictionary dictionary];
+            NSMutableArray *checks = [NSMutableArray array];
+            NSArray<NSString *> *candidates = @[
+                jbroot(@"/usr/bin/python3"),
+                @"/var/jb/usr/bin/python3"
+            ];
+            NSFileManager *fm = [NSFileManager defaultManager];
+            for (NSString *path in candidates) {
+                BOOL exists = [fm fileExistsAtPath:path];
+                BOOL isExec = exists ? (access(path.UTF8String, X_OK) == 0) : NO;
+                [checks addObject:@{
+                    @"path": path,
+                    @"exists": @(exists),
+                    @"executable": @(isExec)
+                }];
+            }
+            root[@"candidates"] = checks;
+
+            NSString *found = nil;
+            for (NSString *path in candidates) {
+                if (access(path.UTF8String, X_OK) == 0) { found = path; break; }
+            }
+            root[@"found_path"] = found ?: @"";
+
+            NSError *jsonErr = nil;
+            NSData *jsonData = [NSJSONSerialization dataWithJSONObject:root options:NSJSONWritingPrettyPrinted error:&jsonErr];
+            NSString *json = jsonData ? [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding] : @"-1;;JSON 序列化失败";
+            NSMutableData *payload = [NSMutableData dataWithData:[json dataUsingEncoding:NSUTF8StringEncoding]];
+            [payload appendBytes:"\r\n" length:2];
+            notifyClientData((UInt8 *)payload.bytes, (CFIndex)payload.length, writeStreamRef);
         }
     }
     else if (taskType == TASK_TAP_TEST)
