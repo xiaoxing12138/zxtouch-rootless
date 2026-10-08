@@ -275,7 +275,10 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": [NSString stringWithFormat:@"小新Lap %@", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"]], @"secondary_title": @"基于开源 ZXTouch 二次修改", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": @"基于开源 ZXTouch 二次修改", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+        ],
+        @[
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
         ]
     ];
      
@@ -350,7 +353,10 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": [NSString stringWithFormat:@"小新Lap %@", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"]], @"secondary_title": @"基于开源 ZXTouch 二次修改", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": @"基于开源 ZXTouch 二次修改", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+        ],
+        @[
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
         ]
     ];
     [_tableView reloadData];
@@ -658,6 +664,98 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
                 @"最初来源：xuan32546/IOS13-SimulateTouch\n\n"
                 @"二改版本名：小新Lap（iOS 15-17 无根越狱移植）"
         buttonString:@"确定"];
+}
+
+- (void)handlePythonCheckTap:(TableViewCellWithEntry*)cell {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Python 依赖检测"
+        message:@"正在检测，请稍候..."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        Socket *socket = [[Socket alloc] init];
+        BOOL ok = ([socket connect:@"127.0.0.1" byPort:6000] == 0);
+        if (ok) {
+            [socket send:@"45\r\n"];
+        }
+        NSString *raw = ok ? [socket recv:32768] : nil;
+        if (ok) [socket close];
+
+        // 格式化诊断结果
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSMutableString *report = [NSMutableString string];
+            [report appendFormat:@"时间：%@\n\n", [NSDate date]];
+
+            if (!ok) {
+                [report appendString:@"无法连接 SpringBoard 进程（Socket 失败）。\n请先重启设备让越狱注入生效。"];
+            } else if (raw.length == 0) {
+                [report appendString:@"未收到 tweak 返回结果。"];
+            } else {
+                NSString *jsonStr = raw;
+                if ([jsonStr hasSuffix:@"\r\n"]) jsonStr = [jsonStr substringToIndex:jsonStr.length - 2];
+                NSError *jerr = nil;
+                NSData *data = [jsonStr dataUsingEncoding:NSUTF8StringEncoding];
+                NSDictionary *dict = [NSJSONSerialization JSONObjectWithData:data ?: [NSData data] options:0 error:&jerr];
+
+                if (jerr || ![dict isKindOfClass:[NSDictionary class]]) {
+                    [report appendFormat:@"返回数据解析失败：%@\n\n原始数据：\n%@", jerr.localizedDescription ?: @"类型错误", raw];
+                } else {
+                    NSString *found = dict[@"found_path"] ?: @"";
+                    if (found.length == 0) {
+                        [report appendString:@"❌ 未找到任何可用的 python3 解释器！\n"];
+                        [report appendString:@"请在 Sileo 添加 Procursus 源后安装 'python3' 包。\n\n"];
+                    } else {
+                        [report appendFormat:@"✅ 找到：%@\n", found];
+                        NSString *ver = dict[@"version"];
+                        NSString *ec = dict[@"spawn_exit_code"];
+                        if (ver.length > 0) {
+                            [report appendFormat:@"版本：%@\n", ver];
+                            if ([ec isEqualToString:@"0"] || [ec hasSuffix:@"0"]) {
+                                [report appendString:@"✅ 能正常启动\n"];
+                            } else {
+                                [report appendFormat:@"❌ 启动失败（exit %@）—— 很可能是 dylib 依赖损坏\n", ec];
+                            }
+                        } else {
+                            [report appendString:@"⚠️ 文件存在但无法执行\n"];
+                        }
+                    }
+
+                    NSArray *cands = dict[@"candidates"];
+                    if ([cands isKindOfClass:[NSArray class]]) {
+                        [report appendString:@"\n各候选路径：\n"];
+                        for (NSDictionary *c in cands) {
+                            NSString *p = c[@"path"];
+                            BOOL ex = [c[@"exists"] boolValue];
+                            BOOL xc = [c[@"executable"] boolValue];
+                            NSString *mark;
+                            if (ex && xc) mark = @"✅";
+                            else if (ex) mark = @"⚠️ 存在但不可执行";
+                            else mark = @"❌ 不存在";
+                            [report appendFormat:@"  %@ %@\n", p, mark];
+                        }
+                    }
+
+                    NSArray *mods = dict[@"module_paths_found"];
+                    if (mods.count > 0) {
+                        [report appendString:@"\nzxtouch 模块可发现路径：\n"];
+                        for (NSString *m in mods) [report appendFormat:@"  %@\n", m];
+                    } else if (found.length > 0) {
+                        [report appendString:@"\n⚠️ 未发现 zxtouch 模块路径（不影响基本 Python 脚本，但 `import zxtouch` 会失败）\n"];
+                    }
+                }
+            }
+
+            // 复制到剪贴板
+            [UIPasteboard generalPasteboard].string = report;
+
+            UIAlertController *result = [UIAlertController alertControllerWithTitle:@"Python 依赖检测"
+                message:[report stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]]
+                preferredStyle:UIAlertControllerStyleAlert];
+            [result addAction:[UIAlertAction actionWithTitle:@"已复制到剪贴板" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:result animated:YES completion:nil];
+        });
+    });
 }
 
 - (void)handleExamplesTap:(TableViewCellWithEntry*)cell {
