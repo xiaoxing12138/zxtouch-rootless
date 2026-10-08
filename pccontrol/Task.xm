@@ -555,8 +555,24 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             NSMutableDictionary *root = [NSMutableDictionary dictionary];
             NSMutableArray *checks = [NSMutableArray array];
             NSArray<NSString *> *candidates = @[
+                jbroot(@"/usr/bin/python3.12"),
+                jbroot(@"/usr/bin/python3.11"),
+                jbroot(@"/usr/bin/python3.10"),
+                jbroot(@"/usr/bin/python3.9"),
+                jbroot(@"/usr/bin/python3.8"),
                 jbroot(@"/usr/bin/python3"),
-                @"/var/jb/usr/bin/python3"
+                @"/var/jb/usr/bin/python3.12",
+                @"/var/jb/usr/bin/python3.11",
+                @"/var/jb/usr/bin/python3.10",
+                @"/var/jb/usr/bin/python3.9",
+                @"/var/jb/usr/bin/python3.8",
+                @"/var/jb/usr/bin/python3",
+                @"/usr/bin/python3.12",
+                @"/usr/bin/python3.11",
+                @"/usr/bin/python3.10",
+                @"/usr/bin/python3.9",
+                @"/usr/bin/python3.8",
+                @"/usr/bin/python3"
             ];
             NSFileManager *fm = [NSFileManager defaultManager];
             for (NSString *path in candidates) {
