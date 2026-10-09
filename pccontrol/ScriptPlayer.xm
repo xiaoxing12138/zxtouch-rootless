@@ -407,7 +407,7 @@ static NSString *ZXPythonModulePath(void)
     }
 
     int totalEnv = envCount + (int)envVars.count + 1;
-    char **envp = malloc(sizeof(char *) * totalEnv);
+    char **envp = (char **)malloc(sizeof(char *) * totalEnv);
     int eidx = 0;
     for (int i = 0; i < envCount; i++) {
         NSString *existing = [NSString stringWithUTF8String:environ[i]];
