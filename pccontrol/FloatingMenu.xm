@@ -72,10 +72,10 @@
 #define kFMCfgLabelFont   @"floating_menu_label_font_size" // 标签字号 9..18
 #define kFMCfgIconInset   @"floating_menu_icon_inset"     // 图标圆内留白 0..10
 #define kFMCfgPanelGap    @"floating_menu_panel_gap"      // 圆点到菜单间距 0..40
-#define kFMCfgDotIcon     @"floating_menu_dot_icon"       // 圆点图标 0=字母Z 1=App图标 2=自定义图片
+#define kFMCfgDotIcon     @"floating_menu_dot_icon"       // 圆点图标 1=App图标 2=自定义图片
 #define kFMCfgDotBgColor   @"floating_menu_dot_bg_color"   // 圆点背景色 #RRGGBB
 #define kFMCfgMenuBtnColor @"floating_menu_menu_btn_color" // 菜单按钮背景色 #RRGGBB
-#define kFMCfgIconColor    @"floating_menu_icon_color"     // 图标颜色 #RRGGBB（圆点字母 + 菜单图标）
+#define kFMCfgIconColor    @"floating_menu_icon_color"     // 图标颜色 #RRGGBB（菜单图标）
 #define kFMCfgLabelColor   @"floating_menu_label_color"    // 菜单标签文字色 #RRGGBB
 #define kFMCfgPauseText    @"floating_menu_pause_text"        // 暂停时叠加在圆点上的文字
 #define kFMCfgPauseFont    @"floating_menu_pause_font_size"   // 暂停文字字号 6..16
@@ -121,8 +121,7 @@ typedef NS_ENUM(NSInteger, FMScriptPlayState) {
     FMScriptPlayStatePaused  = 2   // 已暂停
 };
 
-// 圆点图标来源
-#define kFMDotIconModeZ       0
+// 圆点图标来源（只有两种：App 图标 / 自定义图片）
 #define kFMDotIconModeApp     1
 #define kFMDotIconModeCustom  2
 
@@ -310,13 +309,31 @@ static NSString *fmConfigPath(void)
     return getCommonConfigFilePath();
 }
 
-// 圆点图标选「App 图标 / 自定义图片」时，由 App 端把 PNG 导出到共享目录，
-// tweak 端只读取文件（不在 SpringBoard 里访问相册或私有图标接口）。
-static NSString *fmDotIconAppPath(void)
+// 圆点图标选「App 图标」时读安装包内的 AppIcon*.png：
+// rootless 下 app 装在 /var/jb/Applications/zxtouch.app（见 layout/DEBIAN/postinst），
+// 直接从包内取图，不依赖 App 端导出、装完即生效。
+static NSString *fmAppIconPath(void)
 {
-    return [[fmConfigPath() stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"fm_dot_icon_app.png"];
+    static NSArray<NSString *> *names = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        names = @[@"AppIcon83.5x83.5@2x~ipad.png", @"AppIcon76x76@2x~ipad.png",
+                  @"AppIcon60x60@3x.png", @"AppIcon76x76~ipad.png",
+                  @"AppIcon60x60@2x.png", @"AppIcon40x40@3x.png", @"AppIcon29x29@3x.png"];
+    });
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *dir in @[@"/var/jb/Applications/zxtouch.app", @"/Applications/zxtouch.app"]) {
+        for (NSString *name in names) {
+            NSString *path = [dir stringByAppendingPathComponent:name];
+            if ([fm fileExistsAtPath:path]) {
+                return path;
+            }
+        }
+    }
+    return nil;
 }
 
+// 「自定义图片」由 App 端把 PNG 导出到共享目录，tweak 端只读文件。
 static NSString *fmDotIconCustomPath(void)
 {
     return [[fmConfigPath() stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"fm_dot_icon_custom.png"];
@@ -351,7 +368,7 @@ static void fmPersistKeys(NSDictionary *pairs)
     FMPassthroughWindow      *_window;
     UIView                   *_content;
     UIButton                 *_dotButton;
-    UIImageView              *_dotIconView;      // 圆点图标（字母Z 模式时隐藏）
+    UIImageView              *_dotIconView;      // 圆点图标图层（无图时隐藏）
     UIImage                  *_dotIconImage;     // 圆点图标的原图（暂停时转灰度用）
     UIView                   *_pauseOverlay;     // 暂停时覆盖圆点的灰罩
     UILabel                  *_pauseLabel;       // 暂停时叠加在圆点上的文字
@@ -376,10 +393,10 @@ static void fmPersistKeys(NSDictionary *pairs)
     CGFloat  _menuLabelFont;  // 菜单标签字号（9..18）
     CGFloat  _menuIconInset;  // 图标在按钮圆内的留白（0..10）
     CGFloat  _menuPanelGap;   // 圆点到菜单整体的间距（0..40）
-    NSInteger _dotIconMode;   // 圆点图标来源（0=字母Z 1=App图标 2=自定义图片）
+    NSInteger _dotIconMode;   // 圆点图标来源（1=App图标 2=自定义图片）
     NSString *_dotBgColorHex;   // 圆点背景色
     NSString *_menuBtnColorHex; // 菜单按钮背景色
-    NSString *_iconColorHex;    // 图标颜色（圆点字母 + 菜单图标）
+    NSString *_iconColorHex;    // 图标颜色（菜单图标）
     NSString *_labelColorHex;   // 菜单标签文字色
     NSString *_pauseText;       // 暂停时圆点上的文字
     CGFloat  _pauseFont;        // 暂停文字字号（6..16）
@@ -420,7 +437,7 @@ static void fmPersistKeys(NSDictionary *pairs)
         _menuLabelFont = kFMMenuLabelFontDefault;
         _menuIconInset = kFMMenuIconInsetDefault;
         _menuPanelGap = kFMMenuPanelGapDefault;
-        _dotIconMode = kFMDotIconModeZ;
+        _dotIconMode = kFMDotIconModeApp;
         _dotBgColorHex = kFMDotBgColorDefault;
         _menuBtnColorHex = kFMMenuBtnColorDefault;
         _iconColorHex = kFMIconColorDefault;
@@ -474,19 +491,13 @@ static void fmPersistKeys(NSDictionary *pairs)
     return _dotSize / 2.0f;
 }
 
-// 圆点内字母随直径等比缩放，保持默认 48pt → 22pt 的视觉比例
-- (CGFloat)dotTitleFontSize
-{
-    return roundf(_dotSize * (22.0f / kFMDotDefaultSize));
-}
-
 // 菜单按钮与标签共用的底色（颜色 + 不透明度均可配置）
 - (UIColor *)menuBackgroundColor
 {
     return fmColorFromHex(_menuBtnColorHex, _menuBgAlpha) ?: [UIColor colorWithWhite:0.12f alpha:_menuBgAlpha];
 }
 
-// 图标颜色（圆点字母 + 菜单 SF Symbol），非法值回退白色
+// 菜单图标颜色（菜单 SF Symbol），非法值回退白色
 - (UIColor *)iconColor
 {
     return fmColorFromHex(_iconColorHex, 1.0f) ?: [UIColor whiteColor];
@@ -684,9 +695,6 @@ static void fmPersistKeys(NSDictionary *pairs)
     _dotButton.backgroundColor = fmColorFromHex(_dotBgColorHex, kFMDotBgAlpha)
                                  ?: [UIColor colorWithRed:20.0f / 255.0f green:20.0f / 255.0f blue:28.0f / 255.0f alpha:kFMDotBgAlpha];
     _dotButton.layer.cornerRadius = [self dotRadius];
-    _dotButton.titleLabel.font = [UIFont systemFontOfSize:[self dotTitleFontSize] weight:UIFontWeightBold];
-    [_dotButton setTitle:@"Z" forState:UIControlStateNormal];
-    [_dotButton setTitleColor:[self iconColor] forState:UIControlStateNormal];
     _dotButton.adjustsImageWhenHighlighted = NO;
     [_content addSubview:_dotButton];
 
@@ -800,8 +808,8 @@ static void fmPersistKeys(NSDictionary *pairs)
 
 #pragma mark 圆点图标
 
-// 0=字母Z（默认） 1=App图标 2=自定义图片。
-// 后两种由 App 端导出 PNG 到共享目录；文件缺失/读取失败时回退成字母 Z。
+// 1=App 图标（读安装包内 AppIcon*.png） 2=自定义图片（App 端导出到共享目录）。
+// 两种都没有对应图片时圆点只显示底色，不再回退字母 Z。
 - (void)applyDotIcon
 {
     if (!_dotButton) {
@@ -809,25 +817,20 @@ static void fmPersistKeys(NSDictionary *pairs)
     }
 
     UIImage *icon = nil;
-    if (_dotIconMode == kFMDotIconModeApp) {
-        icon = [UIImage imageWithContentsOfFile:fmDotIconAppPath()];
-    } else if (_dotIconMode == kFMDotIconModeCustom) {
+    if (_dotIconMode == kFMDotIconModeCustom) {
         icon = [UIImage imageWithContentsOfFile:fmDotIconCustomPath()];
+    } else {
+        NSString *path = fmAppIconPath();
+        icon = path ? [UIImage imageWithContentsOfFile:path] : nil;
     }
 
     // 原图留一份，暂停时转灰度用（灰度的结果不覆盖原图）
     _dotIconImage = icon;
 
-    if (icon) {
-        _dotIconView.image = icon;
-        _dotIconView.frame = _dotButton.bounds;
-        _dotIconView.hidden = NO;
-        [_dotButton setTitle:@"" forState:UIControlStateNormal];
-    } else {
-        _dotIconView.image = nil;
-        _dotIconView.hidden = YES;
-        [_dotButton setTitle:@"Z" forState:UIControlStateNormal];
-    }
+    _dotIconView.image = icon;
+    _dotIconView.frame = _dotButton.bounds;
+    _dotIconView.hidden = (icon == nil);
+    [_dotButton setTitle:@"" forState:UIControlStateNormal];
 
     [self applyPauseAppearance];
 }
@@ -847,11 +850,9 @@ static void fmPersistKeys(NSDictionary *pairs)
         _dotIconView.image = paused ? fmGrayscaleImage(_dotIconImage) : _dotIconImage;
         _dotIconView.hidden = NO;
     } else {
-        // 字母 Z 模式没有图片，直接把字色转灰
+        // 图标读取失败（无图片）时没有灰度层，不需要额外处理
         _dotIconView.image = nil;
         _dotIconView.hidden = YES;
-        UIColor *color = paused ? [UIColor colorWithWhite:0.55f alpha:1.0f] : [self iconColor];
-        [_dotButton setTitleColor:color forState:UIControlStateNormal];
     }
 
     _pauseOverlay.hidden = !paused;
@@ -1575,7 +1576,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             CGFloat menuLabelFont = kFMMenuLabelFontDefault;
             CGFloat menuIconInset = kFMMenuIconInsetDefault;
             CGFloat menuPanelGap = kFMMenuPanelGapDefault;
-            NSInteger dotIconMode = kFMDotIconModeZ;
+            NSInteger dotIconMode = kFMDotIconModeApp;
             NSString *dotBgColorHex = kFMDotBgColorDefault;
             NSString *menuBtnColorHex = kFMMenuBtnColorDefault;
             NSString *iconColorHex = kFMIconColorDefault;
@@ -1691,7 +1692,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             self->_menuLabelFont = MIN(MAX(menuLabelFont, kFMMenuLabelFontMin), kFMMenuLabelFontMax);
             self->_menuIconInset = MIN(MAX(menuIconInset, kFMMenuIconInsetMin), kFMMenuIconInsetMax);
             self->_menuPanelGap = MIN(MAX(menuPanelGap, kFMMenuPanelGapMin), kFMMenuPanelGapMax);
-            self->_dotIconMode = MIN(MAX(dotIconMode, kFMDotIconModeZ), kFMDotIconModeCustom);
+            self->_dotIconMode = (dotIconMode == kFMDotIconModeCustom) ? kFMDotIconModeCustom : kFMDotIconModeApp;
             self->_dotBgColorHex = dotBgColorHex;
             self->_menuBtnColorHex = menuBtnColorHex;
             self->_iconColorHex = iconColorHex;

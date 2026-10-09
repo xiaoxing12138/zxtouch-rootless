@@ -245,7 +245,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 };
 
 // 拖动卡片：只认从顶栏开始的手势，中间那块滚动内容不抢
-@interface FunctionWindow () <UIGestureRecognizerDelegate, FlowEditorHost>
+@interface FunctionWindow () <UIGestureRecognizerDelegate, FlowEditorHost, UITextFieldDelegate>
 - (void)savePanelState;
 - (void)handleResizePan:(UIPanGestureRecognizer *)pan;
 @end
@@ -617,6 +617,16 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     [_cardView endEditing:YES];
 }
 
+// 输入框所在的 window 不是 key window 时，系统键盘不会出来（Apple QA1813：输入框的 window
+// 必须成为 key window，否则「The keyboard doesn't show」）。面板窗口全程只 hidden=NO、
+// 从没 makeKey，所以「部分设备/系统版本」上点输入框没反应。
+// 在开始编辑之前（本回调保证在 becomeFirstResponder 之前）把窗口变成 key，再放行。
+- (BOOL)textFieldShouldBeginEditing:(UITextField *)textField {
+    UIWindow *win = textField.window;
+    if (win && !win.isKeyWindow) [win makeKeyWindow];
+    return YES;
+}
+
 // 拖十字取坐标，回填这一组参数的 x / y
 - (void)pickPointForXField:(UITextField *)xField
                     yField:(UITextField *)yField
@@ -721,6 +731,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
         tf.textAlignment = NSTextAlignmentLeft;   // 值紧跟标签，别贴到格子最右
         tf.keyboardType = (type == ZXOptionTypeNumber) ? UIKeyboardTypeDecimalPad : UIKeyboardTypeDefault;
         tf.inputAccessoryView = [self optionKeyboardAccessory];
+        tf.delegate = self;   // 开始编辑前把窗口变 key，否则键盘不弹（见 textFieldShouldBeginEditing:）
         tf.text = initial;
         tf.autoresizingMask = UIViewAutoresizingFlexibleWidth;
         UIView *padL = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 32)];
@@ -949,6 +960,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
                 tf.adjustsFontSizeToFitWidth = YES;
                 tf.minimumFontSize = 9;
                 tf.inputAccessoryView = [self optionKeyboardAccessory];
+                tf.delegate = self;   // 开始编辑前把窗口变 key，否则键盘不弹（见 textFieldShouldBeginEditing:）
                 tf.text = value;
                 [tf addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
                     store[key] = tf.text ?: @"";

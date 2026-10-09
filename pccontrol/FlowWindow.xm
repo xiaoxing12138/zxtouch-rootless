@@ -323,7 +323,7 @@ static void fwPersistSchedule(NSString *bundlePath, NSString *startMode, NSStrin
 }
 @end
 
-@interface FlowWindow ()
+@interface FlowWindow () <UITextFieldDelegate>
 @end
 
 static FlowWindow *_fwShared = nil;
@@ -785,6 +785,7 @@ static FlowWindow *_fwShared = nil;
     field.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     field.keyboardType = integer ? UIKeyboardTypeDecimalPad : UIKeyboardTypeDefault;
     field.inputAccessoryView = [self keyboardAccessory];
+    field.delegate = self;   // 开始编辑前把窗口变 key，否则键盘不弹（见 textFieldShouldBeginEditing:）
     field.textAlignment = NSTextAlignmentLeft;
     field.text = [FlowScript textForValue:value];
     [field addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
@@ -811,6 +812,16 @@ static FlowWindow *_fwShared = nil;
 - (void)dismissKeyboard {
     [_scroll endEditing:YES];
     [_subScroll endEditing:YES];
+}
+
+// 输入框所在的 window 不是 key window 时，系统键盘不会出来（Apple QA1813：输入框的 window
+// 必须成为 key window，否则「The keyboard doesn't show」）。编辑器卡片挂在 FunctionWindow 的
+// 窗口上，那个窗口只 hidden=NO、从没 makeKey，所以部分设备/系统版本上点输入框没反应。
+// 本回调保证在 becomeFirstResponder 之前调用，先变 key 再放行。
+- (BOOL)textFieldShouldBeginEditing:(UITextField *)textField {
+    UIWindow *win = textField.window;
+    if (win && !win.isKeyWindow) [win makeKeyWindow];
+    return YES;
 }
 
 #pragma mark - 子浮窗（屏幕中间：添加步骤 / 编辑参数 / 设置都走这里）
