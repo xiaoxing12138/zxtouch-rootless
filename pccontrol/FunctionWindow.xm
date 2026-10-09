@@ -322,6 +322,17 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 - (void)buildWindow {
     // iOS 13+ 必须用 initWithWindowScene:，initWithFrame: 创建的窗口不会显示
     UIWindowScene *scene = [FloatingMenu preferredWindowScene];
+    // 键盘是挂在 scene 上的：窗口落在哪个 scene 决定了系统键盘认不认它。
+    // iPhone 这种 SpringBoard 连着多个 scene 的机型上，只按 activationState 挑有可能挑到
+    // 「窗口能显示、能点，但键盘永远不出来」的那个。已经有 key window 时优先跟它同 scene。
+    UIWindowScene *keyScene = [UIApplication sharedApplication].keyWindow.windowScene;
+    ZXKeyboardDebugLog(@"buildWindow preferred=%lu keyScene=%lu scenes=%@",
+                       (unsigned long)scene.hash, (unsigned long)keyScene.hash,
+                       ZXDescribeConnectedScenes());
+    if (keyScene && keyScene != scene) {
+        ZXKeyboardDebugLog(@"buildWindow 改用 key window 所在 scene");
+        scene = keyScene;
+    }
     if (scene) {
         _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
     } else {
@@ -447,6 +458,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 
     // 建好后先隐藏，等 show 时再显示
     _window.hidden = YES;
+    ZXKeyboardDebugLog(@"buildWindow done window=%@", ZXDescribeWindow(_window));
 
     // 旋转后居中 / 重排（卡片宽度取 FN_CARD_W 与屏幕宽度 - 40 的较小值，需按新尺寸重算）
     [[NSNotificationCenter defaultCenter] addObserverForName:UIDeviceOrientationDidChangeNotification
@@ -622,8 +634,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 // 从没 makeKey，所以「部分设备/系统版本」上点输入框没反应。
 // 在开始编辑之前（本回调保证在 becomeFirstResponder 之前）把窗口变成 key，再放行。
 - (BOOL)textFieldShouldBeginEditing:(UITextField *)textField {
-    UIWindow *win = textField.window;
-    if (win && !win.isKeyWindow) [win makeKeyWindow];
+    ZXKeyboardDebugWillBeginEditing(textField.window);   // 诊断：为什么 14PM 上键盘不弹
     return YES;
 }
 

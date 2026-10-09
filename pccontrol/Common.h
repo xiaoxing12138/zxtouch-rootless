@@ -53,6 +53,16 @@ NSString* getDeviceName();
 void ZXLogUIException(NSException *exception);
 
 /*
+ 临时键盘诊断（定位 iPhone 14PM / iOS 16.4.1 面板输入框点不出键盘，查完连同 Common.xm 的实现一起删）。
+ 写进 /api/logs 读的那个文件，同时打 NSLog；ZXDescribe* 只做展示，不改行为。
+*/
+void ZXKeyboardDebugLog(NSString *format, ...);
+NSString *ZXDescribeWindow(UIWindow *window);
+NSString *ZXDescribeConnectedScenes(void);
+// 输入框即将开始编辑时调用：记录 window / scene / key 状态，并在键盘没弹出来时把原因打到屏幕上
+void ZXKeyboardDebugWillBeginEditing(UIWindow *window);
+
+/*
  面板配色：深浅两套写进同一个动态颜色，跟着窗口的 overrideUserInterfaceStyle 切。
  全工程只此一份，别在各家 view 里再散落写死色值。
 */

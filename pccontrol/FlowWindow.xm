@@ -819,8 +819,7 @@ static FlowWindow *_fwShared = nil;
 // 窗口上，那个窗口只 hidden=NO、从没 makeKey，所以部分设备/系统版本上点输入框没反应。
 // 本回调保证在 becomeFirstResponder 之前调用，先变 key 再放行。
 - (BOOL)textFieldShouldBeginEditing:(UITextField *)textField {
-    UIWindow *win = textField.window;
-    if (win && !win.isKeyWindow) [win makeKeyWindow];
+    ZXKeyboardDebugWillBeginEditing(textField.window);   // 诊断：为什么 14PM 上键盘不弹
     return YES;
 }
 

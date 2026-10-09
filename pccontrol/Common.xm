@@ -1,5 +1,6 @@
 #include "Common.h"
 #include "Config.h"
+#include "Toast.h"   // 键盘诊断：键盘没弹出来时把原因打到屏幕上
 #import <sys/utsname.h>
 #import <sys/wait.h>
 #include <dlfcn.h>
@@ -310,6 +311,127 @@ void ZXLogUIException(NSException *exception)
     {
         // Logging must never itself become the reason SpringBoard dies.
     }
+}
+
+#pragma mark - 临时键盘诊断（查完删）
+
+void ZXKeyboardDebugLog(NSString *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+
+    NSLog(@"[KB] %@", message);
+
+    @try {
+        NSString *path = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output";
+        NSString *folder = [path stringByDeletingLastPathComponent];
+        [[NSFileManager defaultManager] createDirectoryAtPath:folder
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:NULL];
+        NSString *line = [NSString stringWithFormat:@"[KB] %@ %@\n", [NSDate date], message];
+        NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+        NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (handle)
+        {
+            [handle seekToEndOfFile];
+            [handle writeData:data];
+            [handle closeFile];
+        }
+        else
+        {
+            [data writeToFile:path atomically:NO];
+        }
+    }
+    @catch (NSException *ignored)
+    {
+        // 诊断日志失败绝不影响主流程。
+    }
+}
+
+NSString *ZXDescribeWindow(UIWindow *window)
+{
+    if (!window) return @"(nil)";
+    return [NSString stringWithFormat:@"<class=%@ key=%d level=%.0f scene=%lu hidden=%d>",
+            NSStringFromClass([window class]),
+            window.isKeyWindow ? 1 : 0,
+            window.windowLevel,
+            (unsigned long)window.windowScene.hash,
+            window.hidden ? 1 : 0];
+}
+
+NSString *ZXDescribeConnectedScenes(void)
+{
+    NSMutableString *text = [NSMutableString string];
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes)
+    {
+        [text appendFormat:@" {%@ state=%ld hash=%lu}",
+         NSStringFromClass([scene class]),
+         (long)scene.activationState,
+         (unsigned long)scene.hash];
+    }
+    return text.length > 0 ? text : @"(none)";
+}
+
+void ZXKeyboardDebugWillBeginEditing(UIWindow *window)
+{
+    static BOOL keyboardVisible = NO;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+        [center addObserverForName:UIKeyboardWillShowNotification object:nil queue:nil
+                        usingBlock:^(NSNotification *note) {
+            keyboardVisible = YES;
+            ZXKeyboardDebugLog(@"keyboardWillShow appKey=%@ scenes=%@",
+                               ZXDescribeWindow([UIApplication sharedApplication].keyWindow),
+                               ZXDescribeConnectedScenes());
+        }];
+        [center addObserverForName:UIKeyboardDidShowNotification object:nil queue:nil
+                        usingBlock:^(NSNotification *note) {
+            keyboardVisible = YES;
+            ZXKeyboardDebugLog(@"keyboardDidShow");
+        }];
+        [center addObserverForName:UIKeyboardDidHideNotification object:nil queue:nil
+                        usingBlock:^(NSNotification *note) {
+            keyboardVisible = NO;
+            ZXKeyboardDebugLog(@"keyboardDidHide");
+        }];
+    });
+
+    ZXKeyboardDebugLog(@"beginEdit win=%@ appKey=%@ scenes=%@",
+                       ZXDescribeWindow(window),
+                       ZXDescribeWindow([UIApplication sharedApplication].keyWindow),
+                       ZXDescribeConnectedScenes());
+
+    if (window && !window.isKeyWindow)
+    {
+        [window makeKeyWindow];
+    }
+    ZXKeyboardDebugLog(@"afterMakeKey win=%@ appKey=%@",
+                       ZXDescribeWindow(window),
+                       ZXDescribeWindow([UIApplication sharedApplication].keyWindow));
+
+    // 键盘已经开着（连续点第二个输入框）不该再报；只有「本来没键盘、点完还是没有」才提示
+    if (keyboardVisible) return;
+
+    __weak UIWindow *weakWindow = window;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (keyboardVisible) return;
+        UIWindow *win = weakWindow;
+        NSString *detail = [NSString stringWithFormat:@"win=%@ appKey=%@ scenes=%@",
+                            ZXDescribeWindow(win),
+                            ZXDescribeWindow([UIApplication sharedApplication].keyWindow),
+                            ZXDescribeConnectedScenes()];
+        ZXKeyboardDebugLog(@"KEYBOARD-NOT-SHOWN %@", detail);
+        @try {
+            [Toast showToastWithContent:[NSString stringWithFormat:@"键盘未弹出 %@", detail]
+                                   type:0 duration:6.0f position:1 fontSize:10];
+        } @catch (NSException *ignored) {
+        }
+    });
 }
 
 #pragma mark - 面板配色
