@@ -535,19 +535,6 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 
 #pragma mark - 面板背景（颜色 / 透明度 / 自定义图片，都在 App 的「控制按钮悬浮窗」里配）
 
-static UIColor *fnColorFromHex(NSString *hex)
-{
-    if (![hex isKindOfClass:[NSString class]] || hex.length == 0) return nil;
-    NSString *value = [hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if ([value hasPrefix:@"#"]) value = [value substringFromIndex:1];
-    if (value.length != 6) return nil;
-    unsigned int rgb = 0;
-    if (![[NSScanner scannerWithString:value] scanHexInt:&rgb]) return nil;
-    return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
-                           green:((rgb >> 8) & 0xFF) / 255.0
-                            blue:(rgb & 0xFF) / 255.0 alpha:1];
-}
-
 - (void)applyPanelBackground {
     if (!_cardView) return;
     NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:getCommonConfigFilePath()] ?: @{};
@@ -561,7 +548,7 @@ static UIColor *fnColorFromHex(NSString *hex)
     if (alpha > 1) alpha = 1;
     if (alpha < 0 && hasAlpha) alpha = 0;
 
-    UIColor *color = fnColorFromHex(hex);
+    UIColor *color = ZXColorFromHex(hex);
     if (!color) color = [UIColor systemBackgroundColor];
     if (hasAlpha) color = [color colorWithAlphaComponent:alpha];
 
@@ -593,9 +580,9 @@ static UIColor *fnColorFromHex(NSString *hex)
     [_cardView insertSubview:_functionBgView atIndex:0];
 
     _cardView.backgroundColor = [UIColor clearColor];
-    if (hasAlpha && alpha > 0 && fnColorFromHex(hex)) {
+    if (hasAlpha && alpha > 0 && ZXColorFromHex(hex)) {
         _functionBgTint = [[UIView alloc] initWithFrame:_cardView.bounds];
-        _functionBgTint.backgroundColor = [fnColorFromHex(hex) colorWithAlphaComponent:alpha];
+        _functionBgTint.backgroundColor = [ZXColorFromHex(hex) colorWithAlphaComponent:alpha];
         _functionBgTint.userInteractionEnabled = NO;
         _functionBgTint.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [_cardView insertSubview:_functionBgTint aboveSubview:_functionBgView];

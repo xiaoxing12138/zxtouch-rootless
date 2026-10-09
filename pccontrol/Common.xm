@@ -510,6 +510,19 @@ UIColor *ZXPalette(ZXPaletteRole role)
     return colors[role];
 }
 
+UIColor *ZXColorFromHex(NSString *hex)
+{
+    if (![hex isKindOfClass:[NSString class]] || hex.length == 0) return nil;
+    NSString *value = [hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if ([value hasPrefix:@"#"]) value = [value substringFromIndex:1];
+    if (value.length != 6) return nil;
+    unsigned int rgb = 0;
+    if (![[NSScanner scannerWithString:value] scanHexInt:&rgb]) return nil;
+    return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
+                           green:((rgb >> 8) & 0xFF) / 255.0
+                            blue:(rgb & 0xFF) / 255.0 alpha:1];
+}
+
 #pragma mark - 随行小菜单
 
 // 不是 alert：一个贴在锚点旁边的小卡片 + 一层透明遮罩，点别处就散

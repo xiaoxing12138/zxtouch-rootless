@@ -791,17 +791,34 @@ static NSString *ZXPythonErrnoName(int e) {
                         }
                     }
 
-                    // 综合判断：有不可执行文件 + dpkg 无记录 = 残留/损坏文件
+                    // 综合判断
                     if (found.length == 0) {
                         BOOL hasUnexecutable = NO;
+                        BOOL hasEPERM = NO;
                         for (NSDictionary *c in cands) {
-                            if ([c[@"exists"] boolValue] && ![c[@"executable"] boolValue]) { hasUnexecutable = YES; break; }
+                            if ([c[@"exists"] boolValue] && ![c[@"executable"] boolValue]) {
+                                hasUnexecutable = YES;
+                                NSString *detail = c[@"detail"];
+                                if ([detail containsString:@"EPERM"] || [detail containsString:@"errno=1"]) hasEPERM = YES;
+                            }
                         }
-                        if (hasUnexecutable && !dpkgHasPython) {
-                            [report appendString:@"\n⚠️ 诊断：检测到 python3 文件存在但无法执行（exit 127），且 dpkg 中没有 python3 包记录。\n"];
-                            [report appendString:@"   这通常是手动放进去的残留/损坏文件（非正规 dpkg 安装）。\n"];
-                            [report appendString:@"   解决：删除残留文件后从 Procursus 源正规安装 python3：\n"];
-                            [report appendString:@"   rm /var/jb/usr/bin/python3*  →  Sileo 添加 https://Procursus.github.io/repo 安装 python3\n"];
+                        if (hasUnexecutable) {
+                            if (dpkgHasPython && hasEPERM) {
+                                // dpkg 有记录 + EPERM = 正规安装但被 AMFI 拒绝执行（签名/越狱豁免问题）
+                                [report appendString:@"\n⚠️ 诊断：python3 已通过 dpkg 正规安装，但执行被系统拒绝（EPERM，通常是 AMFI 签名校验失败）。\n"];
+                                [report appendString:@"   这是越狱环境的代码签名豁免问题，不是包本身的问题。\n"];
+                                [report appendString:@"   解决（按优先级）：\n"];
+                                [report appendString:@"   1. 重新运行 Dopamine 越狱（重新加载 trustcache）\n"];
+                                [report appendString:@"   2. 终端执行：ldid -S /var/jb/usr/bin/python3.9\n"];
+                                [report appendString:@"   3. 检查 Dopamine 设置中「允许未签名代码」是否开启\n"];
+                            } else if (!dpkgHasPython) {
+                                [report appendString:@"\n⚠️ 诊断：检测到 python3 文件存在但无法执行（exit 127），且 dpkg 中没有 python3 包记录。\n"];
+                                [report appendString:@"   这通常是手动放进去的残留/损坏文件（非正规 dpkg 安装）。\n"];
+                                [report appendString:@"   解决：删除残留文件后从 Procursus 源正规安装 python3：\n"];
+                                [report appendString:@"   rm /var/jb/usr/bin/python3*  →  Sileo 添加 https://Procursus.github.io/repo 安装 python3\n"];
+                            } else {
+                                [report appendString:@"\n⚠️ 诊断：python3 已安装但无法执行。请检查 /var/jb 是否以 noexec 挂载，或越狱的代码签名豁免是否生效。\n"];
+                            }
                         }
                     }
 

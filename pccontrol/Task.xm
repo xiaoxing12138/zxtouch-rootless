@@ -696,8 +696,11 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 NSString *pkgArgs = @"python3 python3.12 python3.11 python3.10 python3.9";
                 for (NSString *dq in @[root[@"jbroot_prefix"] ?: @"", @"/var/jb"]) {
                     if (![dq isKindOfClass:[NSString class]] || dq.length == 0) continue;
-                    NSString *cmd = [NSString stringWithFormat:@"'%@/usr/bin/dpkg-query' -W %@ > '%@' 2>&1 || echo QUERY_FAILED",
-                                     dq, pkgArgs, probeFile];
+                    // rootless 越狱的 dpkg 数据库在 <jb>/var/lib/dpkg，必须指定 --admindir
+                    // 否则 dpkg-query 用默认的 /var/lib/dpkg 查不到任何包
+                    NSString *admindir = [dq stringByAppendingPathComponent:@"var/lib/dpkg"];
+                    NSString *cmd = [NSString stringWithFormat:@"'%@/usr/bin/dpkg-query' --admindir='%@' -W %@ > '%@' 2>&1 || echo QUERY_FAILED",
+                                     dq, admindir, pkgArgs, probeFile];
                     call_system(cmd.UTF8String);
                     NSString *out = [NSString stringWithContentsOfFile:probeFile encoding:NSUTF8StringEncoding error:nil] ?: @"";
                     out = [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];

@@ -984,6 +984,65 @@ static FlowWindow *_fwShared = nil;
 }
 
 // 按记录的宽高把子浮窗重新铺一遍；改完尺寸要靠它把内容按新宽度重排
+#pragma mark - 子浮窗背景（与选项面板同步）
+
+// 读同一份全局配置：颜色 / 透明度 / 自定义图片，跟 FunctionWindow.applyPanelBackground 一致
+- (void)applySubCardBackground:(UIView *)card {
+    if (!card) return;
+    NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:getCommonConfigFilePath()] ?: @{};
+
+    NSString *hex = [config[@"floating_menu_panel_bg_color"] isKindOfClass:[NSString class]]
+                        ? config[@"floating_menu_panel_bg_color"] : @"";
+    NSString *imageName = [config[@"floating_menu_panel_bg_image"] isKindOfClass:[NSString class]]
+                        ? config[@"floating_menu_panel_bg_image"] : @"";
+    BOOL hasAlpha = [config[@"floating_menu_panel_bg_alpha"] isKindOfClass:[NSNumber class]];
+    CGFloat alpha = hasAlpha ? [config[@"floating_menu_panel_bg_alpha"] doubleValue] : -1;
+    if (alpha > 1) alpha = 1;
+    if (alpha < 0 && hasAlpha) alpha = 0;
+
+    UIColor *color = ZXColorFromHex(hex);
+    if (!color) color = ZXPalette(ZXPalCard);
+    if (hasAlpha) color = [color colorWithAlphaComponent:alpha];
+
+    imageName = [imageName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    UIImage *image = nil;
+    if (imageName.length > 0) {
+        NSString *path = [[getCommonConfigFilePath() stringByDeletingLastPathComponent]
+                          stringByAppendingPathComponent:imageName];
+        image = [UIImage imageWithContentsOfFile:path];
+    }
+
+    // 清掉旧的背景层
+    for (UIView *v in [card.subviews copy]) {
+        if (v.tag == 99801 || v.tag == 99802) [v removeFromSuperview];
+    }
+
+    if (!image) {
+        card.backgroundColor = color;
+        return;
+    }
+
+    // 有图：图铺底，颜色层叠在图上
+    UIImageView *bg = [[UIImageView alloc] initWithFrame:card.bounds];
+    bg.image = image;
+    bg.contentMode = UIViewContentModeScaleAspectFill;
+    bg.clipsToBounds = YES;
+    bg.userInteractionEnabled = NO;
+    bg.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    bg.tag = 99801;
+    [card insertSubview:bg atIndex:0];
+
+    card.backgroundColor = [UIColor clearColor];
+    if (hasAlpha && alpha > 0 && ZXColorFromHex(hex)) {
+        UIView *tint = [[UIView alloc] initWithFrame:card.bounds];
+        tint.backgroundColor = [ZXColorFromHex(hex) colorWithAlphaComponent:alpha];
+        tint.userInteractionEnabled = NO;
+        tint.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        tint.tag = 99802;
+        [card insertSubview:tint aboveSubview:bg];
+    }
+}
+
 - (void)rebuildSubAnimated:(BOOL)animated
 {
     UIView *host = [_host flowHostOverlayContainer];
@@ -1027,6 +1086,8 @@ static FlowWindow *_fwShared = nil;
     card.layer.shadowRadius = 14;
     card.layer.shadowOffset = CGSizeMake(0, 4);
     card.clipsToBounds = YES;
+    // 子浮窗背景与选项面板同步（颜色 / 透明度 / 自定义图片，全局配置）
+    [self applySubCardBackground:card];
     [dim addSubview:card];
 
     // 整条标题栏是拖动手柄（✕ / 执行 按钮在它之上，不挡）
@@ -1035,8 +1096,27 @@ static FlowWindow *_fwShared = nil;
                                                                          action:@selector(handleSubTitlePan:)]];
     [card addSubview:titleBar];
 
-    // 标题栏内容：参数页直接是「名字输入框」，其他页是纯文字
+    // 标题栏内容：参数页是「可点击编辑的步骤名」，其他页是纯文字
     if (_subStep) {
+        // 容器：label（带下划线，默认显示）和 textField（编辑时显示）互切
+        UIView *nameContainer = [[UIView alloc] init];
+        [titleBar addSubview:nameContainer];
+
+        UILabel *nameLabel = [[UILabel alloc] init];
+        nameLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        nameLabel.textColor = ZXPalette(ZXPalText);
+        nameLabel.adjustsFontSizeToFitWidth = YES;
+        nameLabel.minimumScaleFactor = 0.8;
+        nameLabel.userInteractionEnabled = YES;
+        [nameContainer addSubview:nameLabel];
+        _subTitleLabel = nameLabel;
+
+        // 下划线
+        UIView *underline = [[UIView alloc] init];
+        underline.backgroundColor = ZXPalette(ZXPalAccent);
+        underline.alpha = 0.6f;
+        [nameContainer addSubview:underline];
+
         UITextField *field = [[UITextField alloc] init];
         field.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
         field.textColor = ZXPalette(ZXPalText);
@@ -1045,30 +1125,54 @@ static FlowWindow *_fwShared = nil;
         field.layer.cornerRadius = 8;
         field.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
         field.layer.borderWidth = 1;
-        field.placeholder = _subTitle;   // 留空就用类型名
-        field.text = [_subStep[@"Name"] isKindOfClass:[NSString class]] ? _subStep[@"Name"] : @"";
+        field.placeholder = _subTitle;
         field.returnKeyType = UIReturnKeyDone;
-        field.delegate = self;   // 开始编辑前把窗口变 key，否则键盘不弹
-        field.inputAccessoryView = [self keyboardAccessory];
-        [titleBar addSubview:field];
+        field.delegate = self;
+        field.inputAccessoryView = ZXFieldKeyboardAccessory(field, @"步骤名");
+        field.hidden = YES;
+        [nameContainer addSubview:field];
         _subTitleField = field;
 
-        __weak UITextField *weakField = field;
+        // 点击 label → 进入编辑
+        __weak UILabel *weakLabel = nameLabel;
+        __weak UIView *weakUnder = underline;
+        [nameLabel addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithAction:^(__kindof UIGestureRecognizer *g) {
+            UITextField *f = weakSelf->_subTitleField;
+            UILabel *l = weakLabel;
+            UIView *u = weakUnder;
+            if (!f || !l) return;
+            f.text = l.text;
+            l.hidden = YES; u.hidden = YES; f.hidden = NO;
+            [f becomeFirstResponder];
+        }]];
+
+        // 输入时实时写回步骤名
         [field addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
             FlowWindow *s = weakSelf;
-            UITextField *f = weakField;
+            UITextField *f = s->_subTitleField;
             if (!s || !f) return;
-            NSString *trimmed = [f.text stringByTrimmingCharactersInSet:
-                                 [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            NSString *trimmed = [f.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
             if (trimmed.length > 0) s->_subStep[@"Name"] = trimmed;
             else [s->_subStep removeObjectForKey:@"Name"];
             [s autosave];
         }] forControlEvents:UIControlEventEditingChanged];
-        // 收键盘时刷新主列表，让自定义名立刻上屏
+
+        // 编辑结束 → 切回 label 显示
         [field addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
             FlowWindow *s = weakSelf;
-            if (s) [s refresh];
+            UITextField *f = s->_subTitleField;
+            UILabel *l = weakLabel;
+            UIView *u = weakUnder;
+            if (!s || !f || !l) return;
+            NSString *name = [s->_subStep[@"Name"] isKindOfClass:[NSString class]] ? s->_subStep[@"Name"] : @"";
+            l.text = name.length ? name : s->_subTitle;
+            l.hidden = NO; u.hidden = NO; f.hidden = YES;
+            [s refresh];
         }] forControlEvents:UIControlEventEditingDidEnd];
+
+        // 初始文字
+        NSString *initName = [_subStep[@"Name"] isKindOfClass:[NSString class]] ? _subStep[@"Name"] : @"";
+        nameLabel.text = initName.length ? initName : _subTitle;
     } else {
         UILabel *label = [[UILabel alloc] init];
         label.text = _subTitle;
@@ -1166,8 +1270,18 @@ static FlowWindow *_fwShared = nil;
     CGFloat titleW = MAX(closeX - 6.0f - execW - 14.0f, 60.0f);
 
     _subTitleBar.frame = CGRectMake(0, 0, w, titleH);
-    _subTitleField.frame = CGRectMake(14, (titleH - 30.0f) / 2.0f, titleW, 30.0f);
-    _subTitleLabel.frame = CGRectMake(14, 0, titleW, titleH);
+    // 步骤名容器：label（带下划线）和 textField（编辑时）都在里面
+    CGRect nameFrame = CGRectMake(14, 0, titleW, titleH);
+    if (_subStep) {
+        _subTitleLabel.superview.frame = nameFrame;
+        _subTitleLabel.frame = CGRectMake(0, 0, titleW, titleH);
+        // 下划线贴在 label 底部
+        UIView *under = _subTitleLabel.superview.subviews.count > 1 ? _subTitleLabel.superview.subviews[1] : nil;
+        if (under) under.frame = CGRectMake(0, titleH - 3.0f, titleW, 1.0f);
+        _subTitleField.frame = CGRectMake(0, (titleH - 30.0f) / 2.0f, titleW, 30.0f);
+    } else {
+        _subTitleLabel.frame = nameFrame;
+    }
     _subCloseBtn.frame = CGRectMake(closeX, (titleH - 28.0f) / 2.0f, 28, 28);
     if (_subExecBtn) _subExecBtn.frame = CGRectMake(closeX - 6.0f - execW, (titleH - 28.0f) / 2.0f, execW, 28);
     _subScroll.frame = CGRectMake(0, titleH, w, MAX(h - titleH, 0));
