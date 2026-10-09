@@ -666,6 +666,17 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         buttonString:@"确定"];
 }
 
+static NSString *ZXPythonErrnoName(int e) {
+    switch (e) {
+        case 1:  return @"EPERM";
+        case 2:  return @"ENOENT";
+        case 13: return @"EACCES权限不足";
+        case 20: return @"ENOTDIR";
+        case 40: return @"ELOOP";
+        default: return @"?";
+    }
+}
+
 - (void)handlePythonCheckTap:(TableViewCellWithEntry*)cell {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Python 依赖检测"
         message:@"正在检测，请稍候..."
@@ -721,7 +732,21 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
                         }
                     }
 
+                    // 环境信息：判断「跑的 tweak」和「装的 python」是否同一棵越狱目录
+                    NSString *jbPrefix = dict[@"jbroot_prefix"];
+                    NSString *varjb = dict[@"varjb_target"];
+                    NSString *tweakPath = dict[@"tweak_path"];
+                    if (jbPrefix.length || varjb.length || tweakPath.length) {
+                        [report appendString:@"\n环境信息：\n"];
+                        if (jbPrefix.length) [report appendFormat:@"  tweak 用的越狱目录：%@\n", jbPrefix];
+                        if (varjb.length) [report appendFormat:@"  /var/jb 实际指向：%@%@\n", varjb, ([jbPrefix hasPrefix:@"/"] && ![varjb isEqualToString:jbPrefix]) ? @"　← 与上面不同：存在两棵越狱目录，Sileo 重装 python 也装不进 tweak 在用的那棵" : @""];
+                        if (tweakPath.length) [report appendFormat:@"  tweak 本体：%@（应位于第一行目录内）\n", tweakPath];
+                        NSNumber *uid = dict[@"uid"];
+                        if (uid) [report appendFormat:@"  进程 uid=%@\n", uid];
+                    }
+
                     NSArray *cands = dict[@"candidates"];
+                    NSArray *probes = [dict[@"probes"] isKindOfClass:[NSArray class]] ? dict[@"probes"] : @[];
                     if ([cands isKindOfClass:[NSArray class]]) {
                         [report appendString:@"\n各候选路径：\n"];
                         for (NSDictionary *c in cands) {
@@ -732,7 +757,31 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
                             if (ex && xc) mark = @"✅";
                             else if (ex) mark = @"⚠️ 存在但不可执行";
                             else mark = @"❌ 不存在";
-                            [report appendFormat:@"  %@ %@\n", p, mark];
+                            NSMutableString *line = [NSMutableString stringWithFormat:@"  %@ %@", p, mark];
+                            NSString *mode = c[@"mode"];
+                            if (mode.length) [line appendFormat:@" [mode %@]", mode];
+                            if ([c[@"symlink"] boolValue]) [line appendFormat:@" link→%@", c[@"link_target"] ?: @"?"];
+                            if (ex && !xc) {
+                                NSNumber *en = c[@"exec_errno"];
+                                [line appendFormat:@" access失败 errno=%@(%@)", en, ZXPythonErrnoName(en.intValue)];
+                            }
+                            [report appendFormat:@"%@\n", line];
+                            for (NSDictionary *pr in probes) {
+                                if ([pr isKindOfClass:[NSDictionary class]] && [pr[@"path"] isEqualToString:p]) {
+                                    NSString *out = pr[@"output"];
+                                    [report appendFormat:@"      试跑 exit=%@ 输出：%@\n", pr[@"exit"], out.length ? out : @"(无输出)"];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    NSDictionary *dq = dict[@"dpkg_query"];
+                    if ([dq isKindOfClass:[NSDictionary class]] && dq.count > 0) {
+                        [report appendString:@"\ndpkg 包记录（两棵越狱目录各查一遍）：\n"];
+                        for (NSString *k in dq) {
+                            NSString *out = dq[k];
+                            [report appendFormat:@"  [%@]\n    %@\n", k, out.length ? out : @"(无输出)"];
                         }
                     }
 

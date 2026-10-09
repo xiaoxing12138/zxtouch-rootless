@@ -15,6 +15,11 @@
 #include "TouchIndicator/TouchIndicatorWindow.h"
 #import <mach/mach.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <limits.h>
+#include <unistd.h>
+#include <dlfcn.h>
+#include <errno.h>
 #include <Foundation/NSDistributedNotificationCenter.h>
 #include <TextRecognization/TextRecognizer.h>
 #include "UpdateCache.h"
@@ -576,14 +581,53 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 @"/usr/bin/python3"
             ];
             NSFileManager *fm = [NSFileManager defaultManager];
+
+            // ---- 环境信息：一次报告把「跑的是哪棵越狱目录」钉死 ----
+            // 常见病灶：设备换过越狱/bootstrap 后出现两棵目录树，Sileo 把 python 装进
+            // /var/jb 现在指向的树，而 SpringBoard 里跑的 tweak 还在老树上找解释器。
+            Dl_info dinfo = {0};
+            if (dladdr((void *)notifyClient, &dinfo) && dinfo.dli_fname) {
+                root[@"tweak_path"] = @(dinfo.dli_fname);
+            }
+            root[@"uid"] = @(getuid());
+            root[@"gid"] = @(getgid());
+            char varjbBuf[PATH_MAX];
+            ssize_t varjbLen = readlink("/var/jb", varjbBuf, sizeof(varjbBuf) - 1);
+            if (varjbLen > 0) {
+                root[@"varjb_target"] = [[NSString alloc] initWithBytes:varjbBuf length:(NSUInteger)varjbLen encoding:NSUTF8StringEncoding];
+            } else {
+                root[@"varjb_target"] = [NSString stringWithFormat:@"(readlink 失败 errno=%d)", errno];
+            }
+            NSString *prefixProbe = jbroot(@"/__zx_probe__");
+            if ([prefixProbe hasSuffix:@"/__zx_probe__"]) {
+                root[@"jbroot_prefix"] = [prefixProbe substringToIndex:prefixProbe.length - (NSUInteger)strlen("/__zx_probe__")];
+            } else {
+                root[@"jbroot_prefix"] = prefixProbe ?: @"";
+            }
+
             for (NSString *path in candidates) {
                 BOOL exists = [fm fileExistsAtPath:path];
+                int savedErrno = 0;
                 BOOL isExec = exists ? (access(path.UTF8String, X_OK) == 0) : NO;
-                [checks addObject:@{
-                    @"path": path,
-                    @"exists": @(exists),
-                    @"executable": @(isExec)
-                }];
+                if (exists && !isExec) savedErrno = errno;
+                NSMutableDictionary *item = [NSMutableDictionary dictionary];
+                item[@"path"] = path;
+                item[@"exists"] = @(exists);
+                item[@"executable"] = @(isExec);
+                struct stat st;
+                if (lstat(path.UTF8String, &st) == 0) {
+                    item[@"mode"] = [NSString stringWithFormat:@"%o", (unsigned)(st.st_mode & 07777)];
+                    if (S_ISLNK(st.st_mode)) {
+                        item[@"symlink"] = @YES;
+                        char lt[PATH_MAX];
+                        ssize_t m = readlink(path.UTF8String, lt, sizeof(lt) - 1);
+                        if (m > 0) {
+                            item[@"link_target"] = [[NSString alloc] initWithBytes:lt length:(NSUInteger)m encoding:NSUTF8StringEncoding];
+                        }
+                    }
+                }
+                if (savedErrno != 0) item[@"exec_errno"] = @(savedErrno);
+                [checks addObject:item];
             }
             root[@"candidates"] = checks;
 
@@ -621,6 +665,41 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                     if ([fm fileExistsAtPath:p]) [modulePaths addObject:p];
                 }
                 root[@"module_paths_found"] = modulePaths;
+            } else {
+                // ---- 一个能用的解释器都没有：取证模式 ----
+                // 1) 对每个「存在」的候选直接试跑 --version（不管 access(X_OK) 结果），
+                //    把 stderr 也抓进来 —— dyld 依赖损坏、Permission denied 一眼可辨。
+                NSString *probeFile = @"/var/mobile/Library/ZXTouch/.pycheck_version";
+                NSMutableArray *probes = [NSMutableArray array];
+                for (NSDictionary *c in checks) {
+                    if (![c[@"exists"] boolValue]) continue;
+                    NSString *p = c[@"path"];
+                    NSString *cmd = [NSString stringWithFormat:@"'%@' --version > '%@' 2>&1", p, probeFile];
+                    int st = call_system(cmd.UTF8String);
+                    int exitCode = (st == -1) ? -1 : (WIFEXITED(st) ? WEXITSTATUS(st) : -1);
+                    NSString *out = [NSString stringWithContentsOfFile:probeFile encoding:NSUTF8StringEncoding error:nil] ?: @"";
+                    out = [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    if (out.length > 200) out = [[out substringToIndex:200] stringByAppendingString:@"…"];
+                    [probes addObject:@{ @"path": p, @"exit": [NSString stringWithFormat:@"%d", exitCode], @"output": out }];
+                }
+                root[@"probes"] = probes;
+
+                // 2) 两棵树的 dpkg 记录：python3 到底装进了哪棵树、装的什么版本。
+                //    输出空/报「no packages found」的那棵树 = python 没装进去的那棵。
+                NSMutableDictionary *dpkgOut = [NSMutableDictionary dictionary];
+                NSString *pkgArgs = @"python3 python3.12 python3.11 python3.10 python3.9";
+                for (NSString *dq in @[root[@"jbroot_prefix"] ?: @"", @"/var/jb"]) {
+                    if (![dq isKindOfClass:[NSString class]] || dq.length == 0) continue;
+                    NSString *cmd = [NSString stringWithFormat:@"'%@/usr/bin/dpkg-query' -W %@ > '%@' 2>&1 || echo QUERY_FAILED",
+                                     dq, pkgArgs, probeFile];
+                    call_system(cmd.UTF8String);
+                    NSString *out = [NSString stringWithContentsOfFile:probeFile encoding:NSUTF8StringEncoding error:nil] ?: @"";
+                    out = [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    if (out.length > 500) out = [[out substringToIndex:500] stringByAppendingString:@"…"];
+                    dpkgOut[dq] = out;
+                }
+                root[@"dpkg_query"] = dpkgOut;
+                [[NSFileManager defaultManager] removeItemAtPath:probeFile error:nil];
             }
 
             NSError *jsonErr = nil;

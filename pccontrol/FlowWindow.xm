@@ -402,7 +402,7 @@ static FlowWindow *_fwShared = nil;
 
     // 重开子浮窗要用到的参数：改完尺寸要按新宽度把内容重排一遍
     NSString                    *_subTitle;
-    void (^_subBuilder)(UIScrollView *content, CGFloat width);
+    CGFloat (^_subBuilder)(UIScrollView *content, CGFloat width);
     void (^_subExec)(void);
 }
 
