@@ -826,8 +826,8 @@ static NSString *ZXPythonErrnoName(int e) {
                         for (NSDictionary *c in cands) {
                             if ([c[@"exists"] boolValue] && ![c[@"executable"] boolValue]) {
                                 hasUnexecutable = YES;
-                                NSNumber *detail = c[@"detail"];
-                                if ([detail containsString:@"EPERM"] || [detail containsString:@"errno=1"]) hasEPERM = YES;
+                                NSString *detail = [c[@"detail"] isKindOfClass:[NSString class]] ? c[@"detail"] : nil;
+                                if (detail.length > 0 && ([detail containsString:@"EPERM"] || [detail containsString:@"errno=1"])) hasEPERM = YES;
                             }
                         }
                         if (hasUnexecutable) {
