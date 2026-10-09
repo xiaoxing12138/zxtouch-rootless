@@ -2,7 +2,7 @@ name: Build ZXTouch Package
 
 # Actions 列表里显示的构建名。取提交信息的话会把多行正文一起塞进去，很难看，
 # 所以直接写死版本号 —— 发版时和 control / pbxproj 一起改（见 HANDOFF「版本号」一节）。
-run-name: v3.0.77
+run-name: v3.0.78
 
 on:
   push:
@@ -95,7 +95,16 @@ jobs:
 
       # ── Rootless (Dopamine) build ──────────────────────────────────────────
       - name: Build Rootless .deb
-        run: make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 2>&1 | tee theos_build.log
+        run: |
+          echo "=== make package start ==="
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 2>&1 | tee theos_build.log
+          echo "=== make package end ==="
+          echo "--- Full directory tree (depth 3) ---"
+          find . -maxdepth 3 -not -path './theos/*' -not -path './.git/*' -not -path './app-build/*' -type d 2>/dev/null | sort
+          echo "--- All .deb files anywhere ---"
+          find . -name '*.deb' 2>/dev/null
+          echo "--- theos_build.log tail ---"
+          tail -60 theos_build.log
         env:
           THEOS: ${{ github.workspace }}/theos
 
