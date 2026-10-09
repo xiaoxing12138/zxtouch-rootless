@@ -10,6 +10,8 @@
 - (void) show;
 - (void) hide;
 - (BOOL) isShown;
+// 单步调试期间临时隐藏整个面板窗口（含子浮窗），结束后恢复；只切 window.hidden
+- (void) setExecutionMasked:(BOOL)masked;
 
 // 界面外观：0 跟随系统 1 浅色 2 深色
 - (void) setAppearanceMode:(NSInteger)mode;
