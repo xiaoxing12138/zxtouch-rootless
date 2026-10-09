@@ -407,6 +407,45 @@ UIView *ZXMakeNumberStepper(UITextField *field, BOOL integer)
     return box;
 }
 
+// 键盘上方工具条：左侧实时显示「字段名: 当前值」（游戏式，浮窗被键盘挡住也能看见输入内容），
+// 右侧「完成」收键盘。挂在输入框的 inputAccessoryView 上。
+UIView *ZXFieldKeyboardAccessory(UITextField *field, NSString *title)
+{
+    if (!field) return nil;
+    UIToolbar *bar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
+    bar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 220, 30)];
+    label.font = [UIFont systemFontOfSize:13];
+    label.textColor = [UIColor secondaryLabelColor];
+    label.numberOfLines = 1;
+    label.lineBreakMode = NSLineBreakByTruncatingTail;
+    label.adjustsFontSizeToFitWidth = YES;
+    label.minimumScaleFactor = 0.7;
+    NSString *prefix = title.length ? [NSString stringWithFormat:@"%@：", title] : @"";
+    void (^refresh)(void) = ^{
+        label.text = [NSString stringWithFormat:@"%@%@", prefix, field.text.length ? field.text : @"（空）"];
+    };
+    refresh();
+    // block 若强捕 field 会形成 field→action→field 自环泄漏，走 weak
+    __weak UITextField *weakField = field;
+    [field addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        UITextField *f = weakField;
+        if (!f) return;
+        label.text = [NSString stringWithFormat:@"%@%@", prefix, f.text.length ? f.text : @"（空）"];
+    }] forControlEvents:UIControlEventEditingChanged];
+
+    UIBarButtonItem *valueItem = [[UIBarButtonItem alloc] initWithCustomView:label];
+    UIBarButtonItem *space = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace
+                                                                           target:nil action:nil];
+    UIBarButtonItem *done = [[UIBarButtonItem alloc] initWithPrimaryAction:
+        [UIAction actionWithTitle:@"完成" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            [weakField endEditing:YES];
+        }]];
+    bar.items = @[valueItem, space, done];
+    return bar;
+}
+
 CGFloat ZXScrollResponderIntoView(UIView *responder, UIScrollView *scroll, CGFloat keyboardTop)
 {
     if (!responder) return 0;
@@ -433,7 +472,10 @@ CGFloat ZXScrollResponderIntoView(UIView *responder, UIScrollView *scroll, CGFlo
     // 2) 滚完还挡着的话，返回还要把卡片上移多少
     if (keyboardTop >= CGFLOAT_MAX - 1.0) return 0;
     CGRect inWindow = [responder convertRect:responder.bounds toView:window];
-    CGFloat overlap = CGRectGetMaxY(inWindow) - scrolled + 8.0 - keyboardTop;
+    // 内容下滚 target-offset 后，输入框在窗口里上移 (target-offset)；scrolled = offset-target
+    // 是个负数或 0，所以新底边 = 旧底边 + scrolled。这里曾误写成「- scrolled」，
+    // 会把上移量双倍算进 overlap，导致整张卡片被顶过头（编辑中间的框也把底部全掀到键盘上）。
+    CGFloat overlap = CGRectGetMaxY(inWindow) + scrolled + 8.0 - keyboardTop;
     return overlap > 0 ? overlap : 0;
 }
 

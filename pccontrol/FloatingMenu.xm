@@ -200,10 +200,12 @@ typedef NS_ENUM(NSInteger, FMScriptPlayState) {
 }
 
 // 面板里要能输入文字：输入框所在的 window 必须是 key window，系统键盘才会出来（Apple QA1813）。
-// 父类对非 UIWindowLevelNormal 的窗口默认不允许成为 key，那样 [win makeKeyWindow] 就是空操作，
-// 表现正好是「输入框能点、键盘永远不出来」。
+// 父类对非 UIWindowLevelNormal 的窗口默认不允许成为 key。
+// 但不能对控制圆点窗口返回 YES —— 它在 StatusBar+2 层且 hitTest 透传，一旦成为 key window，
+// 注入的 HID 触摸会被路由到这个顶层窗口后吞掉，脚本点击全部失效（v3.0.69 踩过的坑）。
+// 所以只看 allowsKeyWindow 标志：面板设 YES，圆点保持默认 NO。
 - (BOOL)canBecomeKeyWindow {
-    return YES;
+    return self.allowsKeyWindow;
 }
 @end
 
@@ -419,6 +421,9 @@ static void fmPersistKeys(NSDictionary *pairs)
     NSTimer *_autoEdgeTimer;  // 收边倒计时
 
     CGPoint  _dragStartVisual;
+
+    BOOL     _execMasking;    // 单步调试临时遮罩中
+    BOOL     _wasHiddenBeforeMask;
 }
 
 - (void)applyGeometry;
@@ -644,6 +649,25 @@ static void fmPersistKeys(NSDictionary *pairs)
 }
 
 #pragma mark window 构建
+
++ (void)setExecutionMasked:(BOOL)masked
+{
+    void (^work)(void) = ^{
+        FloatingMenu *m = [self shared];
+        if (masked) {
+            if (m->_execMasking) return;
+            m->_wasHiddenBeforeMask = m->_window ? m->_window.hidden : YES;
+            m->_execMasking = YES;
+            if (m->_window) m->_window.hidden = YES;
+        } else {
+            if (!m->_execMasking) return;
+            m->_execMasking = NO;
+            if (m->_window) m->_window.hidden = m->_wasHiddenBeforeMask;
+        }
+    };
+    if ([NSThread isMainThread]) work();
+    else dispatch_sync(dispatch_get_main_queue(), work);
+}
 
 + (UIWindowScene *)preferredWindowScene
 {

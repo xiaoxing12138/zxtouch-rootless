@@ -284,6 +284,9 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     CGFloat                     _kbShift;        // 为了避让键盘把卡片上移了多少（0 = 没动）
     UIImageView                *_functionBgView; // 自定义背景图（公共配置里配了才建）
     UIView                     *_functionBgTint; // 背景图上叠的颜色层（带透明度）
+
+    BOOL                        _execMasking;          // 单步调试临时遮罩中
+    BOOL                        _wasHiddenBeforeMask;
 }
 
 + (instancetype)shared {
@@ -339,6 +342,8 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     } else {
         _window = [[FMPassthroughWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     }
+    // 面板需要弹键盘 → 允许成为 key window；控制圆点的窗口不设这个（保持 NO），否则会吞掉触摸注入
+    ((FMPassthroughWindow *)_window).allowsKeyWindow = YES;
     _window.windowLevel = UIWindowLevelAlert + 1;
     _window.backgroundColor = [UIColor clearColor];
     _window.overrideUserInterfaceStyle = (UIUserInterfaceStyle)_appearanceMode;
@@ -468,43 +473,64 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
             [self reloadCurrentPage];
         }];
 
-    // 键盘避让：输入框被键盘挡住时，先滚内容区，不够再把整张卡片上移；键盘收起还原
+    // 键盘避让：输入框被键盘挡住时，先滚内容区，不够再把整张卡片上移；键盘收起还原。
+    // 直接读通知里的 frame：全局键盘位置是懒注册的，第一次弹键盘时还没值，
+    // 用旧逻辑会表现为「第一次点不上移、再点一次才上移」。
     [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillChangeFrameNotification
         object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
-            [self handleKeyboardFrame];
+            [self handleKeyboardFrame:n];
         }];
     [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillHideNotification
         object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
-            [self restoreCardAfterKeyboard];
+            [self animateCardBackWithNotification:n];
         }];
 }
 
 #pragma mark - 键盘避让
 
 // 键盘弹出：先滚内容，再按需把卡片整体上移
-- (void)handleKeyboardFrame {
+- (void)handleKeyboardFrame:(NSNotification *)note {
     if (!_window || !_cardView) return;
     [self restoreCardAfterKeyboard];   // 先回原位再算，免得连续调整越叠越多
     UIView *responder = ZXFirstResponderView(_cardView);
-    if (!responder) return;
-    CGFloat keyboardTop = ZXKeyboardTopForView(_cardView);
+    if (!responder || !note) return;
+    CGRect kbScreen = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect kbInWin = [_window convertRect:kbScreen fromWindow:nil];
+    CGFloat keyboardTop = CGRectGetMinY(kbInWin);
     CGFloat overlap = ZXScrollResponderIntoView(responder, _functionScrollView, keyboardTop);
     if (overlap <= 0) return;
     CGFloat shift = MIN(overlap, MAX(_cardView.frame.origin.y - 8.0f, 0.0f));
     if (shift <= 0) return;
-    CGRect frame = _cardView.frame;
-    frame.origin.y -= shift;
-    _cardView.frame = frame;
+    NSTimeInterval duration = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    [UIView animateWithDuration:duration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+        CGRect frame = self->_cardView.frame;
+        frame.origin.y -= shift;
+        self->_cardView.frame = frame;
+    } completion:nil];
     _kbShift = shift;
 }
 
-// 键盘收起：把上移过的卡片放回去
+// 键盘收起：把上移过的卡片放回去（立即，供重新计算时连调）
 - (void)restoreCardAfterKeyboard {
     if (_kbShift <= 0 || !_cardView) return;
     CGRect frame = _cardView.frame;
     frame.origin.y += _kbShift;
     _cardView.frame = frame;
     _kbShift = 0;
+}
+
+// 键盘收起通知：跟着键盘动画滑回去
+- (void)animateCardBackWithNotification:(NSNotification *)note {
+    if (_kbShift <= 0 || !_cardView) return;
+    NSTimeInterval duration = note ? [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue] : 0.25;
+    CGFloat shift = _kbShift;
+    UIView *card = _cardView;
+    _kbShift = 0;
+    [UIView animateWithDuration:duration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+        CGRect frame = card.frame;
+        frame.origin.y += shift;
+        card.frame = frame;
+    } completion:nil];
 }
 
 #pragma mark - 面板背景（颜色 / 透明度 / 自定义图片，都在 App 的「控制按钮悬浮窗」里配）
@@ -1895,6 +1921,25 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 }
 
 - (BOOL)isShown { return _shown; }
+
+// 单步调试期间临时把整个面板窗口藏掉（子浮窗也跟着藏）：
+// 否则点击可能点到面板、取色识图会拍到面板。只切 window.hidden，不动 _shown 等任何状态。
+- (void)setExecutionMasked:(BOOL)masked {
+    void (^work)(void) = ^{
+        if (masked) {
+            if (self->_execMasking) return;
+            self->_wasHiddenBeforeMask = self->_window ? self->_window.hidden : YES;
+            self->_execMasking = YES;
+            if (self->_window) self->_window.hidden = YES;
+        } else {
+            if (!self->_execMasking) return;
+            self->_execMasking = NO;
+            if (self->_window) self->_window.hidden = self->_wasHiddenBeforeMask;
+        }
+    };
+    if ([NSThread isMainThread]) work();
+    else dispatch_sync(dispatch_get_main_queue(), work);
+}
 
 - (void)setAppearanceMode:(NSInteger)mode {
     _appearanceMode = mode;

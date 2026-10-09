@@ -5,6 +5,7 @@
 
 #import "FlowWindow.h"
 #import "FunctionWindow.h"    // 同一张面板：编辑器不再自己开窗口
+#import "FloatingMenu.h"      // 单步调试时临时藏掉控制圆点
 #import "FlowScript.h"
 #import "PickOverlay.h"
 #import "AlertBox.h"
@@ -409,15 +410,17 @@ static FlowWindow *_fwShared = nil;
 - (instancetype)init {
     self = [super init];
     if (self) {
-        // 键盘避让：子浮窗里的输入框被键盘挡住时，先滚内容区，不够再把子浮窗整体上移
+        // 键盘避让：子浮窗里的输入框被键盘挡住时，先滚内容区，不够再把子浮窗整体上移。
+        // 必须直接读通知里的 frame —— 不能依赖全局 gZXKeyboardTop：它是懒注册的，
+        // 第一次弹键盘时本 block 执行的那一刻它还是旧值 0，表现为「第一次点不上移、再点才动」。
         __weak typeof(self) weakSelf = self;
         [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillChangeFrameNotification
             object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
-                [weakSelf handleSubKeyboardFrame];
+                [weakSelf handleSubKeyboardFrame:n];
             }];
         [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillHideNotification
             object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
-                [weakSelf restoreSubCardAfterKeyboard];
+                [weakSelf animateSubCardBackWithNotification:n];
             }];
     }
     return self;
@@ -904,7 +907,7 @@ static FlowWindow *_fwShared = nil;
     field.layer.borderWidth = 1;
     field.autoresizingMask = stepper ? UIViewAutoresizingNone : UIViewAutoresizingFlexibleWidth;
     field.keyboardType = integer ? UIKeyboardTypeDecimalPad : UIKeyboardTypeDefault;
-    field.inputAccessoryView = [self keyboardAccessory];
+    field.inputAccessoryView = ZXFieldKeyboardAccessory(field, title);
     field.delegate = self;   // 开始编辑前把窗口变 key，否则键盘不弹（见 textFieldShouldBeginEditing:）
     field.textAlignment = NSTextAlignmentLeft;
     field.text = [FlowScript textForValue:value];
@@ -1193,31 +1196,52 @@ static FlowWindow *_fwShared = nil;
     }
 }
 
-// 键盘弹出：先滚子浮窗内容区，还不够就把整张卡片上移
-- (void)handleSubKeyboardFrame {
+// 键盘弹出：先滚子浮窗内容区（只滚到当前输入框露出为止），还挡着才把卡片上移
+- (void)handleSubKeyboardFrame:(NSNotification *)note {
     UIView *card = _subCard;
     if (!card) return;
     [self restoreSubCardAfterKeyboard];   // 先回原位再算，免得连续调整越叠越多
     UIView *responder = ZXFirstResponderView(card);
-    if (!responder) return;
-    CGFloat keyboardTop = ZXKeyboardTopForView(card);
+    if (!responder || !note) return;
+    // 直接用本次通知里的键盘目标 frame（屏幕坐标），换进 card 所在窗口坐标系
+    CGRect kbScreen = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    UIWindow *win = card.window;
+    CGRect kbInWin = win ? [win convertRect:kbScreen fromWindow:nil] : kbScreen;
+    CGFloat keyboardTop = CGRectGetMinY(kbInWin);
     CGFloat overlap = ZXScrollResponderIntoView(responder, _subScroll, keyboardTop);
     if (overlap <= 0) return;
     CGFloat shift = MIN(overlap, MAX(card.frame.origin.y - 8.0f, 0.0f));
     if (shift <= 0) return;
-    CGRect frame = card.frame;
-    frame.origin.y -= shift;
-    card.frame = frame;
+    NSTimeInterval duration = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    [UIView animateWithDuration:duration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+        CGRect frame = card.frame;
+        frame.origin.y -= shift;
+        card.frame = frame;
+    } completion:nil];
     _kbShift = shift;
 }
 
-// 键盘收起：把上移过的子浮窗放回去
+// 键盘收起：把上移过的子浮窗放回去（立即，供重新计算时连调）
 - (void)restoreSubCardAfterKeyboard {
     if (_kbShift <= 0 || !_subCard) return;
     CGRect frame = _subCard.frame;
     frame.origin.y += _kbShift;
     _subCard.frame = frame;
     _kbShift = 0;
+}
+
+// 键盘收起通知：跟着键盘的动画一起滑回去
+- (void)animateSubCardBackWithNotification:(NSNotification *)note {
+    if (_kbShift <= 0 || !_subCard) return;
+    NSTimeInterval duration = note ? [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue] : 0.25;
+    CGFloat shift = _kbShift;
+    UIView *card = _subCard;
+    _kbShift = 0;
+    [UIView animateWithDuration:duration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+        CGRect frame = card.frame;
+        frame.origin.y += shift;
+        card.frame = frame;
+    } completion:nil];
 }
 
 // 拖标题栏移动子浮窗；松手夹回屏幕内
@@ -1513,8 +1537,19 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         FlowWindow *s = weakSelf;
         if (!s) return;
-        if (type.isCondition) [s performCheckStep:snapshot];
-        else [s performActionStep:snapshot];
+        // 先把两个悬浮窗藏掉：否则触摸会点到窗口、取色/识图/找色/识字会把面板拍进去。
+        // 只切 window.hidden；子浮窗挂在面板 window 上，跟着一起藏。
+        [[FunctionWindow shared] setExecutionMasked:YES];
+        [FloatingMenu setExecutionMasked:YES];
+        // hidden=YES 后还要等画面真正刷新（截图类步骤读的是当前帧缓冲）
+        usleep(260000);
+        @try {
+            if (type.isCondition) [s performCheckStep:snapshot];
+            else [s performActionStep:snapshot];
+        } @finally {
+            [FloatingMenu setExecutionMasked:NO];
+            [[FunctionWindow shared] setExecutionMasked:NO];
+        }
     });
 }
 

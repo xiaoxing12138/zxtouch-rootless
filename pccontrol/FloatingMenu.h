@@ -9,6 +9,9 @@
 //    确保 window.frame 永远是竖屏固定坐标系（portrait 尺寸）。
 @interface FMPassthroughWindow : UIWindow
 @property (nonatomic, assign) CGRect portraitFrame;
+// 只有选项面板要设为 YES（弹键盘需要 key window）；控制圆点必须保持 NO，
+// 否则它作为顶层透传窗口成为 key window 后会吞掉注入的 HID 触摸，脚本点击全部失效。
+@property (nonatomic, assign) BOOL allowsKeyWindow;
 @end
 
 /*
@@ -52,6 +55,10 @@
 
 // 获取当前前台可用的 UIWindowScene（iOS 13+ 创建可渲染 window 必需）
 + (UIWindowScene *)preferredWindowScene;
+
+// 单步调试 / 自动操作期间临时隐藏圆点窗口（防止点到悬浮窗、被取色识图拍到）。
+// 只切 window.hidden，不动启用状态；传 NO 恢复到遮罩前的样子。
++ (void)setExecutionMasked:(BOOL)masked;
 
 @end
 

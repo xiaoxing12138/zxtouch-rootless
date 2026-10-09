@@ -65,6 +65,9 @@ void ZXMakeWindowKeyIfNeeded(UIWindow *window);
 */
 UIView *ZXMakeNumberStepper(UITextField *field, BOOL integer);
 
+/// 键盘上方工具条：左边实时显示「title：当前输入值」，右边「完成」。返回值直接赋给 textField.inputAccessoryView
+UIView *ZXFieldKeyboardAccessory(UITextField *field, NSString *title);
+
 /// 找到 root 子树里的第一响应者（键盘避让要用）；找不到返回 nil
 UIView *ZXFirstResponderView(UIView *root);
 
