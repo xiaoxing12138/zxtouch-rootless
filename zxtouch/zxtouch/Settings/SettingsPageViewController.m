@@ -275,7 +275,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": @"基于开源 ZXTouch 二次修改", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": [NSString stringWithFormat:@"v%@ · 基于开源 ZXTouch 二次修改", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @""], @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
@@ -353,7 +353,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": @"基于开源 ZXTouch 二次修改", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": [NSString stringWithFormat:@"v%@ · 基于开源 ZXTouch 二次修改", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @""], @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
