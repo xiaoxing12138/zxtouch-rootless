@@ -9,13 +9,52 @@
 #import "PickOverlay.h"
 #import "AlertBox.h"
 #import "Common.h"
+#import "Config.h"
+
+// 「执行此步骤」直接调引擎，不走 Python
+#import "Touch.h"
+#import "ColorPicker.h"
+#import "ScreenMatch.h"
+#import "TextRecognization/TextRecognizer.h"
 
 #import <math.h>   // llround / fabs
+#import <stdio.h>  // snprintf
+#import <string.h> // memcpy
+#import <unistd.h> // usleep
 
 #define FW_ROW_H    45.0f
 #define FW_GAP      8.0f
 #define FW_DELETE_W 88.0f   // 左滑露出来的「删除」宽度
 #define FW_CELL_H   54.0f   // 「添加步骤」子浮窗里一个类型格的高度
+#define FW_SUB_TITLE_H 46.0f
+#define FW_SUB_MIN_W 220.0f
+#define FW_SUB_MIN_H 120.0f
+#define FW_SUB_GRIP  26.0f  // 右下角缩放把手的大小
+#define FW_SUB_EXEC_W 74.0f // 「执行此步骤」按钮宽度
+
+// 子浮窗宽高：所有脚本共用一套，存公共配置（和选项面板的 panel_state 一样是全局的）
+static NSString * const kSubSizeWidthKey  = @"flow_sub_w";
+static NSString * const kSubSizeHeightKey = @"flow_sub_h";
+
+static CGSize fwSubSizeLoad(void)
+{
+    NSDictionary *config = [NSDictionary dictionaryWithContentsOfFile:getCommonConfigFilePath()];
+    CGFloat w = [config[kSubSizeWidthKey] doubleValue];
+    CGFloat h = [config[kSubSizeHeightKey] doubleValue];
+    return CGSizeMake((w > 0) ? w : 0, (h > 0) ? h : 0);
+}
+
+static void fwSubSizeSave(CGFloat w, CGFloat h)
+{
+    NSString *path = getCommonConfigFilePath();
+    NSMutableDictionary *config = [NSMutableDictionary dictionaryWithContentsOfFile:path];
+    if (!config) config = [NSMutableDictionary dictionary];
+    config[kSubSizeWidthKey] = @(w);
+    config[kSubSizeHeightKey] = @(h);
+    [[NSFileManager defaultManager] createDirectoryAtPath:[path stringByDeletingLastPathComponent]
+                             withIntermediateDirectories:YES attributes:nil error:NULL];
+    [config writeToFile:path atomically:YES];
+}
 
 // 页面种类（参数编辑 / 设置都在子浮窗里，不再是页面）
 static NSString * const kPageList = @"list";   // 步骤列表（整条流程 / 成立时 / 不成立时）
@@ -348,8 +387,40 @@ static FlowWindow *_fwShared = nil;
 
     // 子浮窗（添加步骤 / 编辑参数 / 设置）：挂在窗口根的整屏容器上，屏幕中间
     UIView                      *_subDim;        // 遮罩 + 卡片
+    UIView                      *_subCard;       // 卡片本体（拖把手改尺寸就是改它）
+    UIView                      *_subTitleBar;   // 标题栏（拖它可以整体移动子浮窗）
+    UILabel                     *_subTitleLabel; // 纯文字标题
+    UITextField                 *_subTitleField; // 单步参数页：名字直接放在标题栏里改
+    NSMutableDictionary         *_subStep;       // 名字输入框对应的步骤（nil = 纯文字标题）
+    UIButton                    *_subExecBtn;    // 「执行此步骤」（单步调试）
+    UIButton                    *_subCloseBtn;
+    UIImageView                 *_subGrip;       // 右下角把手：拖它改子浮窗宽高
     UIScrollView                *_subScroll;     // 卡片里的内容区
-    void (^_subRebuilder)(void);                 // 取点回来后重建子浮窗内容
+    CGFloat                      _subResizeW;    // 拖把手时的基准宽高（增量累加用）
+    CGFloat                      _subResizeH;
+    CGFloat                      _kbShift;       // 键盘避让把子浮窗上移了多少
+
+    // 重开子浮窗要用到的参数：改完尺寸要按新宽度把内容重排一遍
+    NSString                    *_subTitle;
+    void (^_subBuilder)(UIScrollView *content, CGFloat width);
+    void (^_subExec)(void);
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        // 键盘避让：子浮窗里的输入框被键盘挡住时，先滚内容区，不够再把子浮窗整体上移
+        __weak typeof(self) weakSelf = self;
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillChangeFrameNotification
+            object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
+                [weakSelf handleSubKeyboardFrame];
+            }];
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillHideNotification
+            object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
+                [weakSelf restoreSubCardAfterKeyboard];
+            }];
+    }
+    return self;
 }
 
 + (instancetype)shared {
@@ -434,6 +505,15 @@ static FlowWindow *_fwShared = nil;
     if (!steps) return;
     NSMutableDictionary *step = [FlowScript newStepOfKind:kind];
     if (!step) return;
+    // 设置里定制的默认值覆盖内置默认；只在这一刻生效，已有步骤不受影响
+    NSDictionary *defaults = [_flow[@"StepDefaults"] isKindOfClass:[NSDictionary class]]
+        ? _flow[@"StepDefaults"][kind] : nil;
+    if ([defaults isKindOfClass:[NSDictionary class]]) {
+        for (NSString *key in defaults) {
+            if ([key isEqualToString:@"Kind"]) continue;
+            step[key] = defaults[key];
+        }
+    }
     [steps addObject:step];
     [self autosave];
     [self refresh];
@@ -558,8 +638,8 @@ static FlowWindow *_fwShared = nil;
         [strongSelf->_host flowHostSetCardHidden:NO];
         strongSelf->_subDim.hidden = NO;
         [strongSelf refresh];
-        // 子浮窗还开着（参数页）就重建一遍，让「从屏幕取…」那行的回显更新
-        if (strongSelf->_subDim && strongSelf->_subRebuilder) strongSelf->_subRebuilder();
+        // 取完坐标就把参数子浮窗关掉，回到步骤列表；点「取消」不走这里，子浮窗留着
+        [strongSelf dismissSubAnimated:YES];
     } cancel:^{
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return;
@@ -713,6 +793,19 @@ static FlowWindow *_fwShared = nil;
                     width:(CGFloat)w
                    action:(void (^)(void))action
 {
+    return [self makeActionRow:title detail:detail color:color primary:primary
+                        symbol:nil width:w action:action];
+}
+
+// symbol 非空时在标题后面挂个图标（取坐标那行挂「圆圈加十字」，让人一眼看出这行可以点）
+- (UIView *)makeActionRow:(NSString *)title
+                   detail:(NSString *)detail
+                    color:(UIColor *)color
+                  primary:(BOOL)primary
+                   symbol:(NSString *)symbolName
+                    width:(CGFloat)w
+                   action:(void (^)(void))action
+{
     UIButton *row = [UIButton buttonWithType:UIButtonTypeSystem];
     CGFloat rowH = FW_ROW_H - 10.0f;
     row.frame = CGRectMake(0, 0, w, rowH);
@@ -724,9 +817,24 @@ static FlowWindow *_fwShared = nil;
     // 标题和右侧细节都自己摆：按钮自带的 titleLabel 没法定宽，窄面板上会和细节叠字
     CGFloat detailW = (detail.length > 0) ? MAX(w * 0.52f, 90.0f) : 0;
     UILabel *main = [[UILabel alloc] initWithFrame:CGRectMake(14, 0, MAX(w - 28 - detailW - 8, 60), rowH)];
-    main.text = title;
-    main.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-    main.textColor = primary ? color : ZXPalette(ZXPalText);
+    UIFont *mainFont = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    UIColor *mainColor = primary ? color : ZXPalette(ZXPalText);
+    UIImage *symbolImage = symbolName.length ? [[UIImage systemImageNamed:symbolName] imageWithTintColor:mainColor] : nil;
+    if (symbolImage) {
+        NSTextAttachment *attachment = [[NSTextAttachment alloc] init];
+        attachment.image = symbolImage;
+        attachment.bounds = CGRectMake(0, -2.0f, 14, 14);
+        NSMutableAttributedString *text =
+            [[NSMutableAttributedString alloc] initWithString:[title stringByAppendingString:@"  "]
+                                                   attributes:@{ NSFontAttributeName: mainFont,
+                                                                 NSForegroundColorAttributeName: mainColor }];
+        [text appendAttributedString:[NSAttributedString attributedStringWithAttachment:attachment]];
+        main.attributedText = text;
+    } else {
+        main.text = title;
+        main.font = mainFont;
+        main.textColor = mainColor;
+    }
     main.adjustsFontSizeToFitWidth = YES;
     main.minimumScaleFactor = 0.75;
     main.userInteractionEnabled = NO;
@@ -757,6 +865,17 @@ static FlowWindow *_fwShared = nil;
                    width:(CGFloat)w
                 onChange:(void (^)(NSString *text))onChange
 {
+    return [self makeValueRow:title value:value integer:integer stepper:NO width:w onChange:onChange];
+}
+
+// stepper = YES 时输入框右边挂一对上下箭头，点一下按当前值的量级加减
+- (UIView *)makeValueRow:(NSString *)title
+                   value:(id)value
+                 integer:(BOOL)integer
+                 stepper:(BOOL)stepper
+                   width:(CGFloat)w
+                onChange:(void (^)(NSString *text))onChange
+{
     UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, FW_ROW_H - 10.0f)];
     row.backgroundColor = ZXPalette(ZXPalRow);
     row.layer.cornerRadius = 10;
@@ -774,7 +893,8 @@ static FlowWindow *_fwShared = nil;
 
     CGFloat fieldX = 12 + labelW + 6;
     CGFloat fieldH = row.frame.size.height - 12.0f;
-    UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(fieldX, 6, MAX(w - fieldX - 12, 60), fieldH)];
+    CGFloat fieldW = MAX(w - fieldX - 12 - (stepper ? 26.0f : 0.0f), 60);
+    UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(fieldX, 6, fieldW, fieldH)];
     field.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
     field.textColor = ZXPalette(ZXPalValue);
     field.tintColor = ZXPalette(ZXPalAccent);
@@ -782,7 +902,7 @@ static FlowWindow *_fwShared = nil;
     field.layer.cornerRadius = 8;
     field.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
     field.layer.borderWidth = 1;
-    field.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    field.autoresizingMask = stepper ? UIViewAutoresizingNone : UIViewAutoresizingFlexibleWidth;
     field.keyboardType = integer ? UIKeyboardTypeDecimalPad : UIKeyboardTypeDefault;
     field.inputAccessoryView = [self keyboardAccessory];
     field.delegate = self;   // 开始编辑前把窗口变 key，否则键盘不弹（见 textFieldShouldBeginEditing:）
@@ -792,6 +912,11 @@ static FlowWindow *_fwShared = nil;
         if (onChange) onChange(field.text ?: @"");
     }] forControlEvents:UIControlEventEditingChanged];
     [row addSubview:field];
+    if (stepper) {
+        UIView *box = ZXMakeNumberStepper(field, integer);
+        box.frame = CGRectMake(w - 12.0f - 24.0f, 6.0f + (fieldH - 30.0f) / 2.0f, 24.0f, 30.0f);
+        [row addSubview:box];
+    }
     return row;
 }
 
@@ -819,22 +944,58 @@ static FlowWindow *_fwShared = nil;
 // 窗口上，那个窗口只 hidden=NO、从没 makeKey，所以部分设备/系统版本上点输入框没反应。
 // 本回调保证在 becomeFirstResponder 之前调用，先变 key 再放行。
 - (BOOL)textFieldShouldBeginEditing:(UITextField *)textField {
-    ZXKeyboardDebugWillBeginEditing(textField.window);   // 诊断：为什么 14PM 上键盘不弹
+    ZXMakeWindowKeyIfNeeded(textField.window);
     return YES;
 }
 
 #pragma mark - 子浮窗（屏幕中间：添加步骤 / 编辑参数 / 设置都走这里）
 
-// builder 往内容区铺控件（x 从 8 开始，宽 width），返回内容总高度；卡片高度按内容夹到一屏以内
+// builder 往内容区铺控件（x 从 8 开始，宽 width），返回内容总高度
 - (void)showSubWithTitle:(NSString *)title builder:(CGFloat (^)(UIScrollView *content, CGFloat width))builder {
+    [self showSubWithTitle:title step:nil exec:nil builder:builder];
+}
+
+/*
+ 扩展版：
+ - step 非 nil 时，标题栏里直接放「步骤名」输入框（不再单独占一行），改完即存；
+ - exec 非 nil 时，标题栏右上角多一个「执行此步骤」，用来单步调试。
+ 宽高记在公共配置里（所有脚本共用一套），拖右下角把手改，和选项面板一个套路。
+*/
+- (void)showSubWithTitle:(NSString *)title
+                    step:(NSMutableDictionary *)step
+                    exec:(void (^)(void))exec
+                 builder:(CGFloat (^)(UIScrollView *content, CGFloat width))builder
+{
     [self dismissSubAnimated:NO];
+    _subTitle = [title copy];
+    _subStep = step;
+    _subBuilder = [builder copy];
+    _subExec = [exec copy];
+    [self rebuildSubAnimated:YES];
+}
+
+// 按记录的宽高把子浮窗重新铺一遍；改完尺寸要靠它把内容按新宽度重排
+- (void)rebuildSubAnimated:(BOOL)animated
+{
     UIView *host = [_host flowHostOverlayContainer];
-    if (!host || !builder) return;
+    if (!host || !_subBuilder) return;
+
+    UIView *oldDim = _subDim;
+    if (oldDim) [oldDim removeFromSuperview];
+    _subDim = nil; _subCard = nil; _subTitleBar = nil; _subTitleLabel = nil;
+    _subTitleField = nil; _subExecBtn = nil; _subCloseBtn = nil; _subGrip = nil; _subScroll = nil;
+    _kbShift = 0;
+
+    __weak typeof(self) weakSelf = self;
 
     CGFloat hostW = MAX(host.bounds.size.width, 240.0f);
     CGFloat hostH = MAX(host.bounds.size.height, 320.0f);
-    CGFloat cardW = MIN(hostW - 96.0f, 340.0f);
-    CGFloat titleH = 46.0f;
+    CGFloat maxCardW = hostW - 24.0f;
+    CGFloat maxCardH = MAX(hostH - 60.0f, FW_SUB_TITLE_H + FW_SUB_MIN_H);
+
+    CGSize remembered = fwSubSizeLoad();
+    CGFloat cardW = (remembered.width > 0) ? remembered.width : MIN(hostW - 96.0f, 340.0f);
+    cardW = MIN(MAX(cardW, FW_SUB_MIN_W), maxCardW);
 
     UIView *dim = [[UIView alloc] initWithFrame:host.bounds];
 
@@ -859,21 +1020,77 @@ static FlowWindow *_fwShared = nil;
     card.clipsToBounds = YES;
     [dim addSubview:card];
 
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(14, 0, cardW - 28 - 40, titleH)];
-    titleLabel.text = title;
-    titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
-    titleLabel.textColor = ZXPalette(ZXPalText);
-    [card addSubview:titleLabel];
-
-    // 整条标题栏是拖动手柄（✕ 按钮在它之上，不挡关闭）
-    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, cardW, titleH)];
-    UIPanGestureRecognizer *titlePan = [[UIPanGestureRecognizer alloc] initWithTarget:self
-                                                                               action:@selector(handleSubTitlePan:)];
-    [titleBar addGestureRecognizer:titlePan];
+    // 整条标题栏是拖动手柄（✕ / 执行 按钮在它之上，不挡）
+    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, cardW, FW_SUB_TITLE_H)];
+    [titleBar addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self
+                                                                         action:@selector(handleSubTitlePan:)]];
     [card addSubview:titleBar];
 
+    // 标题栏内容：参数页直接是「名字输入框」，其他页是纯文字
+    if (_subStep) {
+        UITextField *field = [[UITextField alloc] init];
+        field.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        field.textColor = ZXPalette(ZXPalText);
+        field.tintColor = ZXPalette(ZXPalAccent);
+        field.backgroundColor = ZXPalette(ZXPalField);
+        field.layer.cornerRadius = 8;
+        field.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
+        field.layer.borderWidth = 1;
+        field.placeholder = _subTitle;   // 留空就用类型名
+        field.text = [_subStep[@"Name"] isKindOfClass:[NSString class]] ? _subStep[@"Name"] : @"";
+        field.returnKeyType = UIReturnKeyDone;
+        field.delegate = self;   // 开始编辑前把窗口变 key，否则键盘不弹
+        field.inputAccessoryView = [self keyboardAccessory];
+        [titleBar addSubview:field];
+        _subTitleField = field;
+
+        __weak UITextField *weakField = field;
+        [field addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            FlowWindow *s = weakSelf;
+            UITextField *f = weakField;
+            if (!s || !f) return;
+            NSString *trimmed = [f.text stringByTrimmingCharactersInSet:
+                                 [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (trimmed.length > 0) s->_subStep[@"Name"] = trimmed;
+            else [s->_subStep removeObjectForKey:@"Name"];
+            [s autosave];
+        }] forControlEvents:UIControlEventEditingChanged];
+        // 收键盘时刷新主列表，让自定义名立刻上屏
+        [field addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            FlowWindow *s = weakSelf;
+            if (s) [s refresh];
+        }] forControlEvents:UIControlEventEditingDidEnd];
+    } else {
+        UILabel *label = [[UILabel alloc] init];
+        label.text = _subTitle;
+        label.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        label.textColor = ZXPalette(ZXPalText);
+        label.adjustsFontSizeToFitWidth = YES;
+        label.minimumScaleFactor = 0.8;
+        [titleBar addSubview:label];
+        _subTitleLabel = label;
+    }
+
+    if (_subExec) {
+        UIButton *execBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        execBtn.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        execBtn.titleLabel.adjustsFontSizeToFitWidth = YES;
+        execBtn.titleLabel.minimumScaleFactor = 0.7;
+        execBtn.backgroundColor = [ZXPalette(ZXPalAccent) colorWithAlphaComponent:0.16];
+        execBtn.layer.cornerRadius = 14;
+        execBtn.layer.borderWidth = 1;
+        execBtn.layer.borderColor = [ZXPalette(ZXPalAccent) colorWithAlphaComponent:0.55].CGColor;
+        [execBtn setTitle:@"执行此步骤" forState:UIControlStateNormal];
+        [execBtn setTitleColor:ZXPalette(ZXPalAccent) forState:UIControlStateNormal];
+        [execBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            FlowWindow *s = weakSelf;
+            if (s && s->_subExec) s->_subExec();
+        }] forControlEvents:UIControlEventTouchUpInside];
+        [card addSubview:execBtn];
+        _subExecBtn = execBtn;
+    }
+
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
-    close.frame = CGRectMake(cardW - 40, (titleH - 28) / 2.0f, 28, 28);
     close.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     close.backgroundColor = ZXPalette(ZXPalField);
     close.layer.cornerRadius = 14;
@@ -883,32 +1100,124 @@ static FlowWindow *_fwShared = nil;
         [self dismissSubAnimated:YES];
     }] forControlEvents:UIControlEventTouchUpInside];
     [card addSubview:close];
+    _subCloseBtn = close;
 
-    UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, titleH - 1, cardW, 1)];
+    UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, FW_SUB_TITLE_H - 1, cardW, 1)];
     sep.backgroundColor = ZXPalette(ZXPalLine);
+    sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [card addSubview:sep];
 
     UIScrollView *scroll = [[UIScrollView alloc] init];
     [card addSubview:scroll];
 
     _subDim = dim;
+    _subCard = card;
+    _subTitleBar = titleBar;
     _subScroll = scroll;
 
-    CGFloat contentH = builder(scroll, cardW - 16.0f);
-    CGFloat bodyH = MIN(contentH + 4.0f, hostH - 140.0f - titleH);
-    if (bodyH < 60.0f) bodyH = 60.0f;
-    CGFloat cardH = titleH + bodyH;
+    // 把手压在滚动区之上（后加的在上面），拖它改宽高
+    UIImageView *grip = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"arrow.up.left.and.arrow.down.right"]];
+    grip.tintColor = ZXPalette(ZXPalSub);
+    grip.contentMode = UIViewContentModeScaleAspectFit;
+    grip.userInteractionEnabled = YES;
+    [grip addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self
+                                                                     action:@selector(handleSubResizePan:)]];
+    [card addSubview:grip];
+    _subGrip = grip;
+
+    CGFloat contentH = _subBuilder(scroll, cardW - 16.0f);
+    CGFloat naturalH = FW_SUB_TITLE_H + MAX(contentH + 4.0f, 60.0f);
+    CGFloat cardH = (remembered.height > 0) ? remembered.height : MIN(naturalH, hostH - 140.0f);
+    cardH = MIN(MAX(cardH, FW_SUB_TITLE_H + 80.0f), maxCardH);
     card.frame = CGRectMake((hostW - cardW) / 2.0f, (hostH - cardH) / 2.0f, cardW, cardH);
-    scroll.frame = CGRectMake(0, titleH, cardW, bodyH);
     scroll.contentSize = CGSizeMake(cardW, contentH + 4.0f);
+    [self layoutSubCard];
 
     [host addSubview:dim];
+    if (!animated) return;
     dim.alpha = 0;
     card.transform = CGAffineTransformMakeScale(0.92f, 0.92f);
     [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
         dim.alpha = 1;
         card.transform = CGAffineTransformIdentity;
     } completion:nil];
+}
+
+// 卡片宽高变了之后，把贴边的东西重新摆一遍
+- (void)layoutSubCard
+{
+    UIView *card = _subCard;
+    if (!card) return;
+    CGFloat w = card.bounds.size.width;
+    CGFloat h = card.bounds.size.height;
+    CGFloat titleH = FW_SUB_TITLE_H;
+
+    CGFloat execW = _subExecBtn ? FW_SUB_EXEC_W : 0.0f;
+    CGFloat closeX = w - 40.0f;
+    CGFloat titleW = MAX(closeX - 6.0f - execW - 14.0f, 60.0f);
+
+    _subTitleBar.frame = CGRectMake(0, 0, w, titleH);
+    _subTitleField.frame = CGRectMake(14, (titleH - 30.0f) / 2.0f, titleW, 30.0f);
+    _subTitleLabel.frame = CGRectMake(14, 0, titleW, titleH);
+    _subCloseBtn.frame = CGRectMake(closeX, (titleH - 28.0f) / 2.0f, 28, 28);
+    if (_subExecBtn) _subExecBtn.frame = CGRectMake(closeX - 6.0f - execW, (titleH - 28.0f) / 2.0f, execW, 28);
+    _subScroll.frame = CGRectMake(0, titleH, w, MAX(h - titleH, 0));
+    _subGrip.frame = CGRectMake(w - 8.0f - FW_SUB_GRIP, h - 8.0f - FW_SUB_GRIP, FW_SUB_GRIP, FW_SUB_GRIP);
+}
+
+// 拖右下角把手：改子浮窗宽高，松手落盘（所有脚本共用一套）
+- (void)handleSubResizePan:(UIPanGestureRecognizer *)g {
+    UIView *card = _subCard;
+    UIView *host = card.superview;
+    if (!card || !host) return;
+    CGPoint t = [g translationInView:host];
+    [g setTranslation:CGPointZero inView:host];
+
+    if (g.state == UIGestureRecognizerStateBegan) {
+        _subResizeW = card.bounds.size.width;
+        _subResizeH = card.bounds.size.height;
+    }
+    CGFloat maxW = host.bounds.size.width - 24.0f;
+    CGFloat maxH = MAX(host.bounds.size.height - 60.0f, FW_SUB_TITLE_H + FW_SUB_MIN_H);
+    _subResizeW = MIN(MAX(_subResizeW + t.x, FW_SUB_MIN_W), maxW);
+    _subResizeH = MIN(MAX(_subResizeH + t.y, FW_SUB_TITLE_H + FW_SUB_MIN_H), maxH);
+
+    // 卡片在屏幕中间，缩放时保持左上角不动最直观
+    CGRect f = card.frame;
+    card.frame = CGRectMake(f.origin.x, f.origin.y, _subResizeW, _subResizeH);
+    [self layoutSubCard];
+
+    if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
+        fwSubSizeSave(_subResizeW, _subResizeH);
+        [self rebuildSubAnimated:NO];   // 按新宽度把内容重排一遍（不重播入场动画）
+    }
+}
+
+// 键盘弹出：先滚子浮窗内容区，还不够就把整张卡片上移
+- (void)handleSubKeyboardFrame {
+    UIView *card = _subCard;
+    if (!card) return;
+    [self restoreSubCardAfterKeyboard];   // 先回原位再算，免得连续调整越叠越多
+    UIView *responder = ZXFirstResponderView(card);
+    if (!responder) return;
+    CGFloat keyboardTop = ZXKeyboardTopForView(card);
+    CGFloat overlap = ZXScrollResponderIntoView(responder, _subScroll, keyboardTop);
+    if (overlap <= 0) return;
+    CGFloat shift = MIN(overlap, MAX(card.frame.origin.y - 8.0f, 0.0f));
+    if (shift <= 0) return;
+    CGRect frame = card.frame;
+    frame.origin.y -= shift;
+    card.frame = frame;
+    _kbShift = shift;
+}
+
+// 键盘收起：把上移过的子浮窗放回去
+- (void)restoreSubCardAfterKeyboard {
+    if (_kbShift <= 0 || !_subCard) return;
+    CGRect frame = _subCard.frame;
+    frame.origin.y += _kbShift;
+    _subCard.frame = frame;
+    _kbShift = 0;
 }
 
 // 拖标题栏移动子浮窗；松手夹回屏幕内
@@ -936,8 +1245,19 @@ static FlowWindow *_fwShared = nil;
 - (void)dismissSubAnimated:(BOOL)animated {
     UIView *dim = _subDim;
     _subDim = nil;
+    _subCard = nil;
+    _subTitleBar = nil;
+    _subTitleLabel = nil;
+    _subTitleField = nil;
+    _subStep = nil;
+    _subExecBtn = nil;
+    _subCloseBtn = nil;
+    _subGrip = nil;
     _subScroll = nil;
-    _subRebuilder = nil;
+    _subTitle = nil;
+    _subBuilder = nil;
+    _subExec = nil;
+    _kbShift = 0;
     if (!dim) return;
     if (!animated) {
         [dim removeFromSuperview];
@@ -1058,43 +1378,22 @@ static FlowWindow *_fwShared = nil;
     FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
     if (!type) return;
 
+    (void)parentSteps;   // 删掉「删除这一步」之后这个参数只剩签名在用，保留是为了调用方不改
     __weak typeof(self) weakSelf = self;
-    [self showSubWithTitle:type.title ?: @"步骤" builder:^CGFloat(UIScrollView *content, CGFloat w) {
+    void (^execBlock)(void) = ^{
+        FlowWindow *s = weakSelf;
+        if (s) [s runStepNow:step];
+    };
+    [self showSubWithTitle:type.title ?: @"步骤" step:step exec:execBlock
+                   builder:^CGFloat(UIScrollView *content, CGFloat w) {
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return 0.0f;
         CGFloat y = 8.0f;
 
-        // 第一行：自定义名称（留空就用系统默认名）
-        {
-            UIView *nameRow = [strongSelf makeValueRow:@"名称"
-                                                  value:step[@"Name"]
-                                                integer:NO width:w
-                                               onChange:^(NSString *text) {
-                FlowWindow *s = weakSelf;
-                if (!s) return;
-                NSString *trimmed = [text stringByTrimmingCharactersInSet:
-                                     [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-                if (trimmed.length > 0) step[@"Name"] = trimmed;
-                else [step removeObjectForKey:@"Name"];
-                [s autosave];
-            }];
-            y = [strongSelf subAddRow:nameRow y:y];
-            y += 4;
-            // 输入完收起键盘时刷新主列表，让自定义名立刻上屏
-            for (UIView *v in nameRow.subviews) {
-                if (![v isKindOfClass:[UITextField class]]) continue;
-                [(UITextField *)v addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-                    FlowWindow *s = weakSelf;
-                    if (s) [s refresh];
-                }] forControlEvents:UIControlEventEditingDidEnd];
-                break;
-            }
-        }
-
         if (type.pickMode != FlowPickModeNone) {
             UIView *pick = [strongSelf makeActionRow:type.pickActionTitle
                                               detail:[strongSelf pickDetailForStep:step type:type]
-                                               color:ZXPalette(ZXPalAccent) primary:YES width:w
+                                               color:ZXPalette(ZXPalAccent) primary:YES symbol:@"scope" width:w
                                               action:^{ [strongSelf beginPickingForStep:step type:type]; }];
             y = [strongSelf subAddRow:pick y:y];
         }
@@ -1152,26 +1451,235 @@ static FlowWindow *_fwShared = nil;
             }
         }
 
-        y += 8;
-        UIView *deleteRow = [strongSelf makeActionRow:@"删除这一步" detail:nil color:ZXPalette(ZXPalDanger)
-                                              primary:NO width:w
-                                               action:^{
-                                                   FlowWindow *s = weakSelf;
-                                                   if (!s) return;
-                                                   [parentSteps removeObjectIdenticalTo:step];
-                                                   [s autosave];
-                                                   [s dismissSubAnimated:NO];
-                                                   [s refresh];
-                                               }];
-        y = [strongSelf subAddRow:deleteRow y:y];
         return y;
     }];
+}
 
-    // 取点回来后重建这个子浮窗（回显新坐标 / 新模板名）
-    _subRebuilder = ^{
-        FlowWindow *strongSelf = weakSelf;
-        if (strongSelf) [strongSelf showParamsSubForStep:step parentSteps:parentSteps];
-    };
+#pragma mark - 单步调试（子浮窗右上角「执行此步骤」）
+
+// 取参数值：缺字段 / 空串都回落到内置默认
+static double fwStepNumber(NSDictionary *step, NSString *key, double fallback)
+{
+    id value = step[key];
+    if ([value isKindOfClass:[NSNumber class]]) return [value doubleValue];
+    if ([value isKindOfClass:[NSString class]] && [value length] > 0) return [value doubleValue];
+    return fallback;
+}
+
+// "FF8800" / "#ff8800" → 三个通道；解析不出来返回 NO
+static BOOL fwParseHexColor(NSString *text, int *r, int *g, int *b)
+{
+    NSString *hex = [text ?: @"" stringByReplacingOccurrencesOfString:@"#" withString:@""];
+    hex = [hex stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    hex = hex.uppercaseString;
+    if (hex.length != 6) return NO;
+    unsigned int value = 0;
+    if (![[NSScanner scannerWithString:hex] scanHexInt:&value]) return NO;
+    if (r) *r = (int)((value >> 16) & 0xFF);
+    if (g) *g = (int)((value >> 8) & 0xFF);
+    if (b) *b = (int)(value & 0xFF);
+    return YES;
+}
+
+// 单指触摸：载荷 = 事件数(1) + 类型(1) + 手指号(2) + x*10(5) + y*10(5)，坐标是触摸指示器上的像素
+static void fwSendTouch(int type, double x, double y)
+{
+    char payload[24];
+    snprintf(payload, sizeof(payload), "1%d%02d%05d%05d", type, 1,
+             (int)llround(x * 10.0), (int)llround(y * 10.0));
+    performTouchFromRawData((UInt8 *)payload);
+}
+
+// 引擎的 *FromRawData 收的是 NUL 结尾的可写缓冲；NSString 的 UTF8String 生命周期不好保证，
+// 统一拷进一块 NSMutableData（由 outKeepAlive 拿住，调用期间别放）
+static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
+{
+    NSData *data = [(text ?: @"") dataUsingEncoding:NSUTF8StringEncoding];
+    NSMutableData *buffer = [NSMutableData dataWithLength:data.length + 1];
+    memcpy(buffer.mutableBytes, data.bytes, data.length);
+    if (outKeepAlive) *outKeepAlive = buffer;
+    return (UInt8 *)buffer.mutableBytes;
+}
+
+// 「执行此步骤」：按这一步当前的参数直接调引擎跑一遍，不走 Python
+- (void)runStepNow:(NSMutableDictionary *)step
+{
+    FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
+    if (!type) return;
+    [self dismissKeyboard];   // 参数可能刚改完还没收键盘
+    [self autosave];
+    NSDictionary *snapshot = [step copy];   // 后台只读，避免和还在编辑的输入框并发
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        FlowWindow *s = weakSelf;
+        if (!s) return;
+        if (type.isCondition) [s performCheckStep:snapshot];
+        else [s performActionStep:snapshot];
+    });
+}
+
+- (void)performActionStep:(NSDictionary *)step
+{
+    NSString *kind = step[@"Kind"];
+
+    if ([kind isEqualToString:kFlowTap]) {
+        double x = fwStepNumber(step, @"X", 0);
+        double y = fwStepNumber(step, @"Y", 0);
+        NSInteger count = MAX((NSInteger)llround(fwStepNumber(step, @"Count", 1)), 1);
+        double interval = MAX(fwStepNumber(step, @"Interval", 0.02), 0.0);
+        double hold = MAX(fwStepNumber(step, @"Hold", 0.02), 0.0);
+        // 和生成器里的「点()」一致：按下 → 按住 → 抬起 → 停一会儿，连做 count 下
+        for (NSInteger i = 0; i < count; i++) {
+            fwSendTouch(TOUCH_DOWN, x, y);
+            if (hold > 0) usleep((useconds_t)llround(hold * 1e6));
+            fwSendTouch(TOUCH_UP, x, y);
+            if (i < count - 1 && interval > 0) usleep((useconds_t)llround(interval * 1e6));
+        }
+    } else if ([kind isEqualToString:kFlowSwipe]) {
+        double x1 = fwStepNumber(step, @"X1", 0), y1 = fwStepNumber(step, @"Y1", 0);
+        double x2 = fwStepNumber(step, @"X2", 0), y2 = fwStepNumber(step, @"Y2", 0);
+        double duration = MAX(fwStepNumber(step, @"Duration", 0.4), 0.05);
+        const int steps = 12;   // 和「滑()」一样分 12 步，免得被游戏当成点击
+        fwSendTouch(TOUCH_DOWN, x1, y1);
+        for (int i = 1; i <= steps; i++) {
+            usleep((useconds_t)llround(duration / steps * 1e6));
+            fwSendTouch(TOUCH_MOVE, x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps);
+        }
+        fwSendTouch(TOUCH_UP, x2, y2);
+    } else if ([kind isEqualToString:kFlowWait]) {
+        double seconds = MAX(fwStepNumber(step, @"Seconds", 0.5), 0.0);
+        usleep((useconds_t)llround(seconds * 1e6));
+    } else if ([kind isEqualToString:kFlowToast]) {
+        NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+        double seconds = MAX(fwStepNumber(step, @"Seconds", 2), 1);
+        showAlertBox(@"提示", text.length ? text : @"（没填提示文字）", (int)llround(seconds));
+        return;
+    } else {
+        return;
+    }
+
+    // 触摸 / 等待没有画面反馈，弹一条短的让用户确认真的跑了
+    showAlertBox([FlowScript typeForKind:kind].title ?: @"步骤", @"已执行", 1);
+}
+
+// 判断类步骤：跑一遍判据，把结果（成立 / 不成立 + 细节）弹出来
+- (void)performCheckStep:(NSDictionary *)step
+{
+    NSString *kind = step[@"Kind"];
+    NSString *title = [FlowScript typeForKind:kind].title ?: @"结果";
+    NSString *result = nil;
+    NSError *error = nil;
+
+    if ([kind isEqualToString:kFlowColor]) {
+        NSMutableData *keep = nil;
+        UInt8 *raw = fwRawBuffer([NSString stringWithFormat:@"%ld;;%ld",
+                                  (long)llround(fwStepNumber(step, @"X", 0)),
+                                  (long)llround(fwStepNumber(step, @"Y", 0))], &keep);
+        NSDictionary *rgb = getRGBFromRawData(raw, &error);
+        int r = [rgb[@"red"] intValue], g = [rgb[@"green"] intValue], b = [rgb[@"blue"] intValue];
+        if (r < 0 || g < 0 || b < 0) {
+            result = error.localizedDescription ?: @"取色失败";
+        } else {
+            int tr = 0, tg = 0, tb = 0;
+            int tolerance = (int)MAX(fwStepNumber(step, @"Tolerance", 10), 0);
+            BOOL hasTarget = fwParseHexColor(step[@"Color"], &tr, &tg, &tb);
+            // 与生成器的「是色()」同一套判据：通道差 <= 容差
+            BOOL hit = hasTarget && abs(r - tr) <= tolerance && abs(g - tg) <= tolerance && abs(b - tb) <= tolerance;
+            result = [NSString stringWithFormat:@"取到 #%02X%02X%02X，目标 #%@，容差 %d → %@",
+                      r, g, b,
+                      hasTarget ? [NSString stringWithFormat:@"%02X%02X%02X", tr, tg, tb] : @"（颜色填错了）",
+                      tolerance, hit ? @"成立 ✓" : @"不成立 ✗"];
+        }
+    } else if ([kind isEqualToString:kFlowFindColor]) {
+        NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
+        NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
+        NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
+        NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
+        NSInteger x = MIN(left, right), y = MIN(top, bottom);
+        NSInteger w = MAX(labs(right - left), 1), h = MAX(labs(bottom - top), 1);
+        int tr = 0, tg = 0, tb = 0;
+        int tolerance = (int)MAX(fwStepNumber(step, @"Tolerance", 10), 0);
+        if (!fwParseHexColor(step[@"Color"], &tr, &tg, &tb)) {
+            result = @"颜色填错了（应为 6 位十六进制，如 FF8800）";
+        } else {
+            NSMutableData *keep = nil;
+            UInt8 *raw = fwRawBuffer([NSString stringWithFormat:@"1;;%ld;;%ld;;%ld;;%ld;;%d;;%d;;%d;;%d;;%d;;%d;;1",
+                                      (long)x, (long)y, (long)w, (long)h,
+                                      MAX(tr - tolerance, 0), MIN(tr + tolerance, 255),
+                                      MAX(tg - tolerance, 0), MIN(tg + tolerance, 255),
+                                      MAX(tb - tolerance, 0), MIN(tb + tolerance, 255)], &keep);
+            NSString *answer = searchRGBFromRawData(raw, &error);
+            if (error) {
+                result = error.localizedDescription;
+            } else {
+                NSArray *hit = [answer componentsSeparatedByString:@";;"];
+                if (hit.count >= 5 && [hit[0] intValue] >= 0) {
+                    result = [NSString stringWithFormat:@"在 (%@, %@) 找到了颜色 → 成立 ✓", hit[0], hit[1]];
+                } else {
+                    result = @"区域里没找到这个颜色 → 不成立 ✗";
+                }
+            }
+        }
+    } else if ([kind isEqualToString:kFlowImage]) {
+        NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
+        NSString *path = [kFlowTemplateFolder stringByAppendingPathComponent:name.length ? name : @"未框选.png"];
+        double threshold = fwStepNumber(step, @"Threshold", 0.8);
+        NSMutableData *keep = nil;
+        UInt8 *raw = fwRawBuffer([NSString stringWithFormat:@"%@;;0;;%@;;0.8",
+                                  path, [FlowScript textForValue:@(threshold)]], &keep);
+        float best = 0;
+        CGRect rect = screenMatchFromRawData(raw, &error, &best);
+        if (error) {
+            result = error.localizedDescription;
+        } else if (rect.size.width <= 0 || rect.size.height <= 0) {
+            result = [NSString stringWithFormat:@"没找到模板（最高得分 %.3f，要求 %.2f）→ 不成立 ✗", best, threshold];
+        } else {
+            result = [NSString stringWithFormat:@"在 (%.0f, %.0f) 找到模板 %.0f×%.0f（得分 %.3f）→ 成立 ✓",
+                      rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, best];
+        }
+    } else if ([kind isEqualToString:kFlowOCR]) {
+        NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
+        NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
+        NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
+        NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
+        NSInteger x = MIN(left, right), y = MIN(top, bottom);
+        NSInteger w = MAX(labs(right - left), 1), h = MAX(labs(bottom - top), 1);
+        NSString *langs = [step[@"Languages"] isKindOfClass:[NSString class]] ? step[@"Languages"] : @"";
+        if (langs.length == 0) langs = @"zh-Hans,en-US";
+        // 引擎按 ",," 切语言列表，用户填的是逗号分隔
+        NSMutableArray<NSString *> *langList = [NSMutableArray array];
+        for (NSString *part in [langs componentsSeparatedByString:@","]) {
+            NSString *trimmed = [part stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            if (trimmed.length > 0) [langList addObject:trimmed];
+        }
+        NSMutableData *keep = nil;
+        UInt8 *raw = fwRawBuffer([NSString stringWithFormat:@"1;;%ld,,%ld,,%ld,,%ld;;;;0;;0;;%@;;0;;",
+                                  (long)x, (long)y, (long)w, (long)h,
+                                  [langList componentsJoinedByString:@",,"]], &keep);
+        NSString *answer = performTextRecognizerTextFromRawData(raw, &error);
+        if (error) {
+            result = error.localizedDescription;
+        } else {
+            // 引擎把每段识别结果用 ";;" 拼起来，段内是 "文字,,x,,y,,宽,,高"
+            NSMutableArray<NSString *> *texts = [NSMutableArray array];
+            for (NSString *item in [answer componentsSeparatedByString:@";;"]) {
+                if (item.length == 0) continue;
+                [texts addObject:[item componentsSeparatedByString:@",,"].firstObject ?: @""];
+            }
+            NSString *joined = [texts componentsJoinedByString:@" "];
+            NSString *target = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+            NSString *match = [step[@"Match"] isKindOfClass:[NSString class]] ? step[@"Match"] : @"contains";
+            BOOL hit;
+            if ([match isEqualToString:@"equals"]) hit = [joined isEqualToString:target];
+            else if ([match isEqualToString:@"notContains"]) hit = ([joined rangeOfString:target].location == NSNotFound);
+            else hit = ([joined rangeOfString:target].location != NSNotFound);
+            result = [NSString stringWithFormat:@"识别到「%@」\n要比对「%@」→ %@",
+                      joined.length ? joined : @"（没识别到文字）", target, hit ? @"成立 ✓" : @"不成立 ✗"];
+        }
+    }
+
+    if (result.length == 0) return;
+    showAlertBox(title, result, 8);
 }
 
 #pragma mark - 子浮窗：设置（运行方式 + 定时，全都改完即存）
@@ -1326,14 +1834,59 @@ static FlowWindow *_fwShared = nil;
             y = [strongSelf subAddRow:endRow y:y];
         }
 
+        // ---- 新建步骤默认值：改的是「以后新建的步骤」，已有步骤一律不动 ----
+        y += 6;
+        y = [strongSelf subAddSection:@"新建步骤默认值（只对之后新建的步骤生效）" width:w y:y];
+
+        void (^setDefault)(NSString *, NSString *, id) = ^(NSString *kind, NSString *key, id value) {
+            FlowWindow *s = weakSelf;
+            if (!s) return;
+            NSMutableDictionary *all = s->_flow[@"StepDefaults"];
+            if (![all isKindOfClass:[NSMutableDictionary class]]) {
+                all = [NSMutableDictionary dictionary];
+                s->_flow[@"StepDefaults"] = all;
+            }
+            NSMutableDictionary *kindDefaults = all[kind];
+            if (![kindDefaults isKindOfClass:[NSMutableDictionary class]]) {
+                kindDefaults = [NSMutableDictionary dictionary];
+                all[kind] = kindDefaults;
+            }
+            kindDefaults[key] = value;
+            [s autosave];
+        };
+
+        for (FlowStepType *type in [FlowScript allStepTypes]) {
+            NSDictionary *kindDefaults = strongSelf->_flow[@"StepDefaults"][type.kind];
+            NSDictionary *savedDefaults = [kindDefaults isKindOfClass:[NSDictionary class]] ? kindDefaults : nil;
+            y += 2;
+            y = [strongSelf subAddSection:type.title width:w y:y];
+            for (FlowFieldSpec *spec in type.fields) {
+                id current = savedDefaults[spec.key] ?: [FlowScript valueFromText:spec.defaultValue integer:spec.integer];
+                UIView *row = nil;
+                if (spec.choiceTitles.count > 0) {
+                    NSArray<NSString *> *values = (spec.choiceValues.count == spec.choiceTitles.count)
+                        ? spec.choiceValues : spec.choiceTitles;
+                    NSInteger selected = (NSInteger)[values indexOfObject:current];
+                    if (selected == NSNotFound) selected = 0;
+                    NSString *key = spec.key;
+                    NSString *kind = type.kind;
+                    row = [strongSelf makeChoiceRow:spec.title titles:spec.choiceTitles selected:selected width:w
+                                          onChange:^(NSInteger idx) { setDefault(kind, key, values[idx]); }];
+                } else {
+                    NSString *key = spec.key;
+                    NSString *kind = type.kind;
+                    BOOL integer = spec.integer;
+                    row = [strongSelf makeValueRow:spec.title value:current integer:integer stepper:spec.numeric width:w
+                                         onChange:^(NSString *text) {
+                                             setDefault(kind, key, [FlowScript valueFromText:text integer:integer]);
+                                         }];
+                }
+                y = [strongSelf subAddRow:row y:y];
+            }
+        }
+
         return y;
     }];
-
-    // 模式切换后重铺 = 重新走一遍 showSettings（数据刚 persist 过，重读是一致的）
-    _subRebuilder = ^{
-        FlowWindow *strongSelf = weakSelf;
-        if (strongSelf) [strongSelf showSettings];
-    };
 }
 
 #pragma mark - 内容刷新
@@ -1370,7 +1923,7 @@ static FlowWindow *_fwShared = nil;
         }];
     }
 
-    return [self makeValueRow:spec.title value:step[key] integer:integer width:w
+    return [self makeValueRow:spec.title value:step[key] integer:integer stepper:spec.numeric width:w
                      onChange:^(NSString *text) {
                          step[key] = [FlowScript valueFromText:text integer:integer];
                          [weakSelf autosave];   // 每敲一个字都落盘

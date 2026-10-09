@@ -1468,7 +1468,11 @@ static void fmPersistKeys(NSDictionary *pairs)
 - (void)startRunningSpinner
 {
     if (!_dotButton) return;
-    if ([_dotButton.layer animationForKey:@"fmSpinning"]) return;
+    // 光圈动画是加在每个 ring 子 layer 上的，.layer 自己身上没有 fmSpinning，
+    // 所以必须查子 layer 是否已存在，否则每次调用都会再叠 3 条。
+    for (CALayer *sub in _dotButton.layer.sublayers) {
+        if ([sub.name hasPrefix:@"fmSpinnerRing_"]) return;
+    }
 
     CGFloat s = _dotSize + 10;  // 比 dot 大 5pt（更明显）
 

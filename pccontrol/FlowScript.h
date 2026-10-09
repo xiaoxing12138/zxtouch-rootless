@@ -43,12 +43,15 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 @property (nonatomic, copy) NSString *key;          // plist 键名
 @property (nonatomic, copy) NSString *title;        // 弹窗上的标签
 @property (nonatomic) BOOL integer;                 // 只用整数键盘
+@property (nonatomic) BOOL numeric;                 // 纯数值（含小数）：输入框后面会挂上下箭头步进器
 @property (nonatomic, copy) NSString *defaultValue;
 /// 非空 = 这一行是「分段选择」（如 包含 / 等于 / 不包含），不是输入框
 @property (nonatomic, copy, nullable) NSArray<NSString *> *choiceTitles;
 /// 与 choiceTitles 一一对应，存进 plist 的值；缺省时直接存 choiceTitles
 @property (nonatomic, copy, nullable) NSArray<NSString *> *choiceValues;
 + (instancetype)key:(NSString *)key title:(NSString *)title integer:(BOOL)integer def:(NSString *)def;
+/// 同上，并标记为「数值字段」（小数也走 DecimalPad + 上下箭头步进器）
++ (instancetype)numKey:(NSString *)key title:(NSString *)title integer:(BOOL)integer def:(NSString *)def;
 @end
 
 @interface FlowStepType : NSObject

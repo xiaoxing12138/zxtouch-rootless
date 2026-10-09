@@ -1,12 +1,12 @@
 #include "Common.h"
 #include "Config.h"
-#include "Toast.h"   // 键盘诊断：键盘没弹出来时把原因打到屏幕上
 #import <sys/utsname.h>
 #import <sys/wait.h>
 #include <dlfcn.h>
 #include <spawn.h>
 #include <errno.h>
 #include <string.h>
+#include <math.h>
 
 int call_system(const char *cmd)
 {
@@ -313,125 +313,128 @@ void ZXLogUIException(NSException *exception)
     }
 }
 
-#pragma mark - 临时键盘诊断（查完删）
+#pragma mark - 键盘避让 / 数值步进器
 
-void ZXKeyboardDebugLog(NSString *format, ...)
+// 键盘顶边（屏幕坐标）；<=0 表示键盘没出来
+static CGFloat gZXKeyboardTop = 0;
+static BOOL gZXKeyboardObserved = NO;
+
+static void ZXEnsureKeyboardObserved(void)
 {
-    va_list args;
-    va_start(args, format);
-    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
-    va_end(args);
-
-    NSLog(@"[KB] %@", message);
-
-    @try {
-        NSString *path = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output";
-        NSString *folder = [path stringByDeletingLastPathComponent];
-        [[NSFileManager defaultManager] createDirectoryAtPath:folder
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:NULL];
-        NSString *line = [NSString stringWithFormat:@"[KB] %@ %@\n", [NSDate date], message];
-        NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
-        NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
-        if (handle)
-        {
-            [handle seekToEndOfFile];
-            [handle writeData:data];
-            [handle closeFile];
-        }
-        else
-        {
-            [data writeToFile:path atomically:NO];
-        }
-    }
-    @catch (NSException *ignored)
-    {
-        // 诊断日志失败绝不影响主流程。
-    }
+    if (gZXKeyboardObserved) return;
+    gZXKeyboardObserved = YES;
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    [center addObserverForName:UIKeyboardWillChangeFrameNotification object:nil
+                         queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        CGRect frame = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+        CGFloat screenH = [UIScreen mainScreen].bounds.size.height;
+        gZXKeyboardTop = (frame.origin.y < screenH - 1.0) ? frame.origin.y : 0;
+    }];
+    [center addObserverForName:UIKeyboardWillHideNotification object:nil
+                         queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        gZXKeyboardTop = 0;
+    }];
 }
 
-NSString *ZXDescribeWindow(UIWindow *window)
+CGFloat ZXKeyboardTopForView(UIView *view)
 {
-    if (!window) return @"(nil)";
-    return [NSString stringWithFormat:@"<class=%@ key=%d level=%.0f scene=%lu hidden=%d>",
-            NSStringFromClass([window class]),
-            window.isKeyWindow ? 1 : 0,
-            window.windowLevel,
-            (unsigned long)window.windowScene.hash,
-            window.hidden ? 1 : 0];
+    ZXEnsureKeyboardObserved();
+    if (gZXKeyboardTop <= 0 || !view.window) return CGFLOAT_MAX;
+    // 键盘 frame 是屏幕坐标，全屏窗口下和窗口坐标一致
+    CGRect probe = [view convertRect:CGRectMake(0, gZXKeyboardTop, 1, 1) fromView:nil];
+    return probe.origin.y;
 }
 
-NSString *ZXDescribeConnectedScenes(void)
+UIView *ZXFirstResponderView(UIView *root)
 {
-    NSMutableString *text = [NSMutableString string];
-    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes)
-    {
-        [text appendFormat:@" {%@ state=%ld hash=%lu}",
-         NSStringFromClass([scene class]),
-         (long)scene.activationState,
-         (unsigned long)scene.hash];
+    if (!root) return nil;
+    if (root.isFirstResponder) return root;
+    for (UIView *sub in root.subviews) {
+        UIView *found = ZXFirstResponderView(sub);
+        if (found) return found;
     }
-    return text.length > 0 ? text : @"(none)";
+    return nil;
 }
 
-void ZXKeyboardDebugWillBeginEditing(UIWindow *window)
+void ZXMakeWindowKeyIfNeeded(UIWindow *window)
 {
-    static BOOL keyboardVisible = NO;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
-        [center addObserverForName:UIKeyboardWillShowNotification object:nil queue:nil
-                        usingBlock:^(NSNotification *note) {
-            keyboardVisible = YES;
-            ZXKeyboardDebugLog(@"keyboardWillShow appKey=%@ scenes=%@",
-                               ZXDescribeWindow([UIApplication sharedApplication].keyWindow),
-                               ZXDescribeConnectedScenes());
-        }];
-        [center addObserverForName:UIKeyboardDidShowNotification object:nil queue:nil
-                        usingBlock:^(NSNotification *note) {
-            keyboardVisible = YES;
-            ZXKeyboardDebugLog(@"keyboardDidShow");
-        }];
-        [center addObserverForName:UIKeyboardDidHideNotification object:nil queue:nil
-                        usingBlock:^(NSNotification *note) {
-            keyboardVisible = NO;
-            ZXKeyboardDebugLog(@"keyboardDidHide");
-        }];
-    });
+    if (window && !window.isKeyWindow) [window makeKeyWindow];
+}
 
-    ZXKeyboardDebugLog(@"beginEdit win=%@ appKey=%@ scenes=%@",
-                       ZXDescribeWindow(window),
-                       ZXDescribeWindow([UIApplication sharedApplication].keyWindow),
-                       ZXDescribeConnectedScenes());
-
-    if (window && !window.isKeyWindow)
-    {
-        [window makeKeyWindow];
+// 点一下箭头：按当前值的量级选步长，改完触发 EditingChanged 让调用方落盘
+static void ZXStepNumberField(UITextField *field, BOOL integer, NSInteger direction)
+{
+    double value = field.text.doubleValue;
+    double step;
+    if (integer) {
+        step = 1.0;
+    } else {
+        double magnitude = fabs(value);
+        if (magnitude >= 100.0) step = 10.0;
+        else if (magnitude >= 10.0) step = 1.0;
+        else if (magnitude >= 1.0) step = 0.1;
+        else step = 0.01;
     }
-    ZXKeyboardDebugLog(@"afterMakeKey win=%@ appKey=%@",
-                       ZXDescribeWindow(window),
-                       ZXDescribeWindow([UIApplication sharedApplication].keyWindow));
+    value += step * direction;
+    if (value < 0) value = 0;
+    field.text = integer ? [NSString stringWithFormat:@"%.0f", value]
+                         : [NSString stringWithFormat:@"%.4g", value];
+    [field sendActionsForControlEvents:UIControlEventEditingChanged];
+}
 
-    // 键盘已经开着（连续点第二个输入框）不该再报；只有「本来没键盘、点完还是没有」才提示
-    if (keyboardVisible) return;
+UIView *ZXMakeNumberStepper(UITextField *field, BOOL integer)
+{
+    if (!field) return nil;
+    const CGFloat width = 24.0f, half = 15.0f;
+    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, half * 2)];
+    box.backgroundColor = [UIColor clearColor];
 
-    __weak UIWindow *weakWindow = window;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        if (keyboardVisible) return;
-        UIWindow *win = weakWindow;
-        NSString *detail = [NSString stringWithFormat:@"win=%@ appKey=%@ scenes=%@",
-                            ZXDescribeWindow(win),
-                            ZXDescribeWindow([UIApplication sharedApplication].keyWindow),
-                            ZXDescribeConnectedScenes()];
-        ZXKeyboardDebugLog(@"KEYBOARD-NOT-SHOWN %@", detail);
-        @try {
-            [Toast showToastWithContent:[NSString stringWithFormat:@"键盘未弹出 %@", detail]
-                                   type:0 duration:6.0f position:1 fontSize:10];
-        } @catch (NSException *ignored) {
+    UIImageSymbolConfiguration *cfg =
+        [UIImageSymbolConfiguration configurationWithPointSize:8 weight:UIFontWeightBold];
+    NSArray<NSString *> *symbols = @[ @"chevron.up", @"chevron.down" ];
+    for (NSInteger i = 0; i < 2; i++) {
+        UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+        btn.frame = CGRectMake(0, i * half, width, half);
+        btn.tintColor = [UIColor secondaryLabelColor];
+        [btn setImage:[UIImage systemImageNamed:symbols[i] withConfiguration:cfg]
+             forState:UIControlStateNormal];
+        NSInteger direction = (i == 0) ? 1 : -1;
+        [btn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            ZXStepNumberField(field, integer, direction);
+        }] forControlEvents:UIControlEventTouchUpInside];
+        [box addSubview:btn];
+    }
+    return box;
+}
+
+CGFloat ZXScrollResponderIntoView(UIView *responder, UIScrollView *scroll, CGFloat keyboardTop)
+{
+    if (!responder) return 0;
+    UIWindow *window = responder.window;
+    if (!window) return 0;
+
+    // 1) 先滚动：把输入框滚进可见区（并尽量靠上，给键盘腾地方）
+    CGFloat scrolled = 0;
+    if (scroll && [responder isDescendantOfView:scroll]) {
+        CGRect frame = [responder convertRect:responder.bounds toView:scroll];
+        CGFloat offset = scroll.contentOffset.y;
+        CGFloat visible = scroll.bounds.size.height;
+        CGFloat target = offset;
+        if (CGRectGetMaxY(frame) + 10.0 > offset + visible) target = CGRectGetMaxY(frame) + 10.0 - visible;
+        if (frame.origin.y - 10.0 < target) target = frame.origin.y - 10.0;
+        CGFloat maxOffset = MAX(scroll.contentSize.height - visible, 0);
+        target = MIN(MAX(target, 0), maxOffset);
+        if (fabs(target - offset) > 0.5) {
+            [scroll setContentOffset:CGPointMake(scroll.contentOffset.x, target) animated:YES];
+            scrolled = offset - target;   // 内容上移多少，输入框就跟着上移多少
         }
-    });
+    }
+
+    // 2) 滚完还挡着的话，返回还要把卡片上移多少
+    if (keyboardTop >= CGFLOAT_MAX - 1.0) return 0;
+    CGRect inWindow = [responder convertRect:responder.bounds toView:window];
+    CGFloat overlap = CGRectGetMaxY(inWindow) - scrolled + 8.0 - keyboardTop;
+    return overlap > 0 ? overlap : 0;
 }
 
 #pragma mark - 面板配色

@@ -20,7 +20,15 @@ static NSString *kCfgMenuBgAlpha = @"floating_menu_menu_bg_alpha"; // 0..1
 static NSString *kCfgDotIcon = @"floating_menu_dot_icon"; // 1=App图标 2=自定义图片
 static NSString *kCfgAutoEdge    = @"floating_menu_auto_edge";           // 菜单收起后自动收边
 static NSString *kCfgEdgeVisible = @"floating_menu_edge_visible_ratio";  // 收边后圆点可见比例 0.1..1.0
-static NSString *kCfgEdgeDelay   = @"floating_menu_auto_edge_delay";     // 收起后延迟多少秒收边 0..7
+static NSString *kCfgEdgeDelay   = @"floating_menu_auto_edge_delay";     // 收起后延迟多少秒 0..7
+
+// 选项面板（功能页）背景，全局生效：颜色 + 透明度 + 自定义图片
+// 图片落盘到共享目录，配置里只存文件名（tweak 端不访问相册）
+static NSString *kCfgPanelBgColor = @"floating_menu_panel_bg_color";     // #RRGGBB，缺省 = 跟随系统
+static NSString *kCfgPanelBgAlpha = @"floating_menu_panel_bg_alpha";     // 0..1
+static NSString *kCfgPanelBgImage = @"floating_menu_panel_bg_image";     // 文件名，空 = 不用图
+static NSString * const kPanelBgCustomFile = @"fm_panel_bg_custom.png";
+static const float kPanelBgAlphaDefault = 1.0f;
 
 // 圆点图标来源（与 tweak 端 kFMDotIconMode* 保持一致）：只有 App 图标 / 自定义图片
 static const NSInteger kDotIconModeApp    = 1;
@@ -50,7 +58,15 @@ typedef NS_ENUM(NSInteger, FMSection) {
     FMSectionMenuAppearance = 4,  // 菜单按钮大小/间距/标签字号/图标留白/圆点-菜单间距
     FMSectionDotIcon        = 5,  // 圆点图标来源
     FMSectionColors         = 6,  // 颜色（圆点/按钮背景、图标、标签文字）
-    FMSectionPause          = 7   // 暂停显示（文字/字号/颜色/变灰深度）
+    FMSectionPause          = 7,  // 暂停显示（文字/字号/颜色/变灰深度）
+    FMSectionPanelBg        = 8   // 选项面板背景（颜色/透明度/自定义图片）
+};
+
+// 「选项面板背景」分组行号
+typedef NS_ENUM(NSInteger, PanelBgRow) {
+    PanelBgRowColor = 0,  // 背景颜色
+    PanelBgRowAlpha,      // 背景透明度
+    PanelBgRowImage       // 自定义背景图片
 };
 
 // 「自动收边」分组行号
@@ -152,6 +168,7 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
 {
     NSMutableDictionary *_config;
     Socket *_springBoardSocket;
+    BOOL _pickingPanelBg;   // 选图回调要知道这次选的是圆点图标还是面板背景图
 }
 
 - (void)viewDidLoad {
@@ -489,6 +506,25 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
 
 - (void)imagePickerController:(UIImagePickerController *)picker
 didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+    if (_pickingPanelBg) {
+        _pickingPanelBg = NO;
+        NSData *bgData = [self pngDataForPanelBg:info[UIImagePickerControllerOriginalImage]];
+        BOOL saved = bgData && [bgData writeToFile:[FMDotIconDir() stringByAppendingPathComponent:kPanelBgCustomFile]
+                                        atomically:YES];
+        if (saved) _config[kCfgPanelBgImage] = kPanelBgCustomFile;
+        [self saveConfig];
+        [picker dismissViewControllerAnimated:YES completion:^{
+            [self reloadTweak];
+            [self->_tableView reloadData];
+            if (!saved) {
+                [Util showAlertBoxWithOneOption:self title:@"错误"
+                                        message:@"无法保存所选图片。"
+                                   buttonString:@"确定"];
+            }
+        }];
+        return;
+    }
+
     NSData *data = [self pngDataForDotIcon:info[UIImagePickerControllerOriginalImage]];
     BOOL saved = [self writeDotIconData:data fileName:kDotIconCustomFile];
     _config[kCfgDotIcon] = @(saved ? kDotIconModeCustom : kDotIconModeApp);
@@ -505,6 +541,13 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 }
 
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    if (_pickingPanelBg) {
+        _pickingPanelBg = NO;
+        [picker dismissViewControllerAnimated:YES completion:^{
+            [self->_tableView reloadData];
+        }];
+        return;
+    }
     // 自定义图片还没落地就退出 → 回到 App 图标，避免出现「选了自定义但没有图」的状态
     NSString *customPath = [FMDotIconDir() stringByAppendingPathComponent:kDotIconCustomFile];
     if ([self dotIconMode] == kDotIconModeCustom &&
@@ -515,6 +558,104 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     [self reloadTweak];   // 取消也要同步一次：上面可能刚从自定义回退成 App 图标
     [picker dismissViewControllerAnimated:YES completion:^{
         [self->_tableView reloadData];
+    }];
+}
+
+#pragma mark - 选项面板背景
+
+- (NSString *)panelBgImageName {
+    NSString *name = _config[kCfgPanelBgImage];
+    if (![name isKindOfClass:[NSString class]]) return @"";
+    return [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+// 背景图整屏铺，留到 1200px 就够清晰了，避免往共享目录塞原图
+- (NSData *)pngDataForPanelBg:(UIImage *)image {
+    if (!image) return nil;
+    CGSize src = image.size;
+    if (src.width <= 0 || src.height <= 0) return nil;
+    CGFloat scale = MIN(1.0f, 1200.0f / MAX(src.width, src.height));
+    CGSize dst = CGSizeMake(floor(src.width * scale), floor(src.height * scale));
+    UIGraphicsBeginImageContextWithOptions(dst, NO, 1.0f);
+    [image drawInRect:CGRectMake(0, 0, dst.width, dst.height)];
+    UIImage *scaled = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return UIImagePNGRepresentation(scaled ?: image);
+}
+
+- (void)presentPanelBgPicker {
+    if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) {
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"照片图库不可用。" buttonString:@"确定"];
+        return;
+    }
+    _pickingPanelBg = YES;
+    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+    picker.delegate = self;
+    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    picker.modalPresentationStyle = UIModalPresentationFormSheet;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)clearPanelBgImage {
+    [[NSFileManager defaultManager] removeItemAtPath:
+        [FMDotIconDir() stringByAppendingPathComponent:kPanelBgCustomFile] error:NULL];
+    [_config removeObjectForKey:kCfgPanelBgImage];
+    [self saveConfig];
+    [self reloadTweak];
+    [_tableView reloadData];
+}
+
+- (void)panelBgImageTapped:(NSIndexPath *)indexPath {
+    if ([self panelBgImageName].length == 0) {
+        [self presentPanelBgPicker];
+        return;
+    }
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"自定义背景图片"
+        message:@"已经设置了一张背景图" preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak FloatingMenuConfigurationViewController *weakSelf = self;
+    [sheet addAction:[UIAlertAction actionWithTitle:@"重新选择" style:UIAlertActionStyleDefault
+        handler:^(UIAlertAction *action) { [weakSelf presentPanelBgPicker]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"清除（不用图）" style:UIAlertActionStyleDestructive
+        handler:^(UIAlertAction *action) { [weakSelf clearPanelBgImage]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *pop = sheet.popoverPresentationController;
+    if (pop) {
+        // 同颜色选择：iPad 上必须锚在被点的 cell，锚到 tableView.bounds 会带上滚动偏移
+        UIView *anchor = [self.tableView cellForRowAtIndexPath:indexPath];
+        pop.sourceView = anchor ?: self.tableView;
+        pop.sourceRect = anchor ? anchor.bounds : self.tableView.bounds;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)panelBgAlphaValueChanged:(UISlider *)slider {
+    float stepped = roundf(slider.value * 100.0f) / 100.0f;
+    [slider setValue:stepped animated:NO];
+    UIView *view = slider;
+    while (view && ![view isKindOfClass:[TableViewCellWithSlider class]]) {
+        view = view.superview;
+    }
+    if ([view isKindOfClass:[TableViewCellWithSlider class]]) {
+        ((TableViewCellWithSlider *)view).value.text = [NSString stringWithFormat:@"%.2f", stepped];
+    }
+    // 拖动过程中只写 plist，松手才 reload
+    _config[kCfgPanelBgAlpha] = @(stepped);
+    [self saveConfig];
+}
+
+- (void)pickPanelBgColorAtIndexPath:(NSIndexPath *)indexPath {
+    NSString *current = [self colorHexForKey:kCfgPanelBgColor defaultHex:@"#FFFFFF"];
+    __weak FloatingMenuConfigurationViewController *weakSelf = self;
+    [self presentColorPickerForTitle:@"面板背景颜色" current:current presets:FMColorPresets()
+                              anchor:[self.tableView cellForRowAtIndexPath:indexPath]
+                            onPicked:^(NSString *hex) {
+        FloatingMenuConfigurationViewController *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_config[kCfgPanelBgColor] = hex;
+        [strongSelf saveConfig];
+        [strongSelf reloadTweak];
+        [strongSelf->_tableView reloadData];
     }];
 }
 
@@ -607,7 +748,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
     // 关掉开关时整页只留开关行
-    return [_config[kCfgEnabled] boolValue] ? 8 : 1;
+    return [_config[kCfgEnabled] boolValue] ? 9 : 1;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -620,6 +761,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         case FMSectionColors:     return (NSInteger)FMColorSpecs().count;
         case FMSectionPause:      return (NSInteger)FMPauseSpecs().count;
         case FMSectionMenuAppearance: return (NSInteger)FMMenuAppearanceSpecs().count;
+        case FMSectionPanelBg:    return 3;  // 背景颜色 + 背景透明度 + 自定义背景图片
         default:                  return 0;
     }
 }
@@ -634,6 +776,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         case FMSectionDotIcon:    return @"圆点图标";
         case FMSectionColors:     return @"颜色";
         case FMSectionPause:      return @"暂停显示";
+        case FMSectionPanelBg:    return @"选项面板背景（全局）";
         default:                  return nil;
     }
 }
@@ -766,6 +909,24 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         return cell;
     }
 
+    // 「选项面板背景」：颜色 / 自定义图片走 Value1 + 箭头，透明度走下面的滑块
+    if (indexPath.section == FMSectionPanelBg && indexPath.row != PanelBgRowAlpha) {
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"PanelBgCell"];
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"PanelBgCell"];
+        }
+        if (indexPath.row == PanelBgRowColor) {
+            NSString *hex = _config[kCfgPanelBgColor];
+            cell.textLabel.text = @"背景颜色";
+            cell.detailTextLabel.text = ([hex isKindOfClass:[NSString class]] && hex.length > 0) ? hex : @"跟随系统";
+        } else {
+            cell.textLabel.text = @"自定义背景图片";
+            cell.detailTextLabel.text = ([self panelBgImageName].length > 0) ? @"已设置" : @"未设置";
+        }
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return cell;
+    }
+
     // 滑块：位置-纵向位置 / 外观-圆点大小·菜单黑底透明度 / 菜单外观·暂停显示-表驱动多项
     TableViewCellWithSlider *cell = [tableView dequeueReusableCellWithIdentifier:@"SliderCell" forIndexPath:indexPath];
     cell.slideBar.continuous = YES;
@@ -779,6 +940,8 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         changedSelector = @selector(menuAppearanceSliderChanged:);
     } else if (indexPath.section == FMSectionPause) {
         changedSelector = @selector(pauseSliderChanged:);
+    } else if (indexPath.section == FMSectionPanelBg) {
+        changedSelector = @selector(panelBgAlphaValueChanged:);
     }
     [cell.slideBar addTarget:self action:changedSelector forControlEvents:UIControlEventValueChanged];
     [cell.slideBar addTarget:self action:@selector(sliderTouchUp:)
@@ -828,6 +991,14 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         cell.value.text = (indexPath.row == PauseRowGray)
             ? [NSString stringWithFormat:@"%.2f", value]
             : [NSString stringWithFormat:@"%.0f pt", value];
+    } else if (indexPath.section == FMSectionPanelBg) {
+        float alpha = _config[kCfgPanelBgAlpha] ? [_config[kCfgPanelBgAlpha] floatValue] : kPanelBgAlphaDefault;
+        if (alpha < 0.0f || alpha > 1.0f) alpha = kPanelBgAlphaDefault;
+        cell.title.text = @"背景透明度";
+        cell.slideBar.minimumValue = 0.0f;
+        cell.slideBar.maximumValue = 1.0f;
+        cell.slideBar.value = alpha;
+        cell.value.text = [NSString stringWithFormat:@"%.2f", alpha];
     } else {
         float ratio = [_config[kCfgYRatio] floatValue];
         cell.title.text = @"纵向位置";
@@ -855,6 +1026,12 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             [self presentPauseTextEditor];
         } else if (indexPath.row == PauseRowColor) {
             [self pickPauseTextColorAtIndexPath:indexPath];
+        }
+    } else if (indexPath.section == FMSectionPanelBg) {
+        if (indexPath.row == PanelBgRowColor) {
+            [self pickPanelBgColorAtIndexPath:indexPath];
+        } else if (indexPath.row == PanelBgRowImage) {
+            [self panelBgImageTapped:indexPath];
         }
     }
 }

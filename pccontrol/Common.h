@@ -53,14 +53,29 @@ NSString* getDeviceName();
 void ZXLogUIException(NSException *exception);
 
 /*
- 临时键盘诊断（定位 iPhone 14PM / iOS 16.4.1 面板输入框点不出键盘，查完连同 Common.xm 的实现一起删）。
- 写进 /api/logs 读的那个文件，同时打 NSLog；ZXDescribe* 只做展示，不改行为。
+ 输入框开始编辑前，保证它所在的窗口是 key window。
+ Apple QA1813：输入框的 window 不是 key window 时系统键盘不会弹（部分设备/系统版本会中招）。
 */
-void ZXKeyboardDebugLog(NSString *format, ...);
-NSString *ZXDescribeWindow(UIWindow *window);
-NSString *ZXDescribeConnectedScenes(void);
-// 输入框即将开始编辑时调用：记录 window / scene / key 状态，并在键盘没弹出来时把原因打到屏幕上
-void ZXKeyboardDebugWillBeginEditing(UIWindow *window);
+void ZXMakeWindowKeyIfNeeded(UIWindow *window);
+
+/*
+ 数值输入框后面挂的「上下箭头」步进器（纯数值字段用）。
+ 点一下改 field.text 并触发 EditingChanged，复用调用方已经挂好的落盘逻辑。
+ 步长：整数按 1；小数按当前值量级（>=100 走 10，>=10 走 1，>=1 走 0.1，否则 0.01）。
+*/
+UIView *ZXMakeNumberStepper(UITextField *field, BOOL integer);
+
+/// 找到 root 子树里的第一响应者（键盘避让要用）；找不到返回 nil
+UIView *ZXFirstResponderView(UIView *root);
+
+/// 键盘顶边在 view 所在窗口坐标系里的 y；键盘没出来时返回 CGFLOAT_MAX（表示不挡）
+CGFloat ZXKeyboardTopForView(UIView *view);
+
+/*
+ 键盘避让：先把输入框滚进它所在的 UIScrollView 可见区，再返回「滚完之后仍被键盘挡住的高度」。
+ 返回值 > 0 时，调用方把承载它的卡片整体上移这么多。
+*/
+CGFloat ZXScrollResponderIntoView(UIView *responder, UIScrollView *scroll, CGFloat keyboardTop);
 
 /*
  面板配色：深浅两套写进同一个动态颜色，跟着窗口的 overrideUserInterfaceStyle 切。

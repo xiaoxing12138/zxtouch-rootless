@@ -13,7 +13,6 @@
 
 #define FN_TOP_H     49.0f
 #define FN_CARD_W    540.0f   // 卡片宽度：要装下「名称 + 4 个参数框 + 开关」一整行（屏幕不够宽时按屏宽自动缩）
-#define FN_NAME_W    104.0f   // 功能名宽度：能站下 7 个中文字（14pt 字号）
 #define FN_ROW_H     40.0f    // 脚本列表里一行的高度
 #define FN_ROW_GAP   6.0f
 #define FN_MIN_W     260.0f                // 面板最小宽度
@@ -81,7 +80,7 @@ static UIImage *fnSymbol(NSString *name) {
 
 #define FN_SCRIPT_DELETE_W 72.0f   // 脚本行左滑露出的「删除」宽度
 
-// 脚本列表里的脚本行：左滑露「删除」，长按弹菜单（复制 / 导出），点按选择
+// 脚本列表里的脚本行：左滑露「删除」，长按弹菜单（复制 / 重命名 / 导出），点按选择
 @interface FNScriptRowView : UIView <UIGestureRecognizerDelegate>
 @property (nonatomic, strong) UIView   *content;
 @property (nonatomic, copy) void (^onTap)(void);
@@ -282,6 +281,9 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     // 面板宽高是全局的：所有脚本、所有页面共用一个尺寸，存在 panel_state.plist 里，拖右下角改
     CGFloat                     _panelW;
     CGFloat                     _panelH;
+    CGFloat                     _kbShift;        // 为了避让键盘把卡片上移了多少（0 = 没动）
+    UIImageView                *_functionBgView; // 自定义背景图（公共配置里配了才建）
+    UIView                     *_functionBgTint; // 背景图上叠的颜色层（带透明度）
 }
 
 + (instancetype)shared {
@@ -329,11 +331,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     UIWindow *systemKeyWindow = [UIApplication sharedApplication].keyWindow;
     UIWindowScene *keyScene = systemKeyWindow.windowScene;
     BOOL keySceneIsOurs = [systemKeyWindow isKindOfClass:[FMPassthroughWindow class]];
-    ZXKeyboardDebugLog(@"buildWindow preferred=%lu keyScene=%lu ours=%d scenes=%@",
-                       (unsigned long)scene.hash, (unsigned long)keyScene.hash,
-                       keySceneIsOurs ? 1 : 0, ZXDescribeConnectedScenes());
     if (keyScene && !keySceneIsOurs && keyScene != scene) {
-        ZXKeyboardDebugLog(@"buildWindow 改用系统 key window 所在 scene");
         scene = keyScene;
     }
     if (scene) {
@@ -365,7 +363,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     [_cardView addGestureRecognizer:cardPan];
 
     // 顶行左边：当前脚本（点一下去挑脚本）；流程编辑器在子页时它是「← 返回」
-    _functionScriptBtn = fnMakeButton(@"脚本：", [UIColor systemBlueColor]);
+    _functionScriptBtn = fnMakeButton(@"（点这里选脚本）", [UIColor systemBlueColor]);
     _functionScriptBtn.frame = CGRectMake(8, 6, FN_CARD_W - 8 - 40 - 6, 36);
     _functionScriptBtn.titleLabel.font = [UIFont systemFontOfSize:13];
     _functionScriptBtn.titleLabel.adjustsFontSizeToFitWidth = YES;   // 脚本名长了缩字号
@@ -461,7 +459,6 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 
     // 建好后先隐藏，等 show 时再显示
     _window.hidden = YES;
-    ZXKeyboardDebugLog(@"buildWindow done window=%@", ZXDescribeWindow(_window));
 
     // 旋转后居中 / 重排（卡片宽度取 FN_CARD_W 与屏幕宽度 - 40 的较小值，需按新尺寸重算）
     [[NSNotificationCenter defaultCenter] addObserverForName:UIDeviceOrientationDidChangeNotification
@@ -470,6 +467,113 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
             [self persistAllValues];
             [self reloadCurrentPage];
         }];
+
+    // 键盘避让：输入框被键盘挡住时，先滚内容区，不够再把整张卡片上移；键盘收起还原
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillChangeFrameNotification
+        object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
+            [self handleKeyboardFrame];
+        }];
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillHideNotification
+        object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
+            [self restoreCardAfterKeyboard];
+        }];
+}
+
+#pragma mark - 键盘避让
+
+// 键盘弹出：先滚内容，再按需把卡片整体上移
+- (void)handleKeyboardFrame {
+    if (!_window || !_cardView) return;
+    [self restoreCardAfterKeyboard];   // 先回原位再算，免得连续调整越叠越多
+    UIView *responder = ZXFirstResponderView(_cardView);
+    if (!responder) return;
+    CGFloat keyboardTop = ZXKeyboardTopForView(_cardView);
+    CGFloat overlap = ZXScrollResponderIntoView(responder, _functionScrollView, keyboardTop);
+    if (overlap <= 0) return;
+    CGFloat shift = MIN(overlap, MAX(_cardView.frame.origin.y - 8.0f, 0.0f));
+    if (shift <= 0) return;
+    CGRect frame = _cardView.frame;
+    frame.origin.y -= shift;
+    _cardView.frame = frame;
+    _kbShift = shift;
+}
+
+// 键盘收起：把上移过的卡片放回去
+- (void)restoreCardAfterKeyboard {
+    if (_kbShift <= 0 || !_cardView) return;
+    CGRect frame = _cardView.frame;
+    frame.origin.y += _kbShift;
+    _cardView.frame = frame;
+    _kbShift = 0;
+}
+
+#pragma mark - 面板背景（颜色 / 透明度 / 自定义图片，都在 App 的「控制按钮悬浮窗」里配）
+
+static UIColor *fnColorFromHex(NSString *hex)
+{
+    if (![hex isKindOfClass:[NSString class]] || hex.length == 0) return nil;
+    NSString *value = [hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if ([value hasPrefix:@"#"]) value = [value substringFromIndex:1];
+    if (value.length != 6) return nil;
+    unsigned int rgb = 0;
+    if (![[NSScanner scannerWithString:value] scanHexInt:&rgb]) return nil;
+    return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
+                           green:((rgb >> 8) & 0xFF) / 255.0
+                            blue:(rgb & 0xFF) / 255.0 alpha:1];
+}
+
+- (void)applyPanelBackground {
+    if (!_cardView) return;
+    NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:getCommonConfigFilePath()] ?: @{};
+
+    NSString *hex = [config[@"floating_menu_panel_bg_color"] isKindOfClass:[NSString class]]
+                        ? config[@"floating_menu_panel_bg_color"] : @"";
+    NSString *imageName = [config[@"floating_menu_panel_bg_image"] isKindOfClass:[NSString class]]
+                        ? config[@"floating_menu_panel_bg_image"] : @"";
+    BOOL hasAlpha = [config[@"floating_menu_panel_bg_alpha"] isKindOfClass:[NSNumber class]];
+    CGFloat alpha = hasAlpha ? [config[@"floating_menu_panel_bg_alpha"] doubleValue] : -1;
+    if (alpha > 1) alpha = 1;
+    if (alpha < 0 && hasAlpha) alpha = 0;
+
+    UIColor *color = fnColorFromHex(hex);
+    if (!color) color = [UIColor systemBackgroundColor];
+    if (hasAlpha) color = [color colorWithAlphaComponent:alpha];
+
+    imageName = [imageName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    UIImage *image = nil;
+    if (imageName.length > 0) {
+        NSString *path = [[getCommonConfigFilePath() stringByDeletingLastPathComponent]
+                          stringByAppendingPathComponent:imageName];
+        image = [UIImage imageWithContentsOfFile:path];
+    }
+
+    [_functionBgView removeFromSuperview];
+    _functionBgView = nil;
+    [_functionBgTint removeFromSuperview];
+    _functionBgTint = nil;
+
+    if (!image) {
+        _cardView.backgroundColor = color;   // 没图：直接用颜色（带透明度）
+        return;
+    }
+
+    // 有图：图铺最底层，颜色层叠在图上（透明度作用在颜色层）
+    _functionBgView = [[UIImageView alloc] initWithFrame:_cardView.bounds];
+    _functionBgView.image = image;
+    _functionBgView.contentMode = UIViewContentModeScaleAspectFill;
+    _functionBgView.clipsToBounds = YES;
+    _functionBgView.userInteractionEnabled = NO;
+    _functionBgView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_cardView insertSubview:_functionBgView atIndex:0];
+
+    _cardView.backgroundColor = [UIColor clearColor];
+    if (hasAlpha && alpha > 0 && fnColorFromHex(hex)) {
+        _functionBgTint = [[UIView alloc] initWithFrame:_cardView.bounds];
+        _functionBgTint.backgroundColor = [fnColorFromHex(hex) colorWithAlphaComponent:alpha];
+        _functionBgTint.userInteractionEnabled = NO;
+        _functionBgTint.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [_cardView insertSubview:_functionBgTint aboveSubview:_functionBgView];
+    }
 }
 
 // 面板宽度（给页面排版用）：用户调过就用调的，没调过就按默认宽算
@@ -514,6 +618,9 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     if (_panelMoved) _panelOrigin = CGPointMake(originX, originY);
 
     _cardView.frame = CGRectMake(originX, originY, cardW, cardH);
+    _kbShift = 0;   // frame 被重排过，之前的键盘位移作废
+    _functionBgView.frame = _cardView.bounds;
+    _functionBgTint.frame = _cardView.bounds;
 
     // 顶行按钮按内容切换：挑脚本时「＋ / 录制」；功能页「运行 / 保存」；流程页「设置」（流程实时落盘，没有保存/预览）
     BOOL flow = (!_pickingScript && _panelMode == FNPanelModeFlow);
@@ -637,7 +744,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 // 从没 makeKey，所以「部分设备/系统版本」上点输入框没反应。
 // 在开始编辑之前（本回调保证在 becomeFirstResponder 之前）把窗口变成 key，再放行。
 - (BOOL)textFieldShouldBeginEditing:(UITextField *)textField {
-    ZXKeyboardDebugWillBeginEditing(textField.window);   // 诊断：为什么 14PM 上键盘不弹
+    ZXMakeWindowKeyIfNeeded(textField.window);
     return YES;
 }
 
@@ -822,12 +929,62 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     return row;
 }
 
-// 一格功能：名称（左，固定宽）+ 参数（在名称与开关之间居中）+ 开关（右，固定位）
-// pw = 这一格的宽度（一行一个时是整张卡，一行两个时是半张卡），外面负责定位，这里不再加内缩
+// 一格功能：名称（左，宽度按实际字数）+ 参数（紧跟名称）+ 开关（右）
+// pw = 这一格的宽度（由布局层按「自然宽度」算好传进来），外面负责定位，这里不再加内缩
 // 参数有两种，声明里就能看出来：
 //   数字     「x=333」        → 小字标签 + 输入框
 //   下拉     「范围=全部提醒|仅提醒白蛋|仅提醒黑蛋」 → 一个下拉按钮（值里带 | 就是下拉）
-// 参数区整体居中，所以每行的开关都落在同一条竖线上，参数也不会挤在名字旁边。
+// 参数紧跟名称左对齐，所以「攻击」和「x」之间的间距只留一个小间隔，不再有一段空白。
+//
+// 功能格的「自然宽度」：名称按实际字数算，参数按各自控件宽度算，加开关和留白，
+// 布局层用它做从左到右的自适应换行 —— 面板拉宽，一行自动多放几个。
+// 参数名小字（x / y / 延迟 / 次数…）的宽度：按文字实际宽度算，不留固定的一大段空位。
+// 短名（x / y）不再被撑到固定宽，这样「攻击」和「x」之间只剩一个正常的小间隔。
+static CGFloat fnCapLabelWidth(NSString *key)
+{
+    CGFloat w = ceil([key sizeWithAttributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:11] }].width) + 2.0f;
+    if (w < 8.0f) w = 8.0f;
+    return w;
+}
+
+- (CGFloat)fnNaturalWidthForFunction:(NSDictionary *)decl
+{
+    NSString *funcName = decl[@"name"];
+    NSArray<NSString *> *keys = decl[@"paramOrder"] ?: @[];
+
+    CGFloat pad = 10.0f;
+    CGFloat switchW = 51.0f;
+    CGFloat capGap = 4.0f;
+    CGFloat gap = 6.0f;
+
+    CGFloat nameW = ceil([funcName sizeWithAttributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:14] }].width) + 4.0f;
+    if (nameW < 36.0f) nameW = 36.0f;
+
+    CGFloat paramsW = 0;
+    if (keys.count > 0) {
+        CGFloat fixedW = 0;
+        NSUInteger numCount = 0;
+        for (NSString *key in keys) {
+            NSString *declared = decl[@"params"][key] ?: @"";
+            if ([declared rangeOfString:@"|"].location != NSNotFound) {
+                CGFloat w = 96.0f;
+                for (NSString *c in [declared componentsSeparatedByString:@"|"]) {
+                    CGFloat cw = [c sizeWithAttributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13] }].width + 34.0f;
+                    if (cw > w) w = cw;
+                }
+                fixedW += w;
+            } else {
+                fixedW += fnCapLabelWidth(key) + capGap;
+                numCount += 1;
+            }
+        }
+        paramsW = fixedW + 56.0f * numCount + gap * (keys.count - 1);
+    }
+
+    CGFloat w = pad + nameW + 10.0f + paramsW + (paramsW > 0 ? 10.0f : 0.0f) + switchW + pad;
+    return ceil(w);
+}
+
 - (UIView *)buildFunctionRow:(NSDictionary *)decl
                         isOn:(BOOL)isOn
                        saved:(NSDictionary<NSString *, NSString *> *)saved
@@ -840,9 +997,10 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     CGFloat rowW = pw;
     CGFloat rowH = 46.0f;
     CGFloat pad = 10.0f;
-    CGFloat nameW = FN_NAME_W;    // 够放 7 个中文字
+    // 名称宽度按实际字数算（与 fnNaturalWidthForFunction: 保持一致），不再预留固定的一大段
+    CGFloat nameW = ceil([funcName sizeWithAttributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:14] }].width) + 4.0f;
+    if (nameW < 36.0f) nameW = 36.0f;
     CGFloat switchW = 51.0f;
-    CGFloat capW = 26.0f;         // 参数名小字（x / 延迟 / 次数…）的宽度
     CGFloat capGap = 4.0f;
     CGFloat gap = 6.0f;
     CGFloat midX = pad + nameW + 10;                  // 参数区可用的左边界
@@ -895,7 +1053,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
             } else {
                 [choicesOf addObject:@[]];
                 [widths addObject:@(0)];   // 第二遍再补
-                fixedW += capW + capGap;
+                fixedW += fnCapLabelWidth(key) + capGap;
                 numCount += 1;
             }
         }
@@ -906,9 +1064,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
             if (fieldW < 30.0f) fieldW = 30.0f;
         }
 
-        CGFloat totalW = fixedW + fieldW * numCount + gap * (keys.count - 1);
-        CGFloat fx = midX + (midW - totalW) / 2.0f;   // 整块参数居中
-        if (fx < midX) fx = midX;
+        CGFloat fx = midX;   // 参数紧跟名称左对齐（自适应宽度下不会再有空白）
 
         // 第二遍：摆控件（顺手把数字框按 key 记下来，循环完给 x/y 挂「取点」）
         NSMutableDictionary<NSString *, UITextField *> *numFields = [NSMutableDictionary dictionary];
@@ -916,6 +1072,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
             NSString *key = keys[i];
             NSArray<NSString *> *choices = choicesOf[i];
             NSString *value = saved[key];
+            CGFloat capW = fnCapLabelWidth(key);   // 参数名小字按文字宽度自适应，短名不再撑出空白
             CGFloat ctrlW = choices.count > 0 ? [widths[i] doubleValue] : fieldW;
             // 一行两个时中间只剩 60~70pt，控件要缩到装得下，否则会压到右边的开关
             CGFloat limit = (choices.count > 0) ? midW : (midW - capW - capGap);
@@ -1028,7 +1185,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     NSString *title = _functionScriptPath.length
         ? [[_functionScriptPath lastPathComponent] stringByDeletingPathExtension]
         : @"（点这里选脚本）";
-    [_functionScriptBtn setTitle:[NSString stringWithFormat:@"脚本：%@", title] forState:UIControlStateNormal];
+    [_functionScriptBtn setTitle:title forState:UIControlStateNormal];
 
     [_cardView endEditing:YES];
     for (UIView *v in _functionScrollView.subviews) [v removeFromSuperview];
@@ -1055,61 +1212,40 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 
         NSArray<NSString *> *selected = hasScript ? ZXScriptFunctionSelection(_functionScriptPath) : nil;
 
-        // 先把功能按行分组（顺序不变，勾选序号才对得上）：
-        // 两个以上参数的自己占一整行（一行一个）；只有 0 或 1 个参数的攒够两个排一行
-        NSMutableArray<NSArray<NSDictionary *> *> *rowGroups = [NSMutableArray array];
-        NSMutableArray<NSDictionary *> *batch = [NSMutableArray array];
-        for (NSDictionary *decl in funcDecls) {
-            BOOL wide = [(decl[@"paramOrder"] ?: @[]) count] >= 2;
-            if (wide) {
-                if (batch.count > 0) { [rowGroups addObject:[batch copy]]; [batch removeAllObjects]; }
-                [rowGroups addObject:@[decl]];
-            } else {
-                [batch addObject:decl];
-                if (batch.count == 2) { [rowGroups addObject:[batch copy]]; [batch removeAllObjects]; }
-            }
-        }
-        if (batch.count > 0) [rowGroups addObject:[batch copy]];
-
+        // 自适应流式布局：每个功能按自己的自然宽度（名称 + 参数控件 + 开关）算，
+        // 从左到右排，放不下就换行；面板拉宽了一行自然就多放几个。
         CGFloat contentW = pw - 8;   // 卡片里能用的宽度（左右各留 4pt）
         CGFloat rowGap = 6.0f;
-        for (NSArray<NSDictionary *> *group in rowGroups) {
-            CGFloat rowH = 0;
-            if (group.count == 1) {
-                NSString *n = group[0][@"name"];
-                UISwitch *sw = nil;
-                UIView *cell = [self buildFunctionRow:group[0]
-                                                 isOn:(selected == nil ? YES : [selected containsObject:n])
-                                                saved:savedParams[n]
-                                                width:contentW
-                                               switch:&sw
-                                               height:&rowH];
-                [_functionSwitches addObject:sw];
-                cell.frame = CGRectMake(4, y, contentW, rowH);
-                [_functionScrollView addSubview:cell];
-            } else {
-                CGFloat cellW = (contentW - rowGap) / 2.0f;
-                UIView *row = [[UIView alloc] initWithFrame:CGRectMake(4, y, contentW, 0)];
-                for (NSUInteger i = 0; i < group.count; i++) {
-                    NSString *n = group[i][@"name"];
-                    UISwitch *sw = nil;
-                    CGFloat cellH = 0;
-                    UIView *cell = [self buildFunctionRow:group[i]
-                                                     isOn:(selected == nil ? YES : [selected containsObject:n])
-                                                    saved:savedParams[n]
-                                                    width:cellW
-                                                   switch:&sw
-                                                   height:&cellH];
-                    cell.frame = CGRectMake(i * (cellW + rowGap), 0, cellW, cellH);
-                    [row addSubview:cell];
-                    [_functionSwitches addObject:sw];
-                    if (cellH > rowH) rowH = cellH;
-                }
-                row.frame = CGRectMake(4, y, contentW, rowH);
-                [_functionScrollView addSubview:row];
+
+        CGFloat cursorX = 0;   // 当前行已用宽度（0 表示行首）
+        CGFloat rowH = 0;      // 当前行高度
+        for (NSDictionary *decl in funcDecls) {
+            NSString *n = decl[@"name"];
+            CGFloat cellW = [self fnNaturalWidthForFunction:decl];
+            if (cellW > contentW) cellW = contentW;
+
+            if (cursorX > 0 && cursorX + rowGap + cellW > contentW) {
+                y += rowH + rowGap;   // 放不下 → 换行
+                cursorX = 0;
+                rowH = 0;
             }
-            y += rowH + rowGap;
+
+            UISwitch *sw = nil;
+            CGFloat cellH = 0;
+            UIView *cell = [self buildFunctionRow:decl
+                                             isOn:(selected == nil ? YES : [selected containsObject:n])
+                                            saved:savedParams[n]
+                                            width:cellW
+                                           switch:&sw
+                                           height:&cellH];
+            CGFloat x = cursorX > 0 ? cursorX + rowGap : 0;
+            cell.frame = CGRectMake(4 + x, y, cellW, cellH);
+            [_functionScrollView addSubview:cell];
+            [_functionSwitches addObject:sw];
+            cursorX = x + cellW;
+            if (cellH > rowH) rowH = cellH;
         }
+        y += rowH + rowGap;
         y += 4;
     }
 
@@ -1189,7 +1325,7 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
     [state writeToFile:PANEL_STATE_CONFIG_PATH atomically:YES];
 }
 
-// 递归铺目录：文件夹点一下展开 / 收起；脚本行支持左滑删除、长按菜单（复制/导出），
+// 递归铺目录：文件夹点一下展开 / 收起；脚本行支持左滑删除、长按菜单（复制/重命名/导出），
 // 行右显示最后编辑时间，名字左边是可视化脚本的总步骤数（按档上色）
 - (CGFloat)addScriptEntriesAtDir:(NSString *)dir depth:(NSInteger)depth y:(CGFloat)y width:(CGFloat)pw {
     __weak typeof(self) weakSelf = self;
@@ -1494,13 +1630,16 @@ static NSString *fnImportExportFolder(void) {
     ZXShowMiniMenuNearView(_newScriptBtn, menuItems);
 }
 
-// 长按脚本行：复制 / 导出
+// 长按脚本行：复制 / 重命名 / 导出
 - (void)showScriptActionMenuForPath:(NSString *)path anchor:(UIView *)anchor {
     if (!anchor) return;
     __weak typeof(self) weakSelf = self;
     ZXShowMiniMenuNearView(anchor, @[
         @{ @"title": @"复制", @"icon": @"doc.on.doc", @"action": ^{
             [weakSelf duplicateScriptAtPath:path];
+        } },
+        @{ @"title": @"重命名", @"icon": @"pencil", @"action": ^{
+            [weakSelf renameScriptAtPath:path];
         } },
         @{ @"title": @"导出", @"icon": @"square.and.arrow.up", @"action": ^{
             [weakSelf exportScriptAtPath:path];
@@ -1543,6 +1682,75 @@ static NSString *fnImportExportFolder(void) {
     }
 }
 
+// 改名后把 script_functions.plist 里按旧路径存的勾选/选项/功能参数迁到新路径，
+// 不迁的话改个名之前勾的功能和填的参数就全丢了
+static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) {
+    NSMutableDictionary *config = [[NSDictionary dictionaryWithContentsOfFile:SCRIPT_FUNCTIONS_CONFIG_PATH]
+                                   mutableCopy] ?: [NSMutableDictionary dictionary];
+    BOOL changed = NO;
+    for (NSString *key in @[@"scripts", @"options", @"func_params"]) {
+        if (![config[key] isKindOfClass:[NSDictionary class]]) continue;
+        NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:config[key]];
+        id value = dict[oldPath];
+        if (!value || dict[newPath]) continue;
+        dict[newPath] = value;
+        [dict removeObjectForKey:oldPath];
+        config[key] = dict;
+        changed = YES;
+    }
+    if ([config[@"last_script"] isKindOfClass:[NSString class]] &&
+        [config[@"last_script"] isEqualToString:oldPath]) {
+        config[@"last_script"] = newPath;
+        changed = YES;
+    }
+    if (changed) [config writeToFile:SCRIPT_FUNCTIONS_CONFIG_PATH atomically:YES];
+}
+
+// 重命名 = 弹输入框拿新名字，同目录 move。
+// 输入框用的是 promptInputFromRawData（自己建全屏 alert 窗口；本卡片是独立 UIWindow，弹不了
+// UIAlertController），它内部等信号量，所以必须在后台线程调，拿到结果回主线程再动文件。
+- (void)renameScriptAtPath:(NSString *)path {
+    NSString *oldName = [[path lastPathComponent] stringByDeletingPathExtension];
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSString *raw = [NSString stringWithFormat:@"重命名;;输入新的脚本名;;脚本名;;%@", oldName];
+        NSMutableData *buf = [NSMutableData dataWithData:
+                              [raw dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data]];
+        [buf appendBytes:"" length:1];   // promptInput 按 C 字符串读，补 NUL 结尾
+        NSError *err = nil;
+        NSString *newName = promptInputFromRawData((UInt8 *)buf.mutableBytes, &err);
+        if (newName.length == 0) return;   // 取消 / 超时 / 空名字：什么都不动
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf finishRenamingScriptAtPath:path toName:newName];
+        });
+    });
+}
+
+// 主线程里做真正的改名
+- (void)finishRenamingScriptAtPath:(NSString *)path toName:(NSString *)newName {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *dir = [path stringByDeletingLastPathComponent];
+    NSString *clean = [newName stringByTrimmingCharactersInSet:
+                       [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    clean = [clean stringByReplacingOccurrencesOfString:@"/" withString:@"_"];   // 防路径穿越
+    clean = [clean stringByReplacingOccurrencesOfString:@";" withString:@"_"];   // 「;」会破坏弹窗的 ;; 分隔协议
+    if (clean.length == 0) return;
+    NSString *dest = [[dir stringByAppendingPathComponent:clean] stringByAppendingPathExtension:@"bdl"];
+    if ([dest isEqualToString:path]) return;
+    if ([fm fileExistsAtPath:dest]) {
+        showAlertBox(@"无法重命名", @"已存在同名脚本。", 999);
+        return;
+    }
+    NSError *err = nil;
+    if ([fm moveItemAtPath:path toPath:dest error:&err]) {
+        if ([_functionScriptPath isEqualToString:path]) _functionScriptPath = [dest copy];
+        fnMigrateScriptConfigFromPath(path, dest);
+        [self reloadScriptPicker];
+    } else {
+        showAlertBox(@"错误", [NSString stringWithFormat:@"重命名失败：%@", err.localizedDescription], 999);
+    }
+}
+
 // 按当前状态重画内容：挑脚本 / 功能页 / 流程编辑，三选一
 - (void)reloadCurrentPage {
     if (!_window) return;
@@ -1569,8 +1777,7 @@ static NSString *fnImportExportFolder(void) {
 - (void)flowHostSetNavigationTitle:(NSString *)title canGoBack:(BOOL)canGoBack {
     _flowCanGoBack = canGoBack;
     // 流程子页左键 = 返回；根页左键 = 挑脚本（和功能页一致）
-    [_functionScriptBtn setTitle:(canGoBack ? [NSString stringWithFormat:@"← %@", title]
-                                            : [NSString stringWithFormat:@"脚本：%@", title])
+    [_functionScriptBtn setTitle:(canGoBack ? [NSString stringWithFormat:@"← %@", title] : title)
                         forState:UIControlStateNormal];
     [self layoutCard];   // 「预览」只在流程根页显示
 }
@@ -1663,6 +1870,7 @@ static NSString *fnImportExportFolder(void) {
             [self reloadFunctionPage];
         }
         [self refreshRecordingButton];   // 录制可能在面板关着的时候被别人起停过
+        [self applyPanelBackground];     // 背景色/背景图/透明度由 App 的「控制按钮悬浮窗」参数决定
         self->_window.hidden = NO;
         [self->_window makeKeyWindow];   // 同上：先成为 key window，输入框才有机会拿到系统键盘
 

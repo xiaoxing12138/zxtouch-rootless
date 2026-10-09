@@ -20,8 +20,8 @@ NSString * const kFlowImage = @"image";
 NSString * const kFlowOCR = @"ocr";
 
 // 点击的默认值：改这里，生成器与弹窗默认值一起跟着变
-static const double kDefaultTapInterval = 0.05;
-static const double kDefaultTapHold = 0.05;
+static const double kDefaultTapInterval = 0.02;
+static const double kDefaultTapHold = 0.02;
 
 // 生成脚本开头那一行标记：靠它判断 main.py 是不是我们生成的
 static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视化编辑器生成。";
@@ -34,6 +34,13 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
     spec.title = title;
     spec.integer = integer;
     spec.defaultValue = def;
+    return spec;
+}
+
++ (instancetype)numKey:(NSString *)key title:(NSString *)title integer:(BOOL)integer def:(NSString *)def
+{
+    FlowFieldSpec *spec = [self key:key title:title integer:integer def:def];
+    spec.numeric = YES;
     return spec;
 }
 @end
@@ -58,8 +65,8 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
             [FlowFieldSpec key:@"X" title:@"X 坐标" integer:YES def:@"400"],
             [FlowFieldSpec key:@"Y" title:@"Y 坐标" integer:YES def:@"400"],
             [FlowFieldSpec key:@"Count" title:@"连续点几下" integer:YES def:@"1"],
-            [FlowFieldSpec key:@"Interval" title:@"每下之间停（秒）" integer:NO def:@"0.05"],
-            [FlowFieldSpec key:@"Hold" title:@"按住多久（秒）" integer:NO def:@"0.05"],
+            [FlowFieldSpec numKey:@"Interval" title:@"每下之间停（秒）" integer:NO def:@"0.02"],
+            [FlowFieldSpec numKey:@"Hold" title:@"按住多久（秒）" integer:NO def:@"0.02"],
         ];
 
         FlowStepType *swipe = [self type:kFlowSwipe title:@"滑动" symbol:@"hand.draw.fill" condition:NO];
@@ -71,16 +78,16 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
             [FlowFieldSpec key:@"Y1" title:@"起点 Y" integer:YES def:@"400"],
             [FlowFieldSpec key:@"X2" title:@"终点 X" integer:YES def:@"600"],
             [FlowFieldSpec key:@"Y2" title:@"终点 Y" integer:YES def:@"400"],
-            [FlowFieldSpec key:@"Duration" title:@"划多久（秒）" integer:NO def:@"0.4"],
+            [FlowFieldSpec numKey:@"Duration" title:@"划多久（秒）" integer:NO def:@"0.4"],
         ];
 
         FlowStepType *wait = [self type:kFlowWait title:@"等待" symbol:@"clock.fill" condition:NO];
-        wait.fields = @[ [FlowFieldSpec key:@"Seconds" title:@"等几秒" integer:NO def:@"0.5"] ];
+        wait.fields = @[ [FlowFieldSpec numKey:@"Seconds" title:@"等几秒" integer:NO def:@"0.5"] ];
 
         FlowStepType *toast = [self type:kFlowToast title:@"提示" symbol:@"text.bubble.fill" condition:NO];
         toast.fields = @[
             [FlowFieldSpec key:@"Text" title:@"提示文字" integer:NO def:@"完成"],
-            [FlowFieldSpec key:@"Seconds" title:@"显示几秒" integer:NO def:@"2"],
+            [FlowFieldSpec numKey:@"Seconds" title:@"显示几秒" integer:NO def:@"2"],
         ];
 
         FlowStepType *color = [self type:kFlowColor title:@"识色" symbol:@"eyedropper.halffull" condition:YES];
@@ -113,7 +120,7 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         image.pickTargets = @[@"Template"];
         image.fields = @[
             [FlowFieldSpec key:@"Template" title:@"模板图（用下面的按钮框选）" integer:NO def:@""],
-            [FlowFieldSpec key:@"Threshold" title:@"相似度（0-1）" integer:NO def:@"0.8"],
+            [FlowFieldSpec numKey:@"Threshold" title:@"相似度（0-1）" integer:NO def:@"0.8"],
         ];
 
         // 识字：把框选区域里的文字/数字识别出来，只用来判断，不改变脚本流程
@@ -436,7 +443,7 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
 
     [out appendString:
      @"\n"
-     "def 点(x, y, 次数=1, 间隔=0.05, 按住=0.05):\n"
+     "def 点(x, y, 次数=1, 间隔=0.02, 按住=0.02):\n"
      "    \"\"\"按下 → 按住一会儿 → 抬起 → 停「间隔」秒，连做「次数」下。\"\"\"\n"
      "    x, y = int(round(float(x))), int(round(float(y)))\n"
      "    for _ in range(max(1, int(float(次数)))):\n"
