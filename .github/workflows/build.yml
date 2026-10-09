@@ -2,7 +2,7 @@ name: Build ZXTouch Package
 
 # Actions 列表里显示的构建名。取提交信息的话会把多行正文一起塞进去，很难看，
 # 所以直接写死版本号 —— 发版时和 control / pbxproj 一起改（见 HANDOFF「版本号」一节）。
-run-name: v3.0.76
+run-name: v3.0.77
 
 on:
   push:
@@ -110,8 +110,18 @@ jobs:
         run: |
           mkdir -p artifacts
           sleep 2
-          ls -la packages/
+          echo "--- Searching for .deb artifacts ---"
+          find . -maxdepth 4 -name "*.deb" 2>/dev/null
+          echo "--- packages/ contents ---"
+          ls -la packages/ 2>/dev/null || echo "(packages/ does not exist)"
           DEB=$(ls -t packages/*.deb 2>/dev/null | head -1)
+          if [ -z "$DEB" ]; then
+            DEB=$(find . -maxdepth 4 -name "*.deb" 2>/dev/null | head -1)
+          fi
+          if [ -z "$DEB" ]; then
+            echo "ERROR: No .deb file found anywhere. Theos build may have skipped packaging."
+            exit 1
+          fi
           echo "DEB=$DEB"
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           echo "VERSION=$VERSION"
