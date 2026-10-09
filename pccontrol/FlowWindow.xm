@@ -1133,18 +1133,12 @@ static FlowWindow *_fwShared = nil;
         [nameContainer addSubview:field];
         _subTitleField = field;
 
-        // 点击 label → 进入编辑
+        // 点击 label → 进入编辑（用 target/action，不用 initWithAction: 因旧 SDK 不支持）
+        [nameLabel addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                                action:@selector(handleSubTitleTap:)]];
+
         __weak UILabel *weakLabel = nameLabel;
         __weak UIView *weakUnder = underline;
-        [nameLabel addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithAction:^(__kindof UIGestureRecognizer *g) {
-            UITextField *f = weakSelf->_subTitleField;
-            UILabel *l = weakLabel;
-            UIView *u = weakUnder;
-            if (!f || !l) return;
-            f.text = l.text;
-            l.hidden = YES; u.hidden = YES; f.hidden = NO;
-            [f becomeFirstResponder];
-        }]];
 
         // 输入时实时写回步骤名
         [field addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
@@ -1362,6 +1356,17 @@ static FlowWindow *_fwShared = nil;
         frame.origin.y += shift;
         card.frame = frame;
     } completion:nil];
+}
+
+// 点击步骤名 label → 切到输入框编辑
+- (void)handleSubTitleTap:(UITapGestureRecognizer *)g {
+    UITextField *f = _subTitleField;
+    UILabel *l = _subTitleLabel;
+    if (!f || !l) return;
+    UIView *under = l.superview.subviews.count > 1 ? l.superview.subviews[1] : nil;
+    f.text = l.text;
+    l.hidden = YES; under.hidden = YES; f.hidden = NO;
+    [f becomeFirstResponder];
 }
 
 // 拖标题栏移动子浮窗；松手夹回屏幕内
