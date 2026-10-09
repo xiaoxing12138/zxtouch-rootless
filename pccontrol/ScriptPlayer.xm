@@ -12,14 +12,12 @@
 #include <errno.h>
 #include <unistd.h>
 #include <signal.h>
+#include <spawn.h>
+#include <fcntl.h>
+#include <time.h>
+#include <stdlib.h>
 
 static BOOL isPlaying = false;
-
-static NSString *ZXShellQuote(NSString *value)
-{
-    if (!value) return @"''";
-    return [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"]];
-}
 
 static NSString *ZXFirstExecutablePath(NSArray<NSString *> *candidates)
 {
@@ -34,11 +32,6 @@ static NSString *ZXFirstExecutablePath(NSArray<NSString *> *candidates)
 
 static NSString *ZXPythonPath(void)
 {
-    // Prefer specific versions before the generic `python3` symlink. If a
-    // previous install of ZXTouch (or another package) pointed `python3` at a
-    // broken interpreter (e.g. Procursus 3.7 whose libpython lives at a path
-    // dyld can't resolve on rootless), a versioned binary is more likely to
-    // actually load. 3.7 is dropped entirely — it aborts at dyld on 15+.
     return ZXFirstExecutablePath(@[
         jbroot(@"/usr/bin/python3.12"),
         jbroot(@"/usr/bin/python3.11"),
@@ -61,24 +54,8 @@ static NSString *ZXPythonPath(void)
     ]);
 }
 
-static NSString *ZXShellPath(void)
-{
-    return ZXFirstExecutablePath(@[
-        jbroot(@"/bin/sh"),
-        jbroot(@"/usr/bin/sh"),
-        @"/var/jb/bin/sh",
-        @"/var/jb/usr/bin/sh",
-        @"/bin/sh",
-        @"/usr/bin/sh"
-    ]) ?: @"/bin/sh";
-}
-
 static NSString *ZXPythonModulePath(void)
 {
-    // The zxtouch module ships under /usr/share/zxtouch/python and the postinst
-    // also copies it into every installed Python's site/dist-packages. Include
-    // the share path unconditionally so scripts still find `import zxtouch`
-    // even if the copy step skipped a Python version installed later.
     NSMutableArray<NSString *> *paths = [NSMutableArray array];
     for (NSString *path in @[
         jbroot(@"/usr/share/zxtouch/python"),
@@ -103,7 +80,7 @@ static NSString *ZXPythonModulePath(void)
     float interval;
     float speed;
     NSString* scriptBundlePath;
-    int currentScriptType; // -1 no task has specified; 0 not playing but has upcoming task; 1 raw file playing; 2 py file playing
+    int currentScriptType;
     NSTimer *replayTimer;
     Boolean scriptPlayForceStop;
     volatile sig_atomic_t scriptStopRequested;
@@ -127,7 +104,6 @@ static NSString *ZXPythonModulePath(void)
         return;
     }
     scriptPauseRequested = 1;
-    // py 脚本跑在独立进程组里，冻结整个进程组（含 shell 管道）才能真正停住
     if (currentScriptType == 2 && pythonProcessGroup > 0) {
         kill(-pythonProcessGroup, SIGSTOP);
     }
@@ -246,7 +222,6 @@ static NSString *ZXPythonModulePath(void)
         return -1;
     }
 
-    // read info.plist into dictionary
     NSString *infoFilePath = [NSString stringWithFormat:@"%@/info.plist", scriptBundlePath];
     if (![[NSFileManager defaultManager] fileExistsAtPath:infoFilePath isDirectory:&isDir])
     {
@@ -255,7 +230,6 @@ static NSString *ZXPythonModulePath(void)
         return -1;
     }
     NSDictionary *scriptInfo = [NSDictionary dictionaryWithContentsOfFile:infoFilePath];
-    // get entry file extension
     NSString *entryFileName = scriptInfo[@"Entry"];
     NSString *fileExtension = [entryFileName pathExtension];
 
@@ -284,7 +258,6 @@ static NSString *ZXPythonModulePath(void)
     }
 }
 
-// play the script
 - (int)play:(NSError**)error
 {
     if (isPlaying)
@@ -328,7 +301,6 @@ static NSString *ZXPythonModulePath(void)
             stoppedByUser = YES;
             break;
         }
-        // 暂停：原地等待（50ms 轮询），期间仍能响应停止
         while (scriptPauseRequested && !scriptPlayForceStop)
         {
             usleep(50 * 1000);
@@ -345,13 +317,12 @@ static NSString *ZXPythonModulePath(void)
         }
         if (speed > 0 && speed != 1)
         {
-            // check whether need to speed up
             int type, sleepTime;
             sscanf(buffer, "%2d", &type);
             if (type == TASK_USLEEP)
             {
                 sscanf(buffer, "%2d%d", &type, &sleepTime);
-                sleepTime = sleepTime / speed; // truncate the float part
+                sleepTime = sleepTime / speed;
                 processTask((UInt8*)[[NSString stringWithFormat:@"18%d", sleepTime] UTF8String], NULL);
             }
             else
@@ -378,12 +349,12 @@ static NSString *ZXPythonModulePath(void)
     {
         bringAppForeground(foregroundApp);
     }
-    
+
     NSString *pythonPath = ZXPythonPath();
     if (!pythonPath)
     {
         showAlertBox(@"未安装 Python",
-                     @"小新Lap 在此设备上找不到可用的 python3。\n\n请打开 Sileo，安装 Procursus 源中的“python3”软件包，然后重新安装 小新Lap，以便注册新的解释器。",
+                     @"小新Lap 在此设备上找不到可用的 python3。\n\n请打开 Sileo，安装 Procursus 源中的 python3 软件包，然后重新安装 小新Lap，以便注册新的解释器。",
                      999);
         isPlaying = false;
         return;
@@ -395,69 +366,229 @@ static NSString *ZXPythonModulePath(void)
         isPlaying = false;
         return;
     }
-    // Ensure output log file exists so the >> redirect doesn't fail
+
     NSString *outputLog = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output";
     if (![[NSFileManager defaultManager] fileExistsAtPath:outputLog])
         [@"" writeToFile:outputLog atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
-    NSString *dateWrapper = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/add_datetime.sh";
-    NSString *shellPath = ZXShellPath();
-    if (![[NSFileManager defaultManager] fileExistsAtPath:dateWrapper]) {
-        NSString *wrapper = [NSString stringWithFormat:@"#!%@\nOUTPUT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output\nDATE=/var/jb/usr/bin/date\nif [ ! -x \"$DATE\" ]; then DATE=/usr/bin/date; fi\nif [ ! -x \"$DATE\" ]; then DATE=/bin/date; fi\necho \"$($DATE '+%%m-%%d-%%Y %%T'): 开始运行脚本，路径: $1\" >> \"$OUTPUT\"\nwhile IFS= read -r line; do\n    echo \"$($DATE '+%%m-%%d-%%Y %%T'): $line\" >> \"$OUTPUT\"\ndone\n", shellPath];
-        [wrapper writeToFile:dateWrapper atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        chmod(dateWrapper.UTF8String, 0755);
-    }
+    NSString *statusFile = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/last_python_status";
+    [[NSFileManager defaultManager] removeItemAtPath:statusFile error:nil];
 
     NSString *scriptDir = [filePath stringByDeletingLastPathComponent];
-    NSString *statusFile = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/last_python_status";
     NSString *pythonModulePath = ZXPythonModulePath();
-    // 功能勾选 + 选项（形如 ZX_OPTS_FILE=... ZX_FUNCS=0,2 ）必须在解释器之前设置，脚本用 os.environ 读取
     NSString *selectionEnv = ZXScriptEnvPrefix(scriptBundlePath);
-    NSString *envPrefix = pythonModulePath.length > 0 ? [NSString stringWithFormat:@"PYTHONPATH=%@ ", ZXShellQuote(pythonModulePath)] : @"";
-    envPrefix = [selectionEnv stringByAppendingString:envPrefix];
-    NSString *commandToRun = [NSString stringWithFormat:@"rm -f %@; (cd %@ && %@%@ -u %@ 2>&1; echo $? > %@) | %@ %@ %@; exit $(cat %@ 2>/dev/null || echo 1)",
-                              ZXShellQuote(statusFile),
-                              ZXShellQuote(scriptDir),
-                              envPrefix,
-                              ZXShellQuote(pythonPath),
-                              ZXShellQuote(filePath),
-                              ZXShellQuote(statusFile),
-                              ZXShellQuote(shellPath),
-                              ZXShellQuote(dateWrapper),
-                              ZXShellQuote(filePath),
-                              ZXShellQuote(statusFile)];
-    NSLog(@"com.zjx.springboard: command to run for running py file %@", commandToRun);
 
-    int shellExitCode = system2Cancelable([commandToRun UTF8String], NULL, NULL,
-                                          &pythonProcessGroup, &scriptStopRequested);
+    // ── 1. 构造环境变量 ──
+    // shell 链路（system2Cancelable）在 Dopamine 下 PATH 缺 /var/jb/usr/bin
+    // 导致 probe A=127。现在完全绕开 shell，直接 posix_spawn python，
+    // 用绝对路径拉解释器（probe B=0 已验证可行）。
+    NSMutableArray<NSString *> *envVars = [NSMutableArray array];
+    if (pythonModulePath.length > 0) {
+        [envVars addObject:[NSString stringWithFormat:@"PYTHONPATH=%@", pythonModulePath]];
+    }
+    if (selectionEnv.length > 0) {
+        NSArray<NSString *> *parts = [selectionEnv componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        for (NSString *part in parts) {
+            if (part.length > 0 && [part containsString:@"="]) {
+                [envVars addObject:part];
+            }
+        }
+    }
+
+    extern char **environ;
+    int envCount = 0;
+    while (environ && environ[envCount]) envCount++;
+
+    NSMutableSet<NSString *> *ourKeys = [NSMutableSet set];
+    for (NSString *ev in envVars) {
+        NSRange eq = [ev rangeOfString:@"="];
+        if (eq.location != NSNotFound)
+            [ourKeys addObject:[ev substringToIndex:eq.location]];
+    }
+
+    int totalEnv = envCount + (int)envVars.count + 1;
+    char **envp = malloc(sizeof(char *) * totalEnv);
+    int eidx = 0;
+    for (int i = 0; i < envCount; i++) {
+        NSString *existing = [NSString stringWithUTF8String:environ[i]];
+        NSRange eq = [existing rangeOfString:@"="];
+        if (eq.location != NSNotFound && ![ourKeys containsObject:[existing substringToIndex:eq.location]]) {
+            envp[eidx++] = environ[i];
+        }
+    }
+    for (NSString *ev in envVars) {
+        envp[eidx++] = (char *)ev.UTF8String;
+    }
+    envp[eidx] = NULL;
+
+    // ── 2. posix_spawn python（无 shell 介入）──
+    int p_stdout[2];
+    if (pipe(p_stdout) == -1) {
+        NSLog(@"com.zjx.springboard: pipe(stdout) failed: %s", strerror(errno));
+        free(envp);
+        isPlaying = false;
+        return;
+    }
+
+    // chdir 到脚本目录（脚本内相对路径依赖此上下文）
+    char prevCwd[PATH_MAX] = {0};
+    getcwd(prevCwd, sizeof(prevCwd));
+    if (chdir(scriptDir.UTF8String) != 0) {
+        NSLog(@"com.zjx.springboard: chdir(%s) failed: %s", scriptDir.UTF8String, strerror(errno));
+    }
+
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_adddup2(&actions, p_stdout[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, p_stdout[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, p_stdout[0]);
+    posix_spawn_file_actions_addclose(&actions, p_stdout[1]);
+
+    posix_spawnattr_t attrs;
+    posix_spawnattr_init(&attrs);
+    sigset_t emptyset;
+    sigemptyset(&emptyset);
+    posix_spawnattr_setsigmask(&attrs, &emptyset);
+    posix_spawnattr_setpgroup(&attrs, 0);  // python 自己当进程组长（kill(-pid) 可暂停/停止）
+    posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETPGROUP);
+
+    const char *argv[] = {
+        pythonPath.UTF8String,
+        "-u",
+        filePath.UTF8String,
+        NULL
+    };
+
+    pid_t pid = 0;
+    int spawnErr = posix_spawn(&pid, pythonPath.UTF8String, &actions, &attrs, (char *const *)argv, envp);
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attrs);
+    free(envp);
+
+    if (prevCwd[0]) chdir(prevCwd);
+
+    if (spawnErr != 0) {
+        NSLog(@"com.zjx.springboard: posix_spawn(%s) failed: %s (%d)",
+              pythonPath.UTF8String, strerror(spawnErr), spawnErr);
+        close(p_stdout[0]); close(p_stdout[1]);
+        showAlertBox(@"脚本无法启动",
+                     [NSString stringWithFormat:@"小新Lap 无法启动 Python（posix_spawn 失败：%s）。\n\n请打开 Console.app，搜索 com.zjx.springboard 查看详情。", strerror(spawnErr)],
+                     999);
+        isPlaying = false;
+        return;
+    }
+
+    pythonProcessGroup = pid;
+    NSLog(@"com.zjx.springboard: spawned python %s (pid=%d)", pythonPath.UTF8String, pid);
+
+    // ── 3. 父进程读 pipe，每行加 datetime 前缀写 outputLog ──
+    close(p_stdout[1]);
+
+    NSFileHandle *logHandle = [NSFileHandle fileHandleForWritingAtPath:outputLog];
+    [logHandle seekToEndOfFile];
+
+    // 开始标记
+    time_t now = time(NULL);
+    struct tm tmbuf;
+    localtime_r(&now, &tmbuf);
+    char dateBuf[32];
+    strftime(dateBuf, sizeof(dateBuf), "%m-%d-%Y %H:%M:%S", &tmbuf);
+    NSString *startLine = [NSString stringWithFormat:@"%s: 开始运行脚本，路径: %@\n", dateBuf, filePath];
+    [logHandle writeData:[startLine dataUsingEncoding:NSUTF8StringEncoding]];
+
+    char readBuf[4096];
+    NSMutableData *pendingBuf = [NSMutableData data];
+
+    while (!scriptStopRequested) {
+        ssize_t n = read(p_stdout[0], readBuf, sizeof(readBuf));
+        if (n <= 0) break;
+        [pendingBuf appendBytes:readBuf length:n];
+
+        NSUInteger start = 0;
+        NSRange nl;
+        while ((nl = [pendingBuf rangeOfData:[NSData dataWithBytes:"\n" length:1]
+                                      options:0
+                                        range:NSMakeRange(start, pendingBuf.length - start)]).location != NSNotFound) {
+            NSData *lineData = [pendingBuf subdataWithRange:NSMakeRange(start, nl.location - start)];
+            start = nl.location + 1;
+
+            NSString *line = [[NSString alloc] initWithData:lineData encoding:NSUTF8StringEncoding]
+                          ?: [[NSString alloc] initWithData:lineData encoding:NSASCIIStringEncoding]
+                          ?: @"";
+            time_t t2 = time(NULL);
+            struct tm tm2;
+            localtime_r(&t2, &tm2);
+            strftime(dateBuf, sizeof(dateBuf), "%m-%d-%Y %H:%M:%S", &tm2);
+            NSString *outLine = [NSString stringWithFormat:@"%s: %@\n", dateBuf, line];
+            [logHandle writeData:[outLine dataUsingEncoding:NSUTF8StringEncoding]];
+        }
+        if (start > 0) [pendingBuf replaceBytesInRange:NSMakeRange(0, start) withBytes:NULL length:0];
+    }
+
+    //  flush 最后一段不完整行
+    if (pendingBuf.length > 0) {
+        NSString *line = [[NSString alloc] initWithData:pendingBuf encoding:NSUTF8StringEncoding]
+                      ?: [[NSString alloc] initWithData:pendingBuf encoding:NSASCIIStringEncoding]
+                      ?: @"";
+        time_t t2 = time(NULL);
+        struct tm tm2;
+        localtime_r(&t2, &tm2);
+        strftime(dateBuf, sizeof(dateBuf), "%m-%d-%Y %H:%M:%S", &tm2);
+        NSString *outLine = [NSString stringWithFormat:@"%s: %@\n", dateBuf, line];
+        [logHandle writeData:[outLine dataUsingEncoding:NSUTF8StringEncoding]];
+    }
+
+    close(p_stdout[0]);
+    [logHandle closeFile];
+
+    // ── 4. 回收子进程 ──
     BOOL stoppedByUser = scriptStopRequested != 0;
     scriptStopRequested = 0;
-    NSString *statusText = [NSString stringWithContentsOfFile:statusFile encoding:NSUTF8StringEncoding error:nil];
-    int pythonExitCode = statusText ? [statusText intValue] : shellExitCode;
+
+    int status = 0;
+    int pythonExitCode = -1;
+
+    if (stoppedByUser && pythonProcessGroup > 0) {
+        kill(-pythonProcessGroup, SIGKILL);
+    }
+
+    pid_t wpid;
+    while ((wpid = waitpid(pid, &status, 0)) == -1) {
+        if (errno == EINTR) continue;
+        NSLog(@"com.zjx.springboard: waitpid(pid=%d) failed: %s", pid, strerror(errno));
+        break;
+    }
+    if (wpid > 0) {
+        if (WIFEXITED(status)) pythonExitCode = WEXITSTATUS(status);
+        else if (WIFSIGNALED(status)) pythonExitCode = 128 + WTERMSIG(status);
+        NSLog(@"com.zjx.springboard: python exited code=%d (stoppedByUser=%d)", pythonExitCode, stoppedByUser);
+    }
+    pythonProcessGroup = 0;
+
+    NSString *exitStr = [NSString stringWithFormat:@"%d", pythonExitCode];
+    [exitStr writeToFile:statusFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+
+    // ── 5. 错误处理 ──
     if (!stoppedByUser && pythonExitCode != 0) {
         NSString *title = @"脚本错误";
         NSString *message;
         NSString *logTail = [NSString stringWithContentsOfFile:outputLog encoding:NSUTF8StringEncoding error:nil] ?: @"";
         BOOL dyldLibpythonMissing = [logTail rangeOfString:@"Library not loaded" options:0].location != NSNotFound &&
                                     [logTail rangeOfString:@"libpython" options:0].location != NSNotFound;
-        if (statusText == nil && shellExitCode < 0) {
-            // system2 failed before python could run — spawn was denied or the
-            // shell was unusable. Common on semi-jailbreaks with stripped
-            // entitlements. Check Console.app for `system2` NSLog output.
-            title = @"脚本无法启动";
-            message = @"小新Lap 无法启动 shell 来运行脚本（posix_spawn 失败）。\n\n请打开 Console.app（或 `oslog`），搜索 `com.zjx.springboard: system2` 查看具体错误。";
-        } else if (pythonExitCode == 134 && dyldLibpythonMissing) {
-            // 134 = SIGABRT. Dyld couldn't find libpython — the interpreter
-            // was linked against a path that doesn't exist on this JB (classic
-            // Procursus python3.7 on rootless).
+        if (pythonExitCode == 134 && dyldLibpythonMissing) {
             title = @"Python 解释器已损坏";
-            message = @"已安装的 python3 启动时中止，因为 dyld 找不到它的 libpython 动态库。\n\n请在 Sileo（Procursus）中安装“python3”软件包（3.9 或更新版本），然后重新安装 小新Lap，使其重新选择可用的解释器。";
+            message = @"已安装的 python3 启动时中止，因为 dyld 找不到它的 libpython 动态库。\n\n请在 Sileo（Procursus）中安装 python3 软件包（3.9 或更新版本），然后重新安装 小新Lap，使其重新选择可用的解释器。";
+        } else if (pythonExitCode < 0) {
+            title = @"脚本无法启动";
+            message = [NSString stringWithFormat:@"小新Lap 无法启动 Python（posix_spawn 异常，退出码 %d）。\n\n请打开 Console.app，搜索 com.zjx.springboard 查看详情。", pythonExitCode];
         } else {
             message = [NSString stringWithFormat:@"Python 脚本异常退出，退出码 %d。请打开日志查看详细报错。", pythonExitCode];
         }
         NSLog(@"com.zjx.springboard: %@ — %@", title, message);
         showAlertBox(title, message, 999);
     }
+
     if (!stoppedByUser) [self playHasStopped];
 }
 
@@ -472,13 +603,11 @@ static NSString *ZXPythonModulePath(void)
 
 -(void) playHasStopped
 {
-    // If forceStop already called clear(), isPlaying is false — don't show finished popup
     if (!isPlaying) return;
 
     NSLog(@"com.zjx.springboard: script has finished");
     _completedRuns++;
 
-    // check whether need to replay
     if (repeatTime != 0)
     {    
         NSLog(@"com.zjx.springboard: need replay. Replay time: %d", repeatTime);
@@ -511,7 +640,6 @@ static NSString *ZXPythonModulePath(void)
     isPlaying = false;
     scriptPauseRequested = 0;
     currentScriptType = -1;
-    //scriptPlayForceStop = false;
 
     if (replayTimer)
         [replayTimer invalidate];
@@ -529,13 +657,11 @@ static NSString *ZXPythonModulePath(void)
 
     if (currentScriptType == 0)
     {
-        // Waiting in CFRunLoopRun() for replayTimer — must break out before clear()
         if (replayRunLoop) CFRunLoopStop(replayRunLoop);
         [self clear];
     }
     else if (currentScriptType == 1)
     {
-        // make stop to be true
         scriptPlayForceStop = true;
         [self clear];
     }
@@ -543,7 +669,6 @@ static NSString *ZXPythonModulePath(void)
     {
         scriptStopRequested = 1;
         pid_t processGroup = pythonProcessGroup;
-        // 暂停中进程组是 SIGSTOP 状态，先 SIGCONT 唤醒再杀，避免留下停住的僵尸组
         if (scriptPauseRequested && processGroup > 0) {
             kill(-processGroup, SIGCONT);
         }
