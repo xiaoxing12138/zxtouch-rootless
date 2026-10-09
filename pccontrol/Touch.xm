@@ -280,7 +280,7 @@ void initSenderId()
             if (ioHIDEventSystemForSenderID != NULL && senderID != 0x0) // unregister the callback
             {
                 IOHIDEventSystemClientUnregisterEventCallback(ioHIDEventSystemForSenderID);
-                IOHIDEventSystemClientUnscheduleWithRunLoop(ioHIDEventSystemForSenderID, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+                IOHIDEventSystemClientUnscheduleWithRunLoop(ioHIDEventSystemForSenderID, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
                 NSLog(@"com.zjx.springboard: unregister get sender id callback!");
                 break;
             }
@@ -326,7 +326,10 @@ Start the callback for setting sender id
 void startSetSenderIDCallBack()
 {
     ioHIDEventSystemForSenderID = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
-    IOHIDEventSystemClientScheduleWithRunLoop(ioHIDEventSystemForSenderID, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+    // 必须注册到主线程 runloop：initSenderId 是懒加载、可能在后台线程调用，
+    // 后台线程的 runloop 默认不运行，回调永远收不到真实触摸事件，senderID 一直是 0，
+    // 导致所有注入触摸被 postIOHIDEvent 跳过（v3.0.64 懒加载引入的 bug）。
+    IOHIDEventSystemClientScheduleWithRunLoop(ioHIDEventSystemForSenderID, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
     IOHIDEventSystemClientRegisterEventCallback(ioHIDEventSystemForSenderID, (IOHIDEventSystemClientEventCallback)setSenderIdCallback, NULL, NULL);
 }
 

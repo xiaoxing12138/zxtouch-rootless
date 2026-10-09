@@ -773,12 +773,8 @@ static UIColor *fnColorFromHex(NSString *hex)
     ZXMakeWindowKeyIfNeeded(textField.window);
     return YES;
 }
-
-// 编辑结束后归还 key window，否则面板一直占着 key window 会干扰 SpringBoard 触摸路由
-- (void)textFieldDidEndEditing:(UITextField *)textField {
-    UIWindow *win = textField.window;
-    if (win.isKeyWindow) [win resignKeyWindow];
-}
+// 编辑结束后不主动 resignKeyWindow：SpringBoard 对 key window 状态很敏感，
+// 手动 resign 可能导致触摸路由混乱。窗口隐藏时系统会自动处理。
 
 // 拖十字取坐标，回填这一组参数的 x / y
 - (void)pickPointForXField:(UITextField *)xField
