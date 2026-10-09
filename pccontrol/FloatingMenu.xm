@@ -198,6 +198,13 @@ typedef NS_ENUM(NSInteger, FMScriptPlayState) {
     UIView *hit = [super hitTest:point withEvent:event];
     return (hit == self) ? nil : hit;
 }
+
+// 面板里要能输入文字：输入框所在的 window 必须是 key window，系统键盘才会出来（Apple QA1813）。
+// 父类对非 UIWindowLevelNormal 的窗口默认不允许成为 key，那样 [win makeKeyWindow] 就是空操作，
+// 表现正好是「输入框能点、键盘永远不出来」。
+- (BOOL)canBecomeKeyWindow {
+    return YES;
+}
 @end
 
 @interface FMRootViewController : UIViewController

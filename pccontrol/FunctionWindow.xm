@@ -323,14 +323,17 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     // iOS 13+ 必须用 initWithWindowScene:，initWithFrame: 创建的窗口不会显示
     UIWindowScene *scene = [FloatingMenu preferredWindowScene];
     // 键盘是挂在 scene 上的：窗口落在哪个 scene 决定了系统键盘认不认它。
-    // iPhone 这种 SpringBoard 连着多个 scene 的机型上，只按 activationState 挑有可能挑到
-    // 「窗口能显示、能点，但键盘永远不出来」的那个。已经有 key window 时优先跟它同 scene。
-    UIWindowScene *keyScene = [UIApplication sharedApplication].keyWindow.windowScene;
-    ZXKeyboardDebugLog(@"buildWindow preferred=%lu keyScene=%lu scenes=%@",
+    // SpringBoard 连着多个 scene 的机型上，只按 activationState 挑有可能挑到
+    // 「窗口能显示、能点，但键盘永远不出来」的那个，所以优先跟系统自己的 key window 同 scene。
+    // 注意：keyWindow 很可能就是我们的悬浮窗（或 nil），那不是有效信号，不能拿它当依据。
+    UIWindow *systemKeyWindow = [UIApplication sharedApplication].keyWindow;
+    UIWindowScene *keyScene = systemKeyWindow.windowScene;
+    BOOL keySceneIsOurs = [systemKeyWindow isKindOfClass:[FMPassthroughWindow class]];
+    ZXKeyboardDebugLog(@"buildWindow preferred=%lu keyScene=%lu ours=%d scenes=%@",
                        (unsigned long)scene.hash, (unsigned long)keyScene.hash,
-                       ZXDescribeConnectedScenes());
-    if (keyScene && keyScene != scene) {
-        ZXKeyboardDebugLog(@"buildWindow 改用 key window 所在 scene");
+                       keySceneIsOurs ? 1 : 0, ZXDescribeConnectedScenes());
+    if (keyScene && !keySceneIsOurs && keyScene != scene) {
+        ZXKeyboardDebugLog(@"buildWindow 改用系统 key window 所在 scene");
         scene = keyScene;
     }
     if (scene) {
@@ -1389,6 +1392,9 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
         [self enterFlowMode];
         [self refreshRecordingButton];
         self->_window.hidden = NO;
+        // 输入框所在窗口必须是 key window，系统键盘才会出来（Apple QA1813），所以显示时就先变 key。
+        // key window 是按进程算的，抢不走游戏那侧的输入焦点。
+        [self->_window makeKeyWindow];
         dispatch_async(dispatch_get_main_queue(), ^{
             if (self->_shown) [self layoutCard];
         });
@@ -1658,6 +1664,7 @@ static NSString *fnImportExportFolder(void) {
         }
         [self refreshRecordingButton];   // 录制可能在面板关着的时候被别人起停过
         self->_window.hidden = NO;
+        [self->_window makeKeyWindow];   // 同上：先成为 key window，输入框才有机会拿到系统键盘
 
         // window 刚创建时 bounds 可能是 CGRectZero，layoutCard 会退回用 UIScreen.bounds；
         // 等下一帧 scene 把 bounds 摆正后再量一次，保证卡片居中（本项目踩过的坑）
