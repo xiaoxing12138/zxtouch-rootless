@@ -774,6 +774,12 @@ static UIColor *fnColorFromHex(NSString *hex)
     return YES;
 }
 
+// 编辑结束后归还 key window，否则面板一直占着 key window 会干扰 SpringBoard 触摸路由
+- (void)textFieldDidEndEditing:(UITextField *)textField {
+    UIWindow *win = textField.window;
+    if (win.isKeyWindow) [win resignKeyWindow];
+}
+
 // 拖十字取坐标，回填这一组参数的 x / y
 - (void)pickPointForXField:(UITextField *)xField
                     yField:(UITextField *)yField
@@ -1554,9 +1560,9 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
         [self enterFlowMode];
         [self refreshRecordingButton];
         self->_window.hidden = NO;
-        // 输入框所在窗口必须是 key window，系统键盘才会出来（Apple QA1813），所以显示时就先变 key。
-        // key window 是按进程算的，抢不走游戏那侧的输入焦点。
-        [self->_window makeKeyWindow];
+        // 不在 show 时 makeKeyWindow：面板一显示就抢 key window，隐藏后 SpringBoard 的
+        // 触摸路由会混乱，导致脚本点击全部失效（v3.0.69 踩过的坑）。
+        // 输入框需要键盘时由 textFieldShouldBeginEditing 里的 ZXMakeWindowKeyIfNeeded 按需变 key。
         dispatch_async(dispatch_get_main_queue(), ^{
             if (self->_shown) [self layoutCard];
         });
@@ -1898,7 +1904,8 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
         [self refreshRecordingButton];   // 录制可能在面板关着的时候被别人起停过
         [self applyPanelBackground];     // 背景色/背景图/透明度由 App 的「控制按钮悬浮窗」参数决定
         self->_window.hidden = NO;
-        [self->_window makeKeyWindow];   // 同上：先成为 key window，输入框才有机会拿到系统键盘
+        // 同上：不在 show 时 makeKeyWindow，避免破坏 SpringBoard 触摸路由。
+        // 输入框编辑时由 ZXMakeWindowKeyIfNeeded 按需变 key。
 
         // window 刚创建时 bounds 可能是 CGRectZero，layoutCard 会退回用 UIScreen.bounds；
         // 等下一帧 scene 把 bounds 摆正后再量一次，保证卡片居中（本项目踩过的坑）

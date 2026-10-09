@@ -599,11 +599,17 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 root[@"varjb_target"] = [NSString stringWithFormat:@"(readlink 失败 errno=%d)", errno];
             }
             NSString *prefixProbe = jbroot(@"/__zx_probe__");
+            NSString *jbPrefix = @"";
             if ([prefixProbe hasSuffix:@"/__zx_probe__"]) {
-                root[@"jbroot_prefix"] = [prefixProbe substringToIndex:prefixProbe.length - (NSUInteger)strlen("/__zx_probe__")];
+                jbPrefix = [prefixProbe substringToIndex:prefixProbe.length - (NSUInteger)strlen("/__zx_probe__")];
             } else {
-                root[@"jbroot_prefix"] = prefixProbe ?: @"";
+                jbPrefix = prefixProbe ?: @"";
             }
+            root[@"jbroot_prefix"] = jbPrefix;
+            // 规范化：去掉末尾斜杠再比较，避免 /a/b 和 /a/b/ 被误判为两棵树
+            NSString *varjbNorm = [root[@"varjb_target"] stringByStandardizingPath];
+            NSString *prefixNorm = [jbPrefix stringByStandardizingPath];
+            root[@"same_tree"] = @([varjbNorm isEqualToString:prefixNorm]);
 
             for (NSString *path in candidates) {
                 BOOL exists = [fm fileExistsAtPath:path];

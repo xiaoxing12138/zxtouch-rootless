@@ -951,6 +951,12 @@ static FlowWindow *_fwShared = nil;
     return YES;
 }
 
+// 编辑结束后归还 key window，否则面板一直占着 key window 会干扰 SpringBoard 触摸路由
+- (void)textFieldDidEndEditing:(UITextField *)textField {
+    UIWindow *win = textField.window;
+    if (win.isKeyWindow) [win resignKeyWindow];
+}
+
 #pragma mark - 子浮窗（屏幕中间：添加步骤 / 编辑参数 / 设置都走这里）
 
 // builder 往内容区铺控件（x 从 8 开始，宽 width），返回内容总高度

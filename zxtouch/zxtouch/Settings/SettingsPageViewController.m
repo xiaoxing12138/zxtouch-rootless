@@ -736,10 +736,14 @@ static NSString *ZXPythonErrnoName(int e) {
                     NSString *jbPrefix = dict[@"jbroot_prefix"];
                     NSString *varjb = dict[@"varjb_target"];
                     NSString *tweakPath = dict[@"tweak_path"];
+                    NSNumber *sameTree = dict[@"same_tree"];
                     if (jbPrefix.length || varjb.length || tweakPath.length) {
                         [report appendString:@"\n环境信息：\n"];
                         if (jbPrefix.length) [report appendFormat:@"  tweak 用的越狱目录：%@\n", jbPrefix];
-                        if (varjb.length) [report appendFormat:@"  /var/jb 实际指向：%@%@\n", varjb, ([jbPrefix hasPrefix:@"/"] && ![varjb isEqualToString:jbPrefix]) ? @"　← 与上面不同：存在两棵越狱目录，Sileo 重装 python 也装不进 tweak 在用的那棵" : @""];
+                        if (varjb.length) [report appendFormat:@"  /var/jb 实际指向：%@\n", varjb];
+                        if (sameTree) {
+                            [report appendFormat:@"  目录一致性：%@\n", [sameTree boolValue] ? @"✅ 同一棵越狱目录（Sileo 装的 python tweak 能找到）" : @"❌ 两棵不同的越狱目录（Sileo 重装 python 也装不进 tweak 在用的那棵）"];
+                        }
                         if (tweakPath.length) [report appendFormat:@"  tweak 本体：%@（应位于第一行目录内）\n", tweakPath];
                         NSNumber *uid = dict[@"uid"];
                         if (uid) [report appendFormat:@"  进程 uid=%@\n", uid];
@@ -777,11 +781,27 @@ static NSString *ZXPythonErrnoName(int e) {
                     }
 
                     NSDictionary *dq = dict[@"dpkg_query"];
+                    BOOL dpkgHasPython = NO;
                     if ([dq isKindOfClass:[NSDictionary class]] && dq.count > 0) {
                         [report appendString:@"\ndpkg 包记录（两棵越狱目录各查一遍）：\n"];
                         for (NSString *k in dq) {
                             NSString *out = dq[k];
                             [report appendFormat:@"  [%@]\n    %@\n", k, out.length ? out : @"(无输出)"];
+                            if (out.length > 0 && ![out containsString:@"QUERY_FAILED"] && ![out containsString:@"无输出"]) dpkgHasPython = YES;
+                        }
+                    }
+
+                    // 综合判断：有不可执行文件 + dpkg 无记录 = 残留/损坏文件
+                    if (found.length == 0) {
+                        BOOL hasUnexecutable = NO;
+                        for (NSDictionary *c in cands) {
+                            if ([c[@"exists"] boolValue] && ![c[@"executable"] boolValue]) { hasUnexecutable = YES; break; }
+                        }
+                        if (hasUnexecutable && !dpkgHasPython) {
+                            [report appendString:@"\n⚠️ 诊断：检测到 python3 文件存在但无法执行（exit 127），且 dpkg 中没有 python3 包记录。\n"];
+                            [report appendString:@"   这通常是手动放进去的残留/损坏文件（非正规 dpkg 安装）。\n"];
+                            [report appendString:@"   解决：删除残留文件后从 Procursus 源正规安装 python3：\n"];
+                            [report appendString:@"   rm /var/jb/usr/bin/python3*  →  Sileo 添加 https://Procursus.github.io/repo 安装 python3\n"];
                         }
                     }
 
