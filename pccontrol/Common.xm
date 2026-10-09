@@ -390,7 +390,7 @@ UIView *ZXMakeNumberStepper(UITextField *field, BOOL integer)
     box.backgroundColor = [UIColor clearColor];
 
     UIImageSymbolConfiguration *cfg =
-        [UIImageSymbolConfiguration configurationWithPointSize:8 weight:UIFontWeightBold];
+        [UIImageSymbolConfiguration configurationWithPointSize:8 weight:UIImageSymbolWeightBold];
     NSArray<NSString *> *symbols = @[ @"chevron.up", @"chevron.down" ];
     for (NSInteger i = 0; i < 2; i++) {
         UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
