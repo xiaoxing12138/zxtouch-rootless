@@ -18,6 +18,9 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <unistd.h>
+#include <spawn.h>
+#include <signal.h>
+#include <fcntl.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <Foundation/NSDistributedNotificationCenter.h>
