@@ -722,12 +722,24 @@ static NSString *ZXPythonErrnoName(int e) {
                         NSString *ec = dict[@"spawn_exit_code"];
                         if (ver.length > 0) {
                             [report appendFormat:@"版本：%@\n", ver];
-                            if ([ec isEqualToString:@"0"]) {
-                                [report appendString:@"✅ 能正常启动\n"];
-                            } else {
-                                [report appendFormat:@"❌ 启动失败（exit %@）—— 很可能是 dylib 依赖损坏\n", ec];
-                            }
-                        } else {
+                        }
+
+                        // 两条探针并排展示：沙盒路径定性
+                        NSDictionary *prA = dict[@"spawn_probe_A_shell"];
+                        NSDictionary *prB = dict[@"spawn_probe_B_direct"];
+                        BOOL aOk = [prA isKindOfClass:[NSDictionary class]] && [prA[@"exit"] isKindOfClass:[NSNumber class]] && [prA[@"exit"] intValue] == 0;
+                        BOOL bOk = [prB isKindOfClass:[NSDictionary class]] && [prB[@"exit"] isKindOfClass:[NSNumber class]] && [prB[@"exit"] intValue] == 0;
+                        if (prA || prB) {
+                            [report appendString:@"\n执行链路对比（SpringBoard 进程内）：\n"];
+                            [report appendFormat:@"  A  shell间接  sh -c 'python3.9 --version' → exit=%@ %@\n",
+                                             prA[@"exit"] ?: @"?", aOk ? @"✅" : @"❌"];
+                            [report appendFormat:@"  B  直接exec   posix_spawn(python3.9)       → exit=%@ %@\n",
+                                             prB[@"exit"] ?: @"?", bOk ? @"✅" : @"❌"];
+                        }
+
+                        if (ver.length > 0 && aOk) {
+                            [report appendString:@"✅ shell 路径正常\n"];
+                        } else if (ver.length == 0) {
                             [report appendString:@"⚠️ 文件存在但无法执行\n"];
                         }
                     }
@@ -791,14 +803,30 @@ static NSString *ZXPythonErrnoName(int e) {
                         }
                     }
 
-                    // 综合判断
+                    // 综合判断（探针优先：先看是哪种链路坏了）
+                    NSDictionary *prA2 = dict[@"spawn_probe_A_shell"];
+                    NSDictionary *prB2 = dict[@"spawn_probe_B_direct"];
+                    BOOL aOk2 = [prA2 isKindOfClass:[NSDictionary class]] && [prA2[@"exit"] isKindOfClass:[NSNumber class]] && [prA2[@"exit"] intValue] == 0;
+                    BOOL bOk2 = [prB2 isKindOfClass:[NSDictionary class]] && [prB2[@"exit"] isKindOfClass:[NSNumber class]] && [prB2[@"exit"] intValue] == 0;
+                    if (prA2 || prB2) {
+                        if (bOk2 && !aOk2) {
+                            [report appendString:@"\n💡 根因：SpringBoard 沙盒只拦 shell 里的二跳 exec python，直接 posix_spawn 能跑通。\n"];
+                            [report appendString:@"   ScriptPlayer 需要改成直接 exec python（绕开 sh -c），守护进程方案暂不需要。\n"];
+                        } else if (!bOk2 && !aOk2) {
+                            [report appendString:@"\n⚠️ 根因：SpringBoard 沙盒拦任何 exec python（包括 posix_spawn 直接拉起）。\n"];
+                            [report appendString:@"   只能通过守护进程方案解决（让 launchd 拉起 python，绕开 SpringBoard 沙盒）。\n"];
+                        } else if (aOk2) {
+                            // A 和 B 都正常 → 那就是别的环节坏了（比如 access 误报 / dpkg 缺失）
+                        }
+                    }
+
                     if (found.length == 0) {
                         BOOL hasUnexecutable = NO;
                         BOOL hasEPERM = NO;
                         for (NSDictionary *c in cands) {
                             if ([c[@"exists"] boolValue] && ![c[@"executable"] boolValue]) {
                                 hasUnexecutable = YES;
-                                NSString *detail = c[@"detail"];
+                                NSNumber *detail = c[@"detail"];
                                 if ([detail containsString:@"EPERM"] || [detail containsString:@"errno=1"]) hasEPERM = YES;
                             }
                         }

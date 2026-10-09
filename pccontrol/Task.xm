@@ -644,16 +644,70 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             root[@"found_path"] = found ?: @"";
 
             if (found) {
-                // 真实运行检测：跑一次 python3 --version，确认解释器真能启动。
-                // 只有执行权限不代表能跑起来 —— rootless 下常见 libpython 找不到、在 dyld 阶段就退出。
-                NSString *probeFile = @"/var/mobile/Library/ZXTouch/.pycheck_version";
-                NSString *probeCmd = [NSString stringWithFormat:@"'%@' --version > '%@' 2>&1", found, probeFile];
-                int probeStatus = call_system(probeCmd.UTF8String);
-                int exitCode = (probeStatus == -1) ? -1 : (WIFEXITED(probeStatus) ? WEXITSTATUS(probeStatus) : -1);
-                NSString *ver = [NSString stringWithContentsOfFile:probeFile encoding:NSUTF8StringEncoding error:nil];
-                [[NSFileManager defaultManager] removeItemAtPath:probeFile error:nil];
-                root[@"version"] = [ver stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-                root[@"spawn_exit_code"] = [NSString stringWithFormat:@"%d", exitCode];
+                // --- 两条探针并排跑，一次性定性 SpringBoard 沙盒行为 ---
+                //
+                // 探针 A：call_system() = sh -c '<found> --version'
+                //   → 当前 ScriptPlayer 用的路径（shell 二跳 exec python）
+                // 探针 B：posix_spawn 直接 exec python，绕开 shell
+                //   → 若能跑通 = 沙盒只拦 shell 二跳，我们改 ScriptPlayer 直接 exec 即可
+                //   → 若也 EPERM = 沙盒拦任何 exec python，必须上守护进程方案
+                //
+                NSString *probeA = @"/var/mobile/Library/ZXTouch/.pycheckA";
+                NSString *probeB = @"/var/mobile/Library/ZXTouch/.pycheckB";
+
+                // ---- 探针 A：现有 shell 路径 ----
+                NSString *cmdA = [NSString stringWithFormat:@"'%@' --version > '%@' 2>&1", found, probeA];
+                int stA = call_system(cmdA.UTF8String);
+                int exitA = (stA == -1) ? -1 : (WIFEXITED(stA) ? WEXITSTATUS(stA) : -1);
+                NSString *outA = [NSString stringWithContentsOfFile:probeA encoding:NSUTF8StringEncoding error:nil] ?: @"";
+                [[NSFileManager defaultManager] removeItemAtPath:probeA error:nil];
+
+                // ---- 探针 B：posix_spawn 直接 exec python（绕开 shell）----
+                // 直接 exec，不走 sh -c；如果也 EPERM 说明沙盒拦任何 exec python
+                NSString *exitBVal = @"-1";
+                NSString *outB = @"";
+                int bfd = open(probeB.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (bfd >= 0) {
+                    int stdinFD = open("/dev/null", O_RDONLY);
+                    posix_spawn_file_actions_t fa;
+                    posix_spawn_file_actions_init(&fa);
+                    posix_spawn_file_actions_adddup2(&fa, stdinFD, STDIN_FILENO);
+                    posix_spawn_file_actions_adddup2(&fa, bfd, STDOUT_FILENO);
+                    posix_spawn_file_actions_adddup2(&fa, bfd, STDERR_FILENO);
+                    posix_spawnattr_t attr;
+                    posix_spawnattr_init(&attr);
+                    sigset_t emp; sigemptyset(&emp);
+                    posix_spawnattr_setsigmask(&attr, &emp);
+                    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK);
+                    char *argv[] = { (char *)found.UTF8String, (char *)"--version", NULL };
+                    extern char **environ;
+                    pid_t pidB = 0;
+                    int errB = posix_spawn(&pidB, found.UTF8String, &fa, &attr, argv, environ);
+                    posix_spawn_file_actions_destroy(&fa);
+                    posix_spawnattr_destroy(&attr);
+                    close(bfd);
+                    if (stdinFD >= 0) close(stdinFD);
+                    if (errB == 0) {
+                        int st = 0;
+                        if (waitpid(pidB, &st, 0) == -1) exitBVal = [NSString stringWithFormat:@"waitpid_errno=%d", errno];
+                        else exitBVal = [NSString stringWithFormat:@"%d", WIFEXITED(st) ? WEXITSTATUS(st) : -1];
+                    } else {
+                        exitBVal = [NSString stringWithFormat:@"posix_spawn_err=%d(%s)", errB, strerror(errB)];
+                    }
+                    outB = [NSString stringWithContentsOfFile:probeB encoding:NSUTF8StringEncoding error:nil] ?: @"";
+                    [[NSFileManager defaultManager] removeItemAtPath:probeB error:nil];
+                } else {
+                    exitBVal = [NSString stringWithFormat:@"open_probe_errno=%d", errno];
+                }
+
+                root[@"spawn_probe_A_shell"]  = @{ @"exit": @(exitA), @"output": [outA stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] };
+                root[@"spawn_probe_B_direct"] = @{ @"exit": exitBVal,   @"output": [outB stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] };
+
+                // 保留原有字段向后兼容
+                NSString *ver = exitA == 0 ? [outA stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+                                           : [outB stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                root[@"version"] = ver ?: @"";
+                root[@"spawn_exit_code"] = [NSString stringWithFormat:@"%d", exitA];
 
                 // 检查 zxtouch 模块路径
                 NSMutableArray<NSString *> *modulePaths = [NSMutableArray array];

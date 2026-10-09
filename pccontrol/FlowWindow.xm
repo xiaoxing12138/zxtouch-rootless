@@ -1121,10 +1121,8 @@ static FlowWindow *_fwShared = nil;
         field.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
         field.textColor = ZXPalette(ZXPalText);
         field.tintColor = ZXPalette(ZXPalAccent);
-        field.backgroundColor = ZXPalette(ZXPalField);
-        field.layer.cornerRadius = 8;
-        field.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
-        field.layer.borderWidth = 1;
+        // 无边框纯文字：编辑态看起来和标题文字一样，只是可改
+        field.backgroundColor = [UIColor clearColor];
         field.placeholder = _subTitle;
         field.returnKeyType = UIReturnKeyDone;
         field.delegate = self;
@@ -1269,9 +1267,18 @@ static FlowWindow *_fwShared = nil;
     if (_subStep) {
         _subTitleLabel.superview.frame = nameFrame;
         _subTitleLabel.frame = CGRectMake(0, 0, titleW, titleH);
-        // 下划线贴在 label 底部
+        // 下划线贴着文字：宽度和文字一样长，紧跟文字底部
         UIView *under = _subTitleLabel.superview.subviews.count > 1 ? _subTitleLabel.superview.subviews[1] : nil;
-        if (under) under.frame = CGRectMake(0, titleH - 3.0f, titleW, 1.0f);
+        if (under) {
+            CGFloat textW = titleW;
+            NSString *t = _subTitleLabel.text;
+            if (t.length > 0) {
+                CGSize sz = [t sizeWithAttributes:@{NSFontAttributeName: _subTitleLabel.font}];
+                textW = MIN(sz.width, titleW);
+            }
+            CGFloat lineY = (titleH + _subTitleLabel.font.lineHeight) / 2.0f + 1.0f;
+            under.frame = CGRectMake(0, lineY, textW, 1.0f);
+        }
         _subTitleField.frame = CGRectMake(0, (titleH - 30.0f) / 2.0f, titleW, 30.0f);
     } else {
         _subTitleLabel.frame = nameFrame;
