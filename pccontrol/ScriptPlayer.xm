@@ -21,22 +21,9 @@
 
 static BOOL isPlaying = false;
 
-static NSString *ZXFirstExecutablePath(NSArray<NSString *> *candidates)
-{
-    // access(X_OK) 检查 SpringBoard 进程的真实执行权限（受 sandbox / Dopamine entitlement 白名单限制），
-    // 比 isExecutableFileAtPath（只看 st_mode x 位）准确得多。
-    // 典型场景：手动放置的残留 python3 文件 mode=755，但不在 dpkg 白名单中 → EPERM。
-    for (NSString *path in candidates) {
-        if (path.length > 0 && access(path.UTF8String, X_OK) == 0) {
-            return path;
-        }
-    }
-    return nil;
-}
-
 static NSString *ZXPythonPath(void)
 {
-    return ZXFirstExecutablePath(@[
+    NSArray<NSString *> *candidates = @[
         jbroot(@"/usr/bin/python3.12"),
         jbroot(@"/usr/bin/python3.11"),
         jbroot(@"/usr/bin/python3.10"),
@@ -55,7 +42,18 @@ static NSString *ZXPythonPath(void)
         @"/usr/bin/python3.9",
         @"/usr/bin/python3.8",
         @"/usr/bin/python3"
-    ]);
+    ];
+    for (NSString *path in candidates) {
+        if (path.length > 0 && access(path.UTF8String, X_OK) == 0) {
+            return path;
+        }
+    }
+    for (NSString *path in candidates) {
+        if (path.length > 0 && [[NSFileManager defaultManager] fileExistsAtPath:path]) {
+            return path;
+        }
+    }
+    return nil;
 }
 
 static NSString *ZXPythonModulePath(void)
