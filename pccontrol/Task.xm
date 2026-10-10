@@ -782,6 +782,7 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                         @"/var/jb/usr/bin/dpkg",
                         @"/var/jb/usr/bin/python3.9",
                         @"/var/jb/usr/bin/python3",
+                        @"/var/jb/usr/libexec/zxrunner",
                         @"/usr/bin/env",
                         @"/usr/bin/date",
                         @"/usr/bin/python3"
