@@ -38,7 +38,7 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 ZXRUNNER_SRC = $(THEOS_PROJECT_DIR)/zxrunner/main.m
 ZXRUNNER_BIN = $(THEOS_OBJ_DIR)/zxrunner
 ZXRUNNER_ARCH = -arch arm64 -arch arm64e
-ZXRUNNER_CLANG = $(shell command -v ccache 2>/dev/null && echo ccache || true)$(shell xcrun --find clang)
+ZXRUNNER_CLANG = $(shell if command -v ccache >/dev/null 2>&1; then echo "ccache $(shell xcrun --find clang)"; else xcrun --find clang; fi)
 ZXRUNNER_SDK   = $(shell xcrun --sdk iphoneos --show-sdk-path)
 
 zxrunner-bin:

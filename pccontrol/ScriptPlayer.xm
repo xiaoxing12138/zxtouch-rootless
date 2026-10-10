@@ -740,7 +740,7 @@ static NSString *ZXPythonModulePath(void)
     NSString *startLine = [NSString stringWithFormat:@"%s: [daemon] 开始运行脚本，路径: %@\n", dateBuf0, scriptPath];
     [logHandle writeData:[startLine dataUsingEncoding:NSUTF8StringEncoding]];
 
-    // 1. 连 socket
+    // 1. 连 socket（daemon 可能还没被拉起，第一次失败时 bootstrap + 重试一次）
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
         NSLog(@"com.zjx.springboard: daemon socket() failed: %s", strerror(errno));
@@ -750,9 +750,27 @@ static NSString *ZXPythonModulePath(void)
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, ZXRUNNER_SOCKET_PATH, sizeof(addr.sun_path) - 1);
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        NSLog(@"com.zjx.springboard: daemon connect(%s) failed: %s", ZXRUNNER_SOCKET_PATH, strerror(errno));
+        NSLog(@"com.zjx.springboard: daemon connect(%s) failed: %s — trying launchctl bootstrap...", ZXRUNNER_SOCKET_PATH, strerror(errno));
         close(fd);
-        return NO;
+        // SpringBoard respring 不会触发 launchd 重新扫描 LaunchAgents 目录，
+        // 需要显式 bootstrap 让 launchd 拉起 zxrunner。
+        // SpringBoard tweak 身份是 mobile(uid=501)，对自己的 gui domain 有权限操作。
+        system("/var/jb/usr/bin/launchctl bootstrap gui/501 /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || /usr/bin/launchctl bootstrap gui/501 /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || true");
+        // launchd 拉起进程 + bind socket 需要时间
+        usleep(500000);
+        fd = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (fd < 0) {
+            NSLog(@"com.zjx.springboard: daemon socket() retry failed: %s", strerror(errno));
+            return NO;
+        }
+        addr.sun_family = AF_UNIX;
+        strncpy(addr.sun_path, ZXRUNNER_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+        if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+            NSLog(@"com.zjx.springboard: daemon connect retry(%s) failed: %s", ZXRUNNER_SOCKET_PATH, strerror(errno));
+            close(fd);
+            return NO;
+        }
+        NSLog(@"com.zjx.springboard: daemon bootstrap OK, connect retry succeeded");
     }
 
     // 2. 构造 env dict
