@@ -50,6 +50,10 @@ zxrunner-bin:
 		-fobjc-arc -framework Foundation \
 		$(ZXRUNNER_SRC) -o $(ZXRUNNER_BIN)
 	@echo "zxrunner built → $(ZXRUNNER_BIN)"
+	@echo "==> Signing zxrunner with ldid (roothide entitlement)..."
+	ldid -S $(ZXRUNNER_BIN)
+	ldid -sentitlements=$(THEOS_PROJECT_DIR)/zxrunner/resources/zxrunner-entitlements.plist $(ZXRUNNER_BIN) 2>/dev/null || ldid -S $(ZXRUNNER_BIN)
+	@echo "zxrunner signed"
 
 # 把 daemon 二进制和 plist 放进 layout/ 让 Theos 自动打进 deb
 # layout/<path> → deb 包内的 /<path>
@@ -63,4 +67,4 @@ after-pccontrol-all:: zxrunner-bin
 	   $(THEOS_PROJECT_DIR)/layout/Library/LaunchDaemons/com.zjx.zxrunner.plist
 
 after-install::
-	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall -9 SpringBoard; launchctl bootstrap system /Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || launchctl load /Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || true"
+	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall -9 SpringBoard; launchctl bootstrap system /var/jb/Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || launchctl bootstrap gui/$(id -u) /var/jb/Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || launchctl load /var/jb/Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || true"

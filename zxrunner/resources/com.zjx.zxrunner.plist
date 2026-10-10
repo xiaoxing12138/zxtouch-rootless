@@ -6,7 +6,7 @@
     <string>com.zjx.zxrunner</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/libexec/zxrunner</string>
+        <string>/var/jb/usr/libexec/zxrunner</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
