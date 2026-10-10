@@ -38,8 +38,7 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 ZXRUNNER_SRC = $(THEOS_PROJECT_DIR)/zxrunner/main.m
 ZXRUNNER_BIN = $(THEOS_OBJ_DIR)/zxrunner
 ZXRUNNER_ARCH = -arch arm64 -arch arm64e
-# iOS 15+ SDK，和 tweak 同 target
-ZXRUNNER_CLANG = $(shell xcrun --find clang)
+ZXRUNNER_CLANG = $(shell command -v ccache 2>/dev/null && echo ccache || true)$(shell xcrun --find clang)
 ZXRUNNER_SDK   = $(shell xcrun --sdk iphoneos --show-sdk-path)
 
 zxrunner-bin:

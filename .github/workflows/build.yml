@@ -2,7 +2,7 @@ name: Build ZXTouch Package
 
 # Actions 列表里显示的构建名。取提交信息的话会把多行正文一起塞进去，很难看，
 # 所以直接写死版本号 —— 发版时和 control / pbxproj 一起改（见 HANDOFF「版本号」一节）。
-run-name: v3.0.90
+run-name: v3.0.91
 
 on:
   push:
@@ -78,6 +78,18 @@ jobs:
           cp -r "$APP" layout/Applications/zxtouch.app
           echo "App installed to layout"
 
+      # ── ccache (编译器缓存，加速 Theos 增量构建) ──
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-v1
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Install ccache
+        run: brew install ccache
+
       # ── Setup Theos (roothide fork — 100% compat with rootless + adds roothide support) ──
       - name: Cache roothide Theos
         id: cache-theos
@@ -96,10 +108,19 @@ jobs:
       # ── Rootless (Dopamine) build ──────────────────────────────────────────
       - name: Build Rootless .deb
         run: |
+          export CC="ccache clang"
+          export CXX="ccache clang++"
+          export CCACHE_BASEDIR="$GITHUB_WORKSPACE"
+          export CCACHE_MAXSIZE="2G"
+          export CCACHE_SLOPPINESS="file_macro,include_file_mtime,include_file_ctime,pch_defines,time_macros"
+          echo "=== ccache stats before ==="
+          ccache -s || true
           echo "=== make package start ==="
           make -j$(sysctl -n hw.ncpu) package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
           local_rc=$?
           echo "=== make package exit=$local_rc ==="
+          echo "=== ccache stats after ==="
+          ccache -s || true
           echo "--- Searching for .deb artifacts ---"
           find . -maxdepth 4 -name "*.deb" 2>/dev/null
           echo "--- packages/ contents ---"
