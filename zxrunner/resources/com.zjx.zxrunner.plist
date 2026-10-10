@@ -10,7 +10,7 @@
     </array>
     <key>RunAtLoad</key>
     <true/>
-    <!-- PoC 阶段：写完 probe 就 exit，KeepAlive 让 launchd 下次有机会重拉 -->
+    <!-- PoC 阶段：写完 probe 就 exit。常驻版会改成 socket server + KeepAlive=true -->
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>

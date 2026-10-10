@@ -57,14 +57,18 @@ zxrunner-bin:
 
 # 把 daemon 二进制和 plist 放进 layout/ 让 Theos 自动打进 deb
 # layout/<path> → deb 包内的 /<path>
+# 用 LaunchAgents（gui domain）而非 LaunchDaemons（system domain）：
+# rootless 上 launchctl bootstrap system 会被 Operation not permitted 拒
+# 用 gui domain + mobile 用户 bootstrap 正常
 after-pccontrol-all:: zxrunner-bin
 	@echo "==> Installing zxrunner into layout/..."
 	@mkdir -p $(THEOS_PROJECT_DIR)/layout/usr/libexec
 	@cp $(ZXRUNNER_BIN) $(THEOS_PROJECT_DIR)/layout/usr/libexec/zxrunner
 	@chmod 0755 $(THEOS_PROJECT_DIR)/layout/usr/libexec/zxrunner
-	@mkdir -p $(THEOS_PROJECT_DIR)/layout/Library/LaunchDaemons
+	@mkdir -p $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents
 	@cp $(THEOS_PROJECT_DIR)/zxrunner/resources/com.zjx.zxrunner.plist \
-	   $(THEOS_PROJECT_DIR)/layout/Library/LaunchDaemons/com.zjx.zxrunner.plist
+	   $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents/com.zjx.zxrunner.plist
+	@chmod 0644 $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents/com.zjx.zxrunner.plist
 
 after-install::
-	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall -9 SpringBoard; launchctl bootstrap system /var/jb/Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || launchctl bootstrap gui/$(id -u) /var/jb/Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || launchctl load /var/jb/Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || true"
+	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall -9 SpringBoard; launchctl bootstrap gui/$(id -u) /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || launchctl load /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || true"
