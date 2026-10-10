@@ -65,14 +65,14 @@ jobs:
             ldid -Szxtouch/shortcutext-entitlements.plist "$EXT"
             echo "Signed extension"
           fi
-          mkdir -p app-archive
-          cp -R "$APP" app-archive/zxtouch.app
+          tar -czf zxtouch-app.tar.gz -C "$(dirname "$APP")" "$(basename "$APP")"
+          ls -la zxtouch-app.tar.gz
 
       - name: Upload zxtouch.app
         uses: actions/upload-artifact@v4
         with:
           name: zxtouch-app
-          path: app-archive/zxtouch.app
+          path: zxtouch-app.tar.gz
           if-no-files-found: error
 
   build-theos:
@@ -139,34 +139,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download artifacts
+      - name: Download zxtouch.app
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-          merge-multiple: true
+          name: zxtouch-app
+          path: downloads
+
+      - name: Download theos deb
+        uses: actions/download-artifact@v4
+        with:
+          name: theos-deb
+          path: downloads
 
       - name: Install dpkg
         run: brew install dpkg
 
       - name: Assemble final .deb
         run: |
-          echo "=== artifacts/ contents ==="
-          ls -la artifacts/
+          echo "=== downloads/ contents ==="
+          ls -la downloads/
+          echo "=== extracting app ==="
+          tar -xzf downloads/zxtouch-app.tar.gz
+          ls -la zxtouch.app
           echo "=== looking for deb ==="
-          DEB=$(find artifacts -maxdepth 2 -name "*.deb" | head -1)
+          DEB=$(find downloads -maxdepth 2 -name "*.deb" | head -1)
           echo "DEB=$DEB"
           if [ -z "$DEB" ]; then echo "ERROR: no deb"; exit 1; fi
-          echo "=== looking for app ==="
-          APP=$(find artifacts -maxdepth 2 -name "zxtouch.app" -type d)
-          echo "APP=$APP"
-          if [ -z "$APP" ]; then echo "ERROR: no app"; exit 1; fi
 
           mkdir -p deb-root
           dpkg-deb -x "$DEB" deb-root/
 
           TARGET="deb-root/Applications/zxtouch.app"
           rm -rf "$TARGET"
-          cp -R "$APP" "$TARGET"
+          cp -R zxtouch.app "$TARGET"
           chmod -R 755 deb-root/Applications/zxtouch.app
 
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
