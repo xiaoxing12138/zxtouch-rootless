@@ -51,15 +51,16 @@ zxrunner-bin:
 		$(ZXRUNNER_SRC) -o $(ZXRUNNER_BIN)
 	@echo "zxrunner built → $(ZXRUNNER_BIN)"
 
-# 把 daemon 二进制和 plist 放进 packages/<tweak>/ 让 dpkg 打包时带上
+# 把 daemon 二进制和 plist 放进 layout/ 让 Theos 自动打进 deb
+# layout/<path> → deb 包内的 /<path>
 after-pccontrol-all:: zxrunner-bin
-	@echo "==> Installing zxrunner into tweak bundle..."
-	@mkdir -p $(THEOS_PACKAGE_INSTALL_PREFIX)/usr/libexec
-	@cp $(ZXRUNNER_BIN) $(THEOS_PACKAGE_INSTALL_PREFIX)/usr/libexec/zxrunner
-	@chmod 0755 $(THEOS_PACKAGE_INSTALL_PREFIX)/usr/libexec/zxrunner
-	@mkdir -p $(THEOS_PACKAGE_INSTALL_PREFIX)/Library/LaunchDaemons
+	@echo "==> Installing zxrunner into layout/..."
+	@mkdir -p $(THEOS_PROJECT_DIR)/layout/usr/libexec
+	@cp $(ZXRUNNER_BIN) $(THEOS_PROJECT_DIR)/layout/usr/libexec/zxrunner
+	@chmod 0755 $(THEOS_PROJECT_DIR)/layout/usr/libexec/zxrunner
+	@mkdir -p $(THEOS_PROJECT_DIR)/layout/Library/LaunchDaemons
 	@cp $(THEOS_PROJECT_DIR)/zxrunner/resources/com.zjx.zxrunner.plist \
-	   $(THEOS_PACKAGE_INSTALL_PREFIX)/Library/LaunchDaemons/com.zjx.zxrunner.plist
+	   $(THEOS_PROJECT_DIR)/layout/Library/LaunchDaemons/com.zjx.zxrunner.plist
 
 after-install::
 	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall -9 SpringBoard; launchctl bootstrap system /Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || launchctl load /Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || true"
