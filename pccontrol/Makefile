@@ -52,7 +52,7 @@ zxrunner-bin:
 	@echo "zxrunner built → $(ZXRUNNER_BIN)"
 
 # 把 daemon 二进制和 plist 放进 packages/<tweak>/ 让 dpkg 打包时带上
-after-pccontrol-all: zxrunner-bin
+after-pccontrol-all:: zxrunner-bin
 	@echo "==> Installing zxrunner into tweak bundle..."
 	@mkdir -p $(THEOS_PACKAGE_INSTALL_PREFIX)/usr/libexec
 	@cp $(ZXRUNNER_BIN) $(THEOS_PACKAGE_INSTALL_PREFIX)/usr/libexec/zxrunner
