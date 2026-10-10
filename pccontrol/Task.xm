@@ -765,7 +765,80 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                     dpkgOut[dq] = out;
                 }
                 root[@"dpkg_query"] = dpkgOut;
-                [[NSFileManager defaultManager] removeItemAtPath:probeFile error:nil];
+
+                // 3) 沙盒范围探针：SpringBoard 到底能 exec /var/jb 下的哪些二进制？
+                //    Device B 上 python EPERM 但 dpkg 是正规安装——需要搞清楚沙盒是
+                //    拦整个 /var/jb/usr/bin 还是只拦 python。如果 shell 能 exec 但 python 不能，
+                //    差异在签名/entitlement；如果整个 /var/jb/usr/bin 都不能 exec，
+                //    那就是 Dopamine 配置问题，守护进程是唯一出路。
+                {
+                    NSArray<NSString *> *scopeProbe = @[
+                        @"/bin/sh",
+                        @"/var/jb/bin/sh",
+                        @"/var/jb/usr/bin/sh",
+                        @"/var/jb/usr/bin/date",
+                        @"/var/jb/usr/bin/ls",
+                        @"/var/jb/usr/bin/env",
+                        @"/var/jb/usr/bin/dpkg",
+                        @"/var/jb/usr/bin/python3.9",
+                        @"/var/jb/usr/bin/python3",
+                        @"/usr/bin/env",
+                        @"/usr/bin/date",
+                        @"/usr/bin/python3"
+                    ];
+                    NSMutableArray *scopeResults = [NSMutableArray array];
+                    NSString *scopeProbeFile = @"/var/mobile/Library/ZXTouch/.pycheck_scope";
+                    for (NSString *p in scopeProbe) {
+                        NSString *item = [NSString string];
+                        BOOL exists = [fm fileExistsAtPath:p];
+                        int accErrno = 0;
+                        BOOL acc = exists ? (access(p.UTF8String, X_OK) == 0) : NO;
+                        if (exists && !acc) accErrno = errno;
+                        // 有 access 权限才 posix_spawn 试跑；没权限的直接记 EPERM
+                        NSString *spawnResult = @"";
+                        if (acc) {
+                            int sfd = open(scopeProbeFile.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                            if (sfd >= 0) {
+                                posix_spawn_file_actions_t fa2;
+                                posix_spawn_file_actions_init(&fa2);
+                                posix_spawn_file_actions_addopen(&fa2, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+                                posix_spawn_file_actions_adddup2(&fa2, sfd, STDOUT_FILENO);
+                                posix_spawn_file_actions_adddup2(&fa2, sfd, STDERR_FILENO);
+                                posix_spawnattr_t attr2;
+                                posix_spawnattr_init(&attr2);
+                                sigset_t emp2; sigemptyset(&emp2);
+                                posix_spawnattr_setsigmask(&attr2, &emp2);
+                                posix_spawnattr_setflags(&attr2, POSIX_SPAWN_SETSIGMASK);
+                                char *argv2[] = { (char *)p.UTF8String, (char *)"--version", NULL };
+                                extern char **environ;
+                                pid_t pid2 = 0;
+                                int err2 = posix_spawn(&pid2, p.UTF8String, &fa2, &attr2, argv2, environ);
+                                posix_spawn_file_actions_destroy(&fa2);
+                                posix_spawnattr_destroy(&attr2);
+                                close(sfd);
+                                if (err2 == 0) {
+                                    int st2 = 0;
+                                    if (waitpid(pid2, &st2, 0) != -1) {
+                                        spawnResult = [NSString stringWithFormat:@"spawn_ok exit=%d", WIFEXITED(st2) ? WEXITSTATUS(st2) : -1];
+                                    }
+                                } else {
+                                    spawnResult = [NSString stringWithFormat:@"spawn_err=%d(%s)", err2, strerror(err2)];
+                                }
+                            }
+                        } else if (exists) {
+                            spawnResult = [NSString stringWithFormat:@"access_EPERM errno=%d", accErrno];
+                        }
+                        [scopeResults addObject:@{
+                            @"path": p,
+                            @"exists": @(exists),
+                            @"access_X_OK": @(acc),
+                            @"access_errno": @(accErrno),
+                            @"posix_spawn": spawnResult
+                        }];
+                    }
+                    root[@"sandbox_scope_probe"] = scopeResults;
+                    [[NSFileManager defaultManager] removeItemAtPath:scopeProbeFile error:nil];
+                }
             }
 
             NSError *jsonErr = nil;
