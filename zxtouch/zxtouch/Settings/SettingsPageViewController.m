@@ -696,10 +696,24 @@ static NSString *ZXPythonErrnoName(int e) {
         // 格式化诊断结果
         dispatch_async(dispatch_get_main_queue(), ^{
             NSMutableString *report = [NSMutableString string];
-            [report appendFormat:@"时间：%@\n\n", [NSDate date]];
+
+            // App 版本号（从小新Lap App 自身的 bundle 拿，不是 SpringBoard 的）
+            NSString *appVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
+            if (appVersion.length == 0) appVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"";
+
+            // 设备基础信息（SettingsPageViewController 跑在小新Lap App 进程里，能拿到 UIDevice）
+            UIDevice *dev = [UIDevice currentDevice];
+            NSString *deviceName = dev.model ?: @"";
+            NSString *osVersion = dev.systemVersion ?: @"";
+
+            [report appendFormat:@"时间：%@\n", [NSDate date]];
+            [report appendFormat:@"App：小新Lap v%@\n", appVersion.length ? appVersion : @"?"];
+            [report appendFormat:@"设备：%@  iOS %@\n", deviceName, osVersion];
+            [report appendFormat:@"进程 uid=501（SpringBoard）\n"];
+            [report appendString:@"\n"];
 
             if (!ok) {
-                [report appendString:@"无法连接 SpringBoard 进程（Socket 失败）。\n请先重启设备让越狱注入生效。"];
+                [report appendString:@"无法连接 SpringBoard 进程（Socket 失败）。"];
             } else if (raw.length == 0) {
                 [report appendString:@"未收到 tweak 返回结果。"];
             } else {
@@ -713,73 +727,52 @@ static NSString *ZXPythonErrnoName(int e) {
                     [report appendFormat:@"返回数据解析失败：%@\n\n原始数据：\n%@", jerr.localizedDescription ?: @"类型错误", raw];
                 } else {
                     NSString *found = dict[@"found_path"] ?: @"";
-                    if (found.length == 0) {
-                        [report appendString:@"❌ 未找到任何可用的 python3 解释器！\n"];
-                        [report appendString:@"请在 Sileo 添加 Procursus 源后安装 'python3' 包。\n\n"];
-                    } else {
-                        [report appendFormat:@"✅ 找到：%@\n", found];
+                    if (found.length > 0) {
+                        [report appendFormat:@"找到：%@\n", found];
                         NSString *ver = dict[@"version"];
-                        NSString *ec = dict[@"spawn_exit_code"];
-                        if (ver.length > 0) {
-                            [report appendFormat:@"版本：%@\n", ver];
-                        }
-
-                        // 两条探针并排展示：沙盒路径定性
-                        NSDictionary *prA = dict[@"spawn_probe_A_shell"];
-                        NSDictionary *prB = dict[@"spawn_probe_B_direct"];
-                        BOOL aOk = [prA isKindOfClass:[NSDictionary class]] && [prA[@"exit"] isKindOfClass:[NSNumber class]] && [prA[@"exit"] intValue] == 0;
-                        BOOL bOk = [prB isKindOfClass:[NSDictionary class]] && [prB[@"exit"] isKindOfClass:[NSNumber class]] && [prB[@"exit"] intValue] == 0;
-                        if (prA || prB) {
-                            [report appendString:@"\n执行链路对比（SpringBoard 进程内）：\n"];
-                            [report appendFormat:@"  A  shell间接  sh -c 'python3.9 --version' → exit=%@ %@\n",
-                                             prA[@"exit"] ?: @"?", aOk ? @"✅" : @"❌"];
-                            [report appendFormat:@"  B  直接exec   posix_spawn(python3.9)       → exit=%@ %@\n",
-                                             prB[@"exit"] ?: @"?", bOk ? @"✅" : @"❌"];
-                        }
-
-                        if (ver.length > 0 && aOk) {
-                            [report appendString:@"✅ shell 路径正常\n"];
-                        } else if (ver.length == 0) {
-                            [report appendString:@"⚠️ 文件存在但无法执行\n"];
-                        }
+                        if (ver.length > 0) [report appendFormat:@"版本：%@\n", ver];
+                    } else {
+                        [report appendString:@"全部候选不可用（access / posix_spawn 均 EPERM）\n"];
                     }
 
-                    // 环境信息：判断「跑的 tweak」和「装的 python」是否同一棵越狱目录
+                    // 执行链路探针
+                    NSDictionary *prA = dict[@"spawn_probe_A_shell"];
+                    NSDictionary *prB = dict[@"spawn_probe_B_direct"];
+                    if (prA || prB) {
+                        [report appendString:@"\n执行链路对比（SpringBoard 进程内）：\n"];
+                        [report appendFormat:@"  A  shell间接  sh -c 'python3.9 --version' → exit=%@\n", prA[@"exit"] ?: @"?"];
+                        [report appendFormat:@"  B  直接exec   posix_spawn(python3.9)       → exit=%@\n", prB[@"exit"] ?: @"?"];
+                    }
+
+                    // 环境信息
                     NSString *jbPrefix = dict[@"jbroot_prefix"];
                     NSString *varjb = dict[@"varjb_target"];
                     NSString *tweakPath = dict[@"tweak_path"];
-                    NSNumber *sameTree = dict[@"same_tree"];
                     if (jbPrefix.length || varjb.length || tweakPath.length) {
-                        [report appendString:@"\n环境信息：\n"];
-                        if (jbPrefix.length) [report appendFormat:@"  tweak 用的越狱目录：%@\n", jbPrefix];
-                        if (varjb.length) [report appendFormat:@"  /var/jb 实际指向：%@\n", varjb];
-                        if (sameTree) {
-                            [report appendFormat:@"  目录一致性：%@\n", [sameTree boolValue] ? @"✅ 同一棵越狱目录（Sileo 装的 python tweak 能找到）" : @"❌ 两棵不同的越狱目录（Sileo 重装 python 也装不进 tweak 在用的那棵）"];
-                        }
-                        if (tweakPath.length) [report appendFormat:@"  tweak 本体：%@（应位于第一行目录内）\n", tweakPath];
-                        NSNumber *uid = dict[@"uid"];
-                        if (uid) [report appendFormat:@"  进程 uid=%@\n", uid];
+                        [report appendString:@"\n越狱目录：\n"];
+                        if (jbPrefix.length) [report appendFormat:@"  tweak 安装位置：%@\n", jbPrefix];
+                        if (varjb.length) [report appendFormat:@"  /var/jb → %@\n", varjb];
+                        if (tweakPath.length) [report appendFormat:@"  pccontrol.dylib：%@\n", tweakPath];
                     }
 
+                    // 各候选路径
                     NSArray *cands = dict[@"candidates"];
                     NSArray *probes = [dict[@"probes"] isKindOfClass:[NSArray class]] ? dict[@"probes"] : @[];
                     if ([cands isKindOfClass:[NSArray class]]) {
-                        [report appendString:@"\n各候选路径：\n"];
+                        [report appendString:@"\n候选路径：\n"];
                         for (NSDictionary *c in cands) {
                             NSString *p = c[@"path"];
                             BOOL ex = [c[@"exists"] boolValue];
                             BOOL xc = [c[@"executable"] boolValue];
-                            NSString *mark;
-                            if (ex && xc) mark = @"✅";
-                            else if (ex) mark = @"⚠️ 存在但不可执行";
-                            else mark = @"❌ 不存在";
-                            NSMutableString *line = [NSMutableString stringWithFormat:@"  %@ %@", p, mark];
+                            NSMutableString *line = [NSMutableString stringWithFormat:@"  %@", p];
                             NSString *mode = c[@"mode"];
                             if (mode.length) [line appendFormat:@" [mode %@]", mode];
                             if ([c[@"symlink"] boolValue]) [line appendFormat:@" link→%@", c[@"link_target"] ?: @"?"];
-                            if (ex && !xc) {
+                            if (!ex) [line appendString:@" 不存在"];
+                            else if (xc) [line appendString:@"  ✅ 可执行"];
+                            else {
                                 NSNumber *en = c[@"exec_errno"];
-                                [line appendFormat:@" access失败 errno=%@(%@)", en, ZXPythonErrnoName(en.intValue)];
+                                [line appendFormat:@"  ❌ access=EPERM errno=%@(%@)", en ?: @0, ZXPythonErrnoName(en.intValue)];
                             }
                             [report appendFormat:@"%@\n", line];
                             for (NSDictionary *pr in probes) {
@@ -792,93 +785,42 @@ static NSString *ZXPythonErrnoName(int e) {
                         }
                     }
 
+                    // dpkg
                     NSDictionary *dq = dict[@"dpkg_query"];
-                    BOOL dpkgHasPython = NO;
                     if ([dq isKindOfClass:[NSDictionary class]] && dq.count > 0) {
-                        [report appendString:@"\ndpkg 包记录（两棵越狱目录各查一遍）：\n"];
+                        [report appendString:@"\ndpkg python3 包记录：\n"];
                         for (NSString *k in dq) {
                             NSString *out = dq[k];
-                            [report appendFormat:@"  [%@]\n    %@\n", k, out.length ? out : @"(无输出)"];
-                            if (out.length > 0 && ![out containsString:@"QUERY_FAILED"] && ![out containsString:@"无输出"]) dpkgHasPython = YES;
+                            [report appendFormat:@"  [%@]\n    %@\n", k, out.length ? out : @"(无)"];
                         }
                     }
 
-                    // 综合判断（探针优先：先看是哪种链路坏了）
-                    NSDictionary *prA2 = dict[@"spawn_probe_A_shell"];
-                    NSDictionary *prB2 = dict[@"spawn_probe_B_direct"];
-                    BOOL aOk2 = [prA2 isKindOfClass:[NSDictionary class]] && [prA2[@"exit"] isKindOfClass:[NSNumber class]] && [prA2[@"exit"] intValue] == 0;
-                    BOOL bOk2 = [prB2 isKindOfClass:[NSDictionary class]] && [prB2[@"exit"] isKindOfClass:[NSNumber class]] && [prB2[@"exit"] intValue] == 0;
-                    if (prA2 || prB2) {
-                        if (bOk2 && !aOk2) {
-                            [report appendString:@"\n💡 根因：SpringBoard 沙盒只拦 shell 里的二跳 exec python，直接 posix_spawn 能跑通。\n"];
-                            [report appendString:@"   ScriptPlayer 需要改成直接 exec python（绕开 sh -c），守护进程方案暂不需要。\n"];
-                        } else if (!bOk2 && !aOk2) {
-                            [report appendString:@"\n⚠️ 根因：SpringBoard 沙盒拦任何 exec python（包括 posix_spawn 直接拉起）。\n"];
-                            [report appendString:@"   只能通过守护进程方案解决（让 launchd 拉起 python，绕开 SpringBoard 沙盒）。\n"];
-                        } else if (aOk2) {
-                            // A 和 B 都正常 → 那就是别的环节坏了（比如 access 误报 / dpkg 缺失）
-                        }
-                    }
-
-                    // 沙盒范围探针：SpringBoard 到底能 exec /var/jb 下的什么？
+                    // 沙盒范围探针
                     NSArray *scope = [dict[@"sandbox_scope_probe"] isKindOfClass:[NSArray class]] ? dict[@"sandbox_scope_probe"] : nil;
                     if (scope.count > 0) {
-                        [report appendString:@"\n沙盒 exec 范围探针（SpringBoard 真实权限）：\n"];
+                        [report appendString:@"\nSpringBoard 沙盒 exec 范围：\n"];
                         for (NSDictionary *s in scope) {
                             if (![s isKindOfClass:[NSDictionary class]]) continue;
                             NSString *sp = s[@"path"] ?: @"";
                             BOOL ex2 = [s[@"exists"] boolValue];
                             BOOL acc2 = [s[@"access_X_OK"] boolValue];
                             NSString *spawn = s[@"posix_spawn"] ?: @"";
-                            NSString *line;
                             if (!ex2) {
-                                line = [NSString stringWithFormat:@"  ❌ %@  不存在", sp];
+                                [report appendFormat:@"  ❌ %@  不存在\n", sp];
                             } else if (acc2) {
-                                line = [NSString stringWithFormat:@"  ✅ %@  access=0  %@", sp, spawn];
+                                [report appendFormat:@"  ✅ %@  access=0  %@\n", sp, spawn];
                             } else {
                                 NSNumber *en2 = s[@"access_errno"];
-                                line = [NSString stringWithFormat:@"  ❌ %@  access=EPERM errno=%@  %@", sp, en2 ?: @(0), spawn];
-                            }
-                            [report appendFormat:@"%@\n", line];
-                        }
-                    }
-
-                    if (found.length == 0) {
-                        BOOL hasUnexecutable = NO;
-                        BOOL hasEPERM = NO;
-                        for (NSDictionary *c in cands) {
-                            if ([c[@"exists"] boolValue] && ![c[@"executable"] boolValue]) {
-                                hasUnexecutable = YES;
-                                NSString *detail = [c[@"detail"] isKindOfClass:[NSString class]] ? c[@"detail"] : nil;
-                                if (detail.length > 0 && ([detail containsString:@"EPERM"] || [detail containsString:@"errno=1"])) hasEPERM = YES;
-                            }
-                        }
-                        if (hasUnexecutable) {
-                            if (dpkgHasPython && hasEPERM) {
-                                // dpkg 有记录 + EPERM = 正规安装但被 AMFI 拒绝执行（签名/越狱豁免问题）
-                                [report appendString:@"\n⚠️ 诊断：python3 已通过 dpkg 正规安装，但执行被系统拒绝（EPERM，通常是 AMFI 签名校验失败）。\n"];
-                                [report appendString:@"   这是越狱环境的代码签名豁免问题，不是包本身的问题。\n"];
-                                [report appendString:@"   解决（按优先级）：\n"];
-                                [report appendString:@"   1. 重新运行 Dopamine 越狱（重新加载 trustcache）\n"];
-                                [report appendString:@"   2. 终端执行：ldid -S /var/jb/usr/bin/python3.9\n"];
-                                [report appendString:@"   3. 检查 Dopamine 设置中「允许未签名代码」是否开启\n"];
-                            } else if (!dpkgHasPython) {
-                                [report appendString:@"\n⚠️ 诊断：检测到 python3 文件存在但无法执行（exit 127），且 dpkg 中没有 python3 包记录。\n"];
-                                [report appendString:@"   这通常是手动放进去的残留/损坏文件（非正规 dpkg 安装）。\n"];
-                                [report appendString:@"   解决：删除残留文件后从 Procursus 源正规安装 python3：\n"];
-                                [report appendString:@"   rm /var/jb/usr/bin/python3*  →  Sileo 添加 https://Procursus.github.io/repo 安装 python3\n"];
-                            } else {
-                                [report appendString:@"\n⚠️ 诊断：python3 已安装但无法执行。请检查 /var/jb 是否以 noexec 挂载，或越狱的代码签名豁免是否生效。\n"];
+                                [report appendFormat:@"  ❌ %@  access=EPERM errno=%@  %@\n", sp, en2 ?: @0, spawn];
                             }
                         }
                     }
 
+                    // 模块路径
                     NSArray *mods = dict[@"module_paths_found"];
                     if (mods.count > 0) {
-                        [report appendString:@"\nzxtouch 模块可发现路径：\n"];
+                        [report appendString:@"\nzxtouch 模块路径：\n"];
                         for (NSString *m in mods) [report appendFormat:@"  %@\n", m];
-                    } else if (found.length > 0) {
-                        [report appendString:@"\n⚠️ 未发现 zxtouch 模块路径（不影响基本 Python 脚本，但 `import zxtouch` 会失败）\n"];
                     }
                 }
             }

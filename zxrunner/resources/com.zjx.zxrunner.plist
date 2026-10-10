@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.zjx.zxrunner</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/libexec/zxrunner</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- PoC 阶段：写完 probe 就 exit，KeepAlive 让 launchd 下次有机会重拉 -->
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/zxrunner_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/zxrunner_stderr.log</string>
+</dict>
+</plist>
