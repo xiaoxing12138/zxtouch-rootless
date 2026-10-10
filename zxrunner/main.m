@@ -20,6 +20,7 @@
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <sys/types.h>
+#import <sys/stat.h>
 #import <sys/wait.h>
 #import <signal.h>
 #import <fcntl.h>
