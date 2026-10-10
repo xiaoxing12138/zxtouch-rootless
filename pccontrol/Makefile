@@ -39,8 +39,8 @@ ZXRUNNER_SRC = $(THEOS_PROJECT_DIR)/zxrunner/main.m
 ZXRUNNER_BIN = $(THEOS_OBJ_DIR)/zxrunner
 ZXRUNNER_ARCH = -arch arm64 -arch arm64e
 # iOS 15+ SDK，和 tweak 同 target
-ZXRUNNER_SDK  = $(THEOS)/sdks/iphoneos$(THEOS_SDK_VERSION).sdk
-ZXRUNNER_CLANG = $(THEOS)/toolchain/Xcode.xctoolchain/usr/bin/clang
+ZXRUNNER_CLANG = $(shell xcrun --find clang)
+ZXRUNNER_SDK   = $(shell xcrun --sdk iphoneos --show-sdk-path)
 
 zxrunner-bin:
 	@echo "==> Building zxrunner daemon (PoC)..."
