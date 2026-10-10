@@ -841,6 +841,23 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 }
             }
 
+            // 读守护进程 PoC 结果：/tmp/zxrunner_probe 记录 daemon 对 /var/jb 的 exec 权限
+            {
+                NSString *probePath = @"/tmp/zxrunner_probe";
+                NSString *daemonProbe = [NSString stringWithContentsOfFile:probePath encoding:NSUTF8StringEncoding error:nil];
+                if (daemonProbe.length > 0) {
+                    root[@"daemon_probe"] = daemonProbe;
+                    root[@"daemon_probe_exists"] = @YES;
+                    for (NSString *line in [daemonProbe componentsSeparatedByString:@"\n"]) {
+                        if ([line containsString:@"python3.9"]) {
+                            root[@"daemon_probe_python39"] = line;
+                        }
+                    }
+                } else {
+                    root[@"daemon_probe_exists"] = @NO;
+                }
+            }
+
             NSError *jsonErr = nil;
             NSData *jsonData = [NSJSONSerialization dataWithJSONObject:root options:NSJSONWritingPrettyPrinted error:&jsonErr];
             NSString *json = jsonData ? [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding] : @"-1;;JSON 序列化失败";

@@ -822,6 +822,26 @@ static NSString *ZXPythonErrnoName(int e) {
                         [report appendString:@"\nzxtouch 模块路径：\n"];
                         for (NSString *m in mods) [report appendFormat:@"  %@\n", m];
                     }
+
+                    // 守护进程 PoC 结果（zxrunner）
+                    if ([dict[@"daemon_probe_exists"] boolValue]) {
+                        [report appendString:@"\n守护进程 zxrunner（launchd 拉起）：\n"];
+                        NSString *daemonProbe = dict[@"daemon_probe"];
+                        if (daemonProbe.length > 0) {
+                            // 截取关键行：pid/uid 行 + python3.9 行 + 所有 exec exit 行
+                            NSArray *lines = [daemonProbe componentsSeparatedByString:@"\n"];
+                            for (NSString *ln in lines) {
+                                if (ln.length == 0) continue;
+                                // 只挑有价值的行，避免太长
+                                if ([ln hasPrefix:@"pid="] ||
+                                    [ln containsString:@"python3.9"] ||
+                                    [ln containsString:@"→ exec"] ||
+                                    [ln containsString:@"zxrunner probe"]) {
+                                    [report appendFormat:@"  %@\n", ln];
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
