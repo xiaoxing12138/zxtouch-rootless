@@ -21,6 +21,27 @@
 
 static BOOL isPlaying = false;
 
+static int zx_run_launchctl_bootstrap(void)
+{
+    const char *plist = "/var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist";
+    const char *launchctl_paths[] = {
+        "/var/jb/usr/bin/launchctl",
+        "/usr/bin/launchctl",
+        NULL
+    };
+    for (int i = 0; launchctl_paths[i]; i++) {
+        char *const argv[] = { (char *)launchctl_paths[i], (char *)"bootstrap", (char *)"gui/501", (char *)plist, NULL };
+        pid_t pid = 0;
+        int err = posix_spawn(&pid, launchctl_paths[i], NULL, NULL, argv, environ);
+        if (err == 0) {
+            int st = 0;
+            waitpid(pid, &st, 0);
+            if (WIFEXITED(st) && WEXITSTATUS(st) == 0) return 0;
+        }
+    }
+    return -1;
+}
+
 static NSString *ZXPythonPath(void)
 {
     NSArray<NSString *> *candidates = @[
@@ -755,7 +776,8 @@ static NSString *ZXPythonModulePath(void)
         // SpringBoard respring 不会触发 launchd 重新扫描 LaunchAgents 目录，
         // 需要显式 bootstrap 让 launchd 拉起 zxrunner。
         // SpringBoard tweak 身份是 mobile(uid=501)，对自己的 gui domain 有权限操作。
-        system("/var/jb/usr/bin/launchctl bootstrap gui/501 /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || /usr/bin/launchctl bootstrap gui/501 /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || true");
+        int rc = zx_run_launchctl_bootstrap();
+        NSLog(@"com.zjx.springboard: launchctl bootstrap returned %d", rc);
         // launchd 拉起进程 + bind socket 需要时间
         usleep(500000);
         fd = socket(AF_UNIX, SOCK_STREAM, 0);
