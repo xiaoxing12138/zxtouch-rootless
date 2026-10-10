@@ -9,6 +9,8 @@
 #include "Common.h"
 #import "ScriptFunctions.h"
 #import <sys/stat.h>
+#import <sys/socket.h>
+#import <sys/un.h>
 #include <errno.h>
 #include <unistd.h>
 #include <signal.h>
@@ -474,9 +476,33 @@ static NSString *ZXPythonModulePath(void)
         NSLog(@"com.zjx.springboard: posix_spawn(%s) failed: %s (%d)",
               pythonPath.UTF8String, strerror(spawnErr), spawnErr);
         close(p_stdout[0]); close(p_stdout[1]);
+        free(envp);
+
+        // iOS 18 Dopamine：SpringBoard sandbox 硬拦 exec /var/jb/*（probe 全 EPERM）。
+        // 但 launchd 拉起的同 uid 进程 zxrunner 能 exec python（probe 已验证）。
+        // fallback：连 zxrunner socket 让它替 SpringBoard posix_spawn python。
+        if (spawnErr == EPERM || errno == EPERM) {
+            NSLog(@"com.zjx.springboard: EPERM — trying zxrunner daemon socket fallback...");
+            if (![self runPythonViaDaemon:pythonPath
+                               scriptPath:filePath
+                                  scriptDir:scriptDir
+                                   envp:environ
+                              extraEnv:envVars]) {
+                showAlertBox(@"脚本无法启动（守护进程也不可用）",
+                             [NSString stringWithFormat:@"小新Lap 在此设备上无法直接执行 Python。\n\n守护进程 zxrunner 未运行或无法启动。\n\n详情：%s", strerror(spawnErr)],
+                             999);
+                if (prevCwd[0]) chdir(prevCwd);
+                isPlaying = false;
+                return;
+            }
+            // daemon 路径成功的话，下面的 cleanup 已经在 runPythonViaDaemon 里做了
+            return;
+        }
+
         showAlertBox(@"脚本无法启动",
                      [NSString stringWithFormat:@"小新Lap 无法启动 Python（posix_spawn 失败：%s）。\n\n请打开 Console.app，搜索 com.zjx.springboard 查看详情。", strerror(spawnErr)],
                      999);
+        if (prevCwd[0]) chdir(prevCwd);
         isPlaying = false;
         return;
     }
@@ -688,6 +714,164 @@ static NSString *ZXPythonModulePath(void)
         return;
     }
 
+}
+
+// ── 通过 zxrunner daemon socket 执行 python ──
+// 当 SpringBoard sandbox 硬拦 exec /var/jb/* 时（iOS 18 Dopamine），
+// launchd 拉起的同 uid 进程 zxrunner 不受此限制，能 exec python。
+// SpringBoard 通过 AF_UNIX socket 发命令给它。
+#define ZXRUNNER_SOCKET_PATH "/tmp/zxrunner.sock"
+
+- (BOOL)runPythonViaDaemon:(NSString *)pythonPath
+                scriptPath:(NSString *)scriptPath
+                   scriptDir:(NSString *)scriptDir
+                    envp:(char **)envp
+               extraEnv:(NSArray<NSString *> *)extraEnv
+{
+    // 0. 创建 output log
+    NSString *outputLog = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output";
+    if (![[NSFileManager defaultManager] fileExistsAtPath:outputLog])
+        [@"" writeToFile:outputLog atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    NSFileHandle *logHandle = [NSFileHandle fileHandleForWritingAtPath:outputLog];
+    [logHandle seekToEndOfFile];
+    time_t now0 = time(NULL);
+    struct tm tm0;
+    localtime_r(&now0, &tm0);
+    char dateBuf0[32];
+    strftime(dateBuf0, sizeof(dateBuf0), "%m-%d-%Y %H:%M:%S", &tm0);
+    NSString *startLine = [NSString stringWithFormat:@"%s: [daemon] 开始运行脚本，路径: %@\n", dateBuf0, scriptPath];
+    [logHandle writeData:[startLine dataUsingEncoding:NSUTF8StringEncoding]];
+
+    // 1. 连 socket
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        NSLog(@"com.zjx.springboard: daemon socket() failed: %s", strerror(errno));
+        return NO;
+    }
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, ZXRUNNER_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        NSLog(@"com.zjx.springboard: daemon connect(%s) failed: %s", ZXRUNNER_SOCKET_PATH, strerror(errno));
+        close(fd);
+        return NO;
+    }
+
+    // 2. 构造 env dict
+    NSMutableDictionary *envDict = [NSMutableDictionary dictionary];
+    if (envp) {
+        for (char **p = envp; *p; p++) {
+            NSString *pair = [NSString stringWithUTF8String:*p];
+            NSRange eq = [pair rangeOfString:@"="];
+            if (eq.location != NSNotFound) {
+                NSString *k = [pair substringToIndex:eq.location];
+                NSString *v = [pair substringFromIndex:eq.location + 1];
+                envDict[k] = v;
+            }
+        }
+    }
+    for (NSString *ev in extraEnv) {
+        NSRange eq = [ev rangeOfString:@"="];
+        if (eq.location != NSNotFound) {
+            envDict[[ev substringToIndex:eq.location]] = [ev substringFromIndex:eq.location + 1];
+        }
+    }
+
+    // 3. 构造命令 JSON
+    NSDictionary *cmd = @{
+        @"cmd": @"spawn_python",
+        @"path": pythonPath ?: @"",
+        @"script": scriptPath ?: @"",
+        @"cwd": scriptDir ?: @"",
+        @"env": envDict,
+        @"args": @[@"-u"]
+    };
+    NSError *jsonErr = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:cmd options:0 error:&jsonErr];
+    if (jsonErr) {
+        NSLog(@"com.zjx.springboard: daemon JSON 序列化失败: %@", jsonErr);
+        close(fd);
+        return NO;
+    }
+    NSMutableData *sendBuf = [NSMutableData dataWithData:jsonData];
+    [sendBuf appendBytes:"\r\n" length:2];
+    if (write(fd, sendBuf.bytes, sendBuf.length) != sendBuf.length) {
+        NSLog(@"com.zjx.springboard: daemon write failed: %s", strerror(errno));
+        close(fd);
+        return NO;
+    }
+
+    NSLog(@"com.zjx.springboard: → zxrunner 命令已发送，等待响应...");
+
+    // 4. 读响应流，每行一个 JSON
+    char lineBuf[8192];
+    int  linePos = 0;
+    BOOL exited = NO;
+    int  exitCode = -1;
+    BOOL gotError = NO;
+
+    while (!exited && !scriptStopRequested) {
+        char ch;
+        ssize_t nr = read(fd, &ch, 1);
+        if (nr <= 0) break;
+
+        if (ch == '\n') {
+            if (linePos == 0) continue;
+            // 去掉可能的 \r
+            if (lineBuf[linePos - 1] == '\r') lineBuf[--linePos] = '\0';
+            lineBuf[linePos] = '\0';
+
+            NSData *lineData = [NSData dataWithBytes:lineBuf length:linePos];
+            NSError *parseErr = nil;
+            NSDictionary *resp = [NSJSONSerialization JSONObjectWithData:lineData options:0 error:&parseErr];
+
+            if (!parseErr && [resp isKindOfClass:[NSDictionary class]]) {
+                NSString *type = resp[@"type"];
+                if ([type isEqualToString:@"started"]) {
+                    NSNumber *pid = resp[@"pid"];
+                    NSLog(@"com.zjx.springboard: ← zxrunner started python pid=%d", pid.intValue);
+                    pythonProcessGroup = pid.intValue;
+                } else if ([type isEqualToString:@"stdout"] || [type isEqualToString:@"stderr"]) {
+                    // 解义 JSON 字符串里的转义字符
+                    NSString *data = resp[@"data"] ?: @"";
+                    if (data.length > 0) {
+                        // 加 datetime 前缀写 logHandle
+                        time_t t2 = time(NULL);
+                        struct tm tm2;
+                        localtime_r(&t2, &tm2);
+                        char dateBuf[32];
+                        strftime(dateBuf, sizeof(dateBuf), "%m-%d-%Y %H:%M:%S", &tm2);
+                        NSString *outLine = [NSString stringWithFormat:@"%s: %@\n", dateBuf, data];
+                        [logHandle writeData:[outLine dataUsingEncoding:NSUTF8StringEncoding]];
+                    }
+                } else if ([type isEqualToString:@"exit"]) {
+                    exitCode = [resp[@"code"] intValue];
+                    exited = YES;
+                    NSLog(@"com.zjx.springboard: ← zxrunner python exit=%d", exitCode);
+                } else if ([type isEqualToString:@"error"]) {
+                    NSLog(@"com.zjx.springboard: ← zxrunner error: %@", resp[@"msg"]);
+                    gotError = YES;
+                    exited = YES;
+                }
+            }
+            linePos = 0;
+        } else if (linePos < (int)sizeof(lineBuf) - 1) {
+            lineBuf[linePos++] = ch;
+        }
+    }
+
+    // 用户请求停止：daemon 会继续读 python stdout 直到 python 退出。
+    // 但我们这边不关心了，直接关 socket。python 进程残留是 daemon 的事（需要后续加 kill 命令）。
+    close(fd);
+
+    isPlaying = NO;
+    [logHandle closeFile];
+
+    // 写 statusFile
+    NSString *statusFile = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/last_python_status";
+    [[NSString stringWithFormat:@"%d", exitCode] writeToFile:statusFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+
+    return YES;
 }
 
 @end

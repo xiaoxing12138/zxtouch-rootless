@@ -10,9 +10,9 @@
     </array>
     <key>RunAtLoad</key>
     <true/>
-    <!-- PoC 阶段：写完 probe 就 exit。常驻版会改成 socket server + KeepAlive=true -->
+    <!-- 常驻 socket server，崩了 launchd 自动重启 -->
     <key>KeepAlive</key>
-    <false/>
+    <true/>
     <key>StandardOutPath</key>
     <string>/tmp/zxrunner_stdout.log</string>
     <key>StandardErrorPath</key>
