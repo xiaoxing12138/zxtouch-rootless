@@ -32,7 +32,7 @@ static int zx_run_launchctl_bootstrap(void)
     for (int i = 0; launchctl_paths[i]; i++) {
         char *const argv[] = { (char *)launchctl_paths[i], (char *)"bootstrap", (char *)"gui/501", (char *)plist, NULL };
         pid_t pid = 0;
-        int err = posix_spawn(&pid, launchctl_paths[i], NULL, NULL, argv, environ);
+        int err = posix_spawn(&pid, launchctl_paths[i], NULL, NULL, argv, NULL);
         if (err == 0) {
             int st = 0;
             waitpid(pid, &st, 0);
