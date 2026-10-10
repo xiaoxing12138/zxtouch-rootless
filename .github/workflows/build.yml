@@ -107,6 +107,9 @@ jobs:
           THEOS: ${{ github.workspace }}/theos
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install ldid
+        run: brew install ldid
+
       - name: Build Rootless .deb
         run: |
           export CC="ccache clang"
