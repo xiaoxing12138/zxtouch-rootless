@@ -71,4 +71,4 @@ after-pccontrol-all:: zxrunner-bin
 	@chmod 0644 $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents/com.zjx.zxrunner.plist
 
 after-install::
-	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall -9 SpringBoard; launchctl bootstrap gui/501 /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || su mobile -c 'launchctl bootstrap gui/501 /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist' 2>/dev/null || launchctl load /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || true"
+	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall SpringBoard; launchctl bootstrap gui/501 /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || launchctl load /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || true"
