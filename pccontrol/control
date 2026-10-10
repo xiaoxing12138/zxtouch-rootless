@@ -1,6 +1,6 @@
 Package: com.zjx.pccontrol
 Name: 小新Lap 触摸引擎
-Version: 3.0.84
+Version: 3.0.85
 Depends: mobilesubstrate | ellekit, firmware (>= 15.0), python3
 Architecture: iphoneos-arm64
 Description: 小新Lap 的触摸模拟引擎 —— 基于开源项目 ZXTouch 二次修改（无根越狱，iOS 15-16）

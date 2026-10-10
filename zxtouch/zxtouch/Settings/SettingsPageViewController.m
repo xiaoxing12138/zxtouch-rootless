@@ -820,6 +820,29 @@ static NSString *ZXPythonErrnoName(int e) {
                         }
                     }
 
+                    // 沙盒范围探针：SpringBoard 到底能 exec /var/jb 下的什么？
+                    NSArray *scope = [dict[@"sandbox_scope_probe"] isKindOfClass:[NSArray class]] ? dict[@"sandbox_scope_probe"] : nil;
+                    if (scope.count > 0) {
+                        [report appendString:@"\n沙盒 exec 范围探针（SpringBoard 真实权限）：\n"];
+                        for (NSDictionary *s in scope) {
+                            if (![s isKindOfClass:[NSDictionary class]]) continue;
+                            NSString *sp = s[@"path"] ?: @"";
+                            BOOL ex2 = [s[@"exists"] boolValue];
+                            BOOL acc2 = [s[@"access_X_OK"] boolValue];
+                            NSString *spawn = s[@"posix_spawn"] ?: @"";
+                            NSString *line;
+                            if (!ex2) {
+                                line = [NSString stringWithFormat:@"  ❌ %@  不存在", sp];
+                            } else if (acc2) {
+                                line = [NSString stringWithFormat:@"  ✅ %@  access=0  %@", sp, spawn];
+                            } else {
+                                NSNumber *en2 = s[@"access_errno"];
+                                line = [NSString stringWithFormat:@"  ❌ %@  access=EPERM errno=%@  %@", sp, en2 ?: @(0), spawn];
+                            }
+                            [report appendFormat:@"%@\n", line];
+                        }
+                    }
+
                     if (found.length == 0) {
                         BOOL hasUnexecutable = NO;
                         BOOL hasEPERM = NO;
