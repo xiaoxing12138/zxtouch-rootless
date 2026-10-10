@@ -844,19 +844,72 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
 
             // 读守护进程 PoC 结果：/tmp/zxrunner_probe 记录 daemon 对 /var/jb 的 exec 权限
             {
+                NSMutableDictionary *daemonInfo = [NSMutableDictionary dictionary];
+
+                // 1. plist 存在性检查（LaunchAgents 路径，rootless）
+                NSString *agentPlist = @"/var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist";
+                BOOL plistExists = [[NSFileManager defaultManager] fileExistsAtPath:agentPlist];
+                daemonInfo[@"plist_path"] = agentPlist;
+                daemonInfo[@"plist_exists"] = @(plistExists);
+
+                // 2. daemon 二进制存在性
+                NSString *binPath = @"/var/jb/usr/libexec/zxrunner";
+                BOOL binExists = [[NSFileManager defaultManager] fileExistsAtPath:binPath];
+                daemonInfo[@"bin_path"] = binPath;
+                daemonInfo[@"bin_exists"] = @(binExists);
+                int binErrno = 0;
+                BOOL binAcc = binExists ? (access(binPath.UTF8String, X_OK) == 0) : NO;
+                if (binExists && !binAcc) binErrno = errno;
+                daemonInfo[@"bin_access_X_OK"] = @(binAcc);
+                daemonInfo[@"bin_access_errno"] = @(binErrno);
+
+                // 3. /tmp/zxrunner_probe 有没有（daemon 是否被 launchd 拉起过）
                 NSString *probePath = @"/tmp/zxrunner_probe";
-                NSString *daemonProbe = [NSString stringWithContentsOfFile:probePath encoding:NSUTF8StringEncoding error:nil];
-                if (daemonProbe.length > 0) {
-                    root[@"daemon_probe"] = daemonProbe;
-                    root[@"daemon_probe_exists"] = @YES;
-                    for (NSString *line in [daemonProbe componentsSeparatedByString:@"\n"]) {
-                        if ([line containsString:@"python3.9"]) {
-                            root[@"daemon_probe_python39"] = line;
-                        }
+                NSString *probeContent = [NSString stringWithContentsOfFile:probePath encoding:NSUTF8StringEncoding error:nil];
+                daemonInfo[@"probe_path"] = probePath;
+                daemonInfo[@"probe_exists"] = @(probeContent.length > 0);
+                daemonInfo[@"probe_content"] = probeContent ?: @"";
+
+                // 4. 强制触发一次：SpringBoard 里手动 fork+exec zxrunner
+                //    （验证 SpringBoard 虽然不能 exec /var/jb/usr/bin/python，但
+                //     能不能 exec /var/jb/usr/libexec/zxrunner）
+                if (binAcc) {
+                    int pipefd[2];
+                    if (pipe(pipefd) == 0) {
+                        posix_spawn_file_actions_t fa;
+                        posix_spawn_file_actions_init(&fa);
+                        posix_spawn_file_actions_addopen(&fa, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+                        posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDOUT_FILENO);
+                        posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDERR_FILENO);
+                        posix_spawnattr_t attr;
+                        posix_spawnattr_init(&attr);
+                        sigset_t emp; sigemptyset(&emp);
+                        posix_spawnattr_setsigmask(&attr, &emp);
+                        posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK);
+                        char *argv[] = { (char *)binPath.UTF8String, NULL };
+                        extern char **environ;
+                        pid_t pid = 0;
+                        int err = posix_spawn(&pid, binPath.UTF8String, &fa, &attr, argv, environ);
+                        posix_spawn_file_actions_destroy(&fa);
+                        posix_spawnattr_destroy(&attr);
+                        close(pipefd[1]);
+                        char buf[512];
+                        ssize_t n = read(pipefd[0], buf, sizeof(buf) - 1);
+                        buf[n > 0 ? n : 0] = '\0';
+                        close(pipefd[0]);
+                        int st = 0;
+                        if (err == 0) waitpid(pid, &st, 0);
+                        daemonInfo[@"spawn_direct_err"] = @(err);
+                        daemonInfo[@"spawn_direct_exit"] = @(err == 0 ? (WIFEXITED(st) ? WEXITSTATUS(st) : -1) : -1);
+                        daemonInfo[@"spawn_direct_output"] = [NSString stringWithUTF8String:buf] ?: @"";
                     }
                 } else {
-                    root[@"daemon_probe_exists"] = @NO;
+                    daemonInfo[@"spawn_direct_err"] = @(binExists ? binErrno : ENOENT);
+                    daemonInfo[@"spawn_direct_exit"] = @(-1);
+                    daemonInfo[@"spawn_direct_output"] = @"skipped (bin not accessible)";
                 }
+
+                root[@"daemon_probe"] = daemonInfo;
             }
 
             NSError *jsonErr = nil;

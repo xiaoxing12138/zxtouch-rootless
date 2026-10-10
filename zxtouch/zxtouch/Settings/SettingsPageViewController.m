@@ -824,23 +824,43 @@ static NSString *ZXPythonErrnoName(int e) {
                     }
 
                     // 守护进程 PoC 结果（zxrunner）
-                    if ([dict[@"daemon_probe_exists"] boolValue]) {
-                        [report appendString:@"\n守护进程 zxrunner（launchd 拉起）：\n"];
-                        NSString *daemonProbe = dict[@"daemon_probe"];
-                        if (daemonProbe.length > 0) {
-                            // 截取关键行：pid/uid 行 + python3.9 行 + 所有 exec exit 行
-                            NSArray *lines = [daemonProbe componentsSeparatedByString:@"\n"];
-                            for (NSString *ln in lines) {
-                                if (ln.length == 0) continue;
-                                // 只挑有价值的行，避免太长
-                                if ([ln hasPrefix:@"pid="] ||
-                                    [ln containsString:@"python3.9"] ||
-                                    [ln containsString:@"→ exec"] ||
-                                    [ln containsString:@"zxrunner probe"]) {
-                                    [report appendFormat:@"  %@\n", ln];
+                    NSDictionary *daemon = dict[@"daemon_probe"];
+                    if ([daemon isKindOfClass:[NSDictionary class]]) {
+                        [report appendString:@"\n守护进程 zxrunner：\n"];
+                        [report appendFormat:@"  plist  %@  %@\n",
+                         daemon[@"plist_path"] ?: @"?",
+                         [daemon[@"plist_exists"] boolValue] ? @"存在" : @"不存在"];
+                        [report appendFormat:@"  二进制  %@  exists=%@  access(X_OK)=%@%@\n",
+                         daemon[@"bin_path"] ?: @"?",
+                         [daemon[@"bin_exists"] boolValue] ? @"Y" : @"N",
+                         [daemon[@"bin_access_X_OK"] boolValue] ? @"Y" : @"N",
+                         [daemon[@"bin_exists"] boolValue] && ![daemon[@"bin_access_X_OK"] boolValue]
+                            ? [NSString stringWithFormat:@" errno=%@", daemon[@"bin_access_errno"]]
+                            : @""];
+                        // probe（daemon 被 launchd 拉起后写的探测结果）
+                        if ([daemon[@"probe_exists"] boolValue]) {
+                            [report appendFormat:@"  launchd probe  ✅ 已生成\n"];
+                            NSString *probeContent = daemon[@"probe_content"];
+                            if (probeContent.length > 0) {
+                                NSArray *lines = [probeContent componentsSeparatedByString:@"\n"];
+                                for (NSString *ln in lines) {
+                                    if (ln.length == 0) continue;
+                                    if ([ln hasPrefix:@"pid="] ||
+                                        [ln containsString:@"python3.9"] ||
+                                        [ln containsString:@"→ exec"] ||
+                                        [ln hasPrefix:@"zxrunner probe"]) {
+                                        [report appendFormat:@"    %@\n", ln];
+                                    }
                                 }
                             }
+                        } else {
+                            [report appendFormat:@"  launchd probe  ❌ 未生成（daemon 未被拉起）\n"];
                         }
+                        // SpringBoard 直接 posix_spawn zxrunner 的结果
+                        [report appendFormat:@"  SpringBoard直接spawn zxrunner  err=%@  exit=%@  output=%@\n",
+                         daemon[@"spawn_direct_err"] ?: @"?",
+                         daemon[@"spawn_direct_exit"] ?: @"?",
+                         daemon[@"spawn_direct_output"] ?: @""];
                     }
                 }
             }
