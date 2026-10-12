@@ -169,7 +169,7 @@ static int handle_spawn_python(int client, NSDictionary *cmd)
     int st = 0;
     waitpid(pid, &st, 0);
     if (died) return 0;
-    int code = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+    int code = WIFEXITED(st) ? WEXITSTATUS(st) : (WIFSIGNALED(st) ? 128 + WTERMSIG(st) : -1);
     char exit[64];
     snprintf(exit, sizeof(exit), "\"code\":%d", code);
     send_json_line(client, "exit", exit);
@@ -261,7 +261,7 @@ static int run_server(void)
 int main(int argc, char *argv[])
 {
     @autoreleasepool {
-        signal(SIGCHLD, SIG_IGN);
+        signal(SIGCHLD, SIG_DFL);
         signal(SIGPIPE, SIG_IGN);
 
         return run_server();
