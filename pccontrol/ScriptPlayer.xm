@@ -488,7 +488,6 @@ static BOOL ZXForceDaemon(void)
         NSLog(@"com.zjx.springboard: posix_spawn(%s) failed: %s (%d)",
               pythonPath.UTF8String, strerror(spawnErr), spawnErr);
         close(p_stdout[0]); close(p_stdout[1]);
-        free(envp);
 
         // iOS 18 Dopamine：SpringBoard sandbox 硬拦 exec /var/jb/*（probe 全 EPERM）。
         // 但 launchd 拉起的同 uid 进程 zxrunner 能 exec python（probe 已验证）。
@@ -507,7 +506,8 @@ static BOOL ZXForceDaemon(void)
                 isPlaying = false;
                 return;
             }
-            // daemon 路径成功的话，下面的 cleanup 已经在 runPythonViaDaemon 里做了
+            if (prevCwd[0]) chdir(prevCwd);
+            [self finishDaemonRunWithOutputLog:outputLog statusFile:statusFile];
             return;
         }
 
@@ -618,26 +618,46 @@ static BOOL ZXForceDaemon(void)
     [exitStr writeToFile:statusFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
     // ── 5. 错误处理 ──
-    if (!stoppedByUser && pythonExitCode != 0) {
-        NSString *title = @"脚本错误";
-        NSString *message;
-        NSString *logTail = [NSString stringWithContentsOfFile:outputLog encoding:NSUTF8StringEncoding error:nil] ?: @"";
-        BOOL dyldLibpythonMissing = [logTail rangeOfString:@"Library not loaded" options:0].location != NSNotFound &&
-                                    [logTail rangeOfString:@"libpython" options:0].location != NSNotFound;
-        if (pythonExitCode == 134 && dyldLibpythonMissing) {
-            title = @"Python 解释器已损坏";
-            message = @"已安装的 python3 启动时中止，因为 dyld 找不到它的 libpython 动态库。\n\n请在 Sileo（Procursus）中安装 python3 软件包（3.9 或更新版本），然后重新安装 小新Lap，使其重新选择可用的解释器。";
-        } else if (pythonExitCode < 0) {
-            title = @"脚本无法启动";
-            message = [NSString stringWithFormat:@"小新Lap 无法启动 Python（posix_spawn 异常，退出码 %d）。\n\n请打开 Console.app，搜索 com.zjx.springboard 查看详情。", pythonExitCode];
-        } else {
-            message = [NSString stringWithFormat:@"Python 脚本异常退出，退出码 %d。请打开日志查看详细报错。", pythonExitCode];
-        }
-        NSLog(@"com.zjx.springboard: %@ — %@", title, message);
-        showAlertBox(title, message, 999);
-    }
+    if (!stoppedByUser) [self reportPythonFailure:pythonExitCode outputLog:outputLog];
 
     if (!stoppedByUser) [self playHasStopped];
+}
+
+- (void)reportPythonFailure:(int)pythonExitCode outputLog:(NSString *)outputLog
+{
+    if (pythonExitCode == 0) return;
+
+    NSString *title = @"脚本错误";
+    NSString *message;
+    NSString *logTail = [NSString stringWithContentsOfFile:outputLog encoding:NSUTF8StringEncoding error:nil] ?: @"";
+    BOOL dyldLibpythonMissing = [logTail rangeOfString:@"Library not loaded" options:0].location != NSNotFound &&
+                                [logTail rangeOfString:@"libpython" options:0].location != NSNotFound;
+    if (pythonExitCode == 134 && dyldLibpythonMissing) {
+        title = @"Python 解释器已损坏";
+        message = @"已安装的 python3 启动时中止，因为 dyld 找不到它的 libpython 动态库。\n\n请在 Sileo（Procursus）中安装 python3 软件包（3.9 或更新版本），然后重新安装 小新Lap，使其重新选择可用的解释器。";
+    } else if (pythonExitCode < 0) {
+        title = @"脚本无法启动";
+        message = [NSString stringWithFormat:@"小新Lap 无法启动 Python（posix_spawn 异常，退出码 %d）。\n\n请打开 Console.app，搜索 com.zjx.springboard 查看详情。", pythonExitCode];
+    } else {
+        message = [NSString stringWithFormat:@"Python 脚本异常退出，退出码 %d。请打开日志查看详细报错。", pythonExitCode];
+    }
+    NSLog(@"com.zjx.springboard: %@ — %@", title, message);
+    showAlertBox(title, message, 999);
+}
+
+- (void)finishDaemonRunWithOutputLog:(NSString *)outputLog statusFile:(NSString *)statusFile
+{
+    BOOL stoppedByUser = (scriptStopRequested != 0) || (scriptStopByUser != 0);
+    scriptStopRequested = 0;
+    scriptStopByUser = 0;
+
+    NSString *statusStr = [NSString stringWithContentsOfFile:statusFile encoding:NSUTF8StringEncoding error:nil];
+    int pythonExitCode = statusStr ? statusStr.intValue : -1;
+
+    if (!stoppedByUser) {
+        [self reportPythonFailure:pythonExitCode outputLog:outputLog];
+        [self playHasStopped];
+    }
 }
 
 - (void)replay:(NSTimer*)nstimer {
@@ -894,7 +914,6 @@ static BOOL ZXForceDaemon(void)
     close(fd);
 
     pythonProcessGroup = 0;
-    isPlaying = NO;
     [logHandle closeFile];
 
     // 写 statusFile
