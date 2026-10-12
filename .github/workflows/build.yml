@@ -1,6 +1,6 @@
 name: Build ZXTouch Package
 
-run-name: v3.0.95
+run-name: v3.0.96
 
 on:
   push:
@@ -151,7 +151,7 @@ jobs:
           name: theos-deb
           path: downloads
 
-      - name: Rename final artifacts
+      - name: Assemble final artifacts
         run: |
           echo "=== downloads/ contents ==="
           ls -la downloads/
@@ -161,7 +161,11 @@ jobs:
           echo "VERSION=$VERSION"
           mkdir -p final
           cp "$DEB" "final/小新Lap_${VERSION}_tweak_rootless.deb"
-          cp downloads/zxtouch-app.tar.gz "final/小新Lap_${VERSION}_app.tar.gz"
+          tar -xzf downloads/zxtouch-app.tar.gz
+          mkdir -p Payload
+          mv zxtouch.app Payload/
+          zip -rq "final/小新Lap_${VERSION}.ipa" Payload
+          rm -rf Payload
           ls -la final/
 
       - name: Upload final artifacts

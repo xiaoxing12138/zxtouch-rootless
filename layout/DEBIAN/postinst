@@ -113,6 +113,19 @@ if [ -x /var/jb/usr/bin/ldid ]; then
     /var/jb/usr/bin/ldid -S/tmp/zxtouch-ent.plist "$APP/zxtouch"
 fi
 
+# Start zxrunner daemon (rootless sandbox: launchctl bootstrap is unusable,
+# iOS has no user/gui domains. Postinst runs as root, bypassing SpringBoard exec restrictions.)
+DAEMON=/var/jb/usr/libexec/zxrunner
+if [ -x "$DAEMON" ]; then
+    # Kill any stale instance from before, then start fresh
+    pkill -f "$DAEMON" 2>/dev/null || true
+    sleep 0.3
+    rm -f /tmp/zxrunner.sock
+    nohup "$DAEMON" >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    sleep 0.3
+fi
+
 # Never restart SpringBoard from a maintainer script. Package managers run this
 # inside the dpkg transaction, so a restart can kill their helper before dpkg
 # records the package as configured. Sileo can offer a respring after dpkg exits.
