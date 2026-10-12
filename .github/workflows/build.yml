@@ -168,6 +168,7 @@ jobs:
 
           mkdir -p deb-root
           dpkg-deb -x "$DEB" deb-root/
+          dpkg-deb -e "$DEB" deb-root/DEBIAN/
 
           TARGET="deb-root/Applications/zxtouch.app"
           mkdir -p deb-root/Applications
