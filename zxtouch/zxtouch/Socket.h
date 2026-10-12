@@ -26,6 +26,8 @@ NS_ASSUME_NONNULL_BEGIN
 -(NSString*) recvLine;
 // 读满 length 字节的二进制体；读不满（超时/断链）返回 nil。
 -(NSData*) recvData:(NSInteger)length;
+-(void) setTimeout:(int)seconds;
+-(NSString*) recvUntilCRLF;
 -(void)close;
 
 @end

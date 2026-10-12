@@ -7,13 +7,84 @@
 #include <errno.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
+
+static const char *zxShellPath(void)
+{
+    const char *sh = jbroot("/bin/sh");
+    if (sh && access(sh, X_OK) == 0) return sh;
+    static const char *candidates[] = {
+        "/var/jb/bin/sh",
+        "/var/jb/usr/bin/sh",
+        "/bin/sh",
+        "/usr/bin/sh",
+        NULL
+    };
+    for (int i = 0; candidates[i]; ++i) {
+        if (access(candidates[i], X_OK) == 0) return candidates[i];
+    }
+    return NULL;
+}
+
+int zxWaitTimeout(pid_t pid, double timeoutSec, int *status)
+{
+    struct timespec t0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    while (1) {
+        int st = 0;
+        pid_t r = waitpid(pid, &st, WNOHANG);
+        if (r == pid) {
+            if (status) *status = st;
+            return 0;
+        }
+        if (r == -1) return -1;
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        double elapsed = (double)(now.tv_sec - t0.tv_sec) + (double)(now.tv_nsec - t0.tv_nsec) / 1e9;
+        if (elapsed >= timeoutSec) return 1;
+        usleep(50 * 1000);
+    }
+}
 
 int call_system(const char *cmd)
 {
-    static int (*sys_fn)(const char *) = NULL;
-    if (!sys_fn)
-        sys_fn = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
-    return sys_fn ? sys_fn(cmd) : -1;
+    if (!cmd) return -1;
+    const char *shellPath = zxShellPath();
+    if (!shellPath) {
+        NSLog(@"com.zjx.springboard: call_system: no usable sh (%s)", cmd);
+        return -1;
+    }
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    posix_spawnattr_t attrs;
+    posix_spawnattr_init(&attrs);
+    sigset_t emptyset;
+    sigemptyset(&emptyset);
+    posix_spawnattr_setsigmask(&attrs, &emptyset);
+    posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETSIGMASK);
+    char * const argv[] = { (char *)"sh", (char *)"-c", (char *)cmd, NULL };
+    extern char **environ;
+    pid_t pid = 0;
+    int spawnErr = posix_spawn(&pid, shellPath, &actions, &attrs, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attrs);
+    if (spawnErr != 0) {
+        NSLog(@"com.zjx.springboard: call_system posix_spawn(%s) failed: %s (%d)",
+              shellPath, strerror(spawnErr), spawnErr);
+        return -1;
+    }
+    int st = 0;
+    int w = zxWaitTimeout(pid, 20.0, &st);
+    if (w == 1) {
+        kill(pid, SIGKILL);
+        int st2 = 0;
+        zxWaitTimeout(pid, 2.0, &st2);
+        st = 9 << 8;
+    } else if (w == -1) {
+        return -1;
+    }
+    return st;
 }
 
 

@@ -688,9 +688,10 @@ static NSString *ZXPythonErrnoName(int e) {
         Socket *socket = [[Socket alloc] init];
         BOOL ok = ([socket connect:@"127.0.0.1" byPort:6000] == 0);
         if (ok) {
+            [socket setTimeout:30];
             [socket send:@"45\r\n"];
         }
-        NSString *raw = ok ? [socket recv:32768] : nil;
+        NSString *raw = ok ? [socket recvUntilCRLF] : nil;
         if (ok) [socket close];
 
         // 格式化诊断结果
@@ -863,10 +864,6 @@ static NSString *ZXPythonErrnoName(int e) {
                         [report appendString:[daemon[@"probe_exists"] boolValue]
                             ? @"  launchd probe  已生成\n"
                             : @"  launchd probe  未生成（postinst 方式拉起不写此文件，不代表进程没跑）\n"];
-                        [report appendFormat:@"  SpringBoard直接spawn zxrunner  err=%@  exit=%@  output=%@\n",
-                         daemon[@"spawn_direct_err"] ?: @"?",
-                         daemon[@"spawn_direct_exit"] ?: @"?",
-                         daemon[@"spawn_direct_output"] ?: @""];
                     }
                 }
             }

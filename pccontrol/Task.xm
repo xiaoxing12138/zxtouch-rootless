@@ -695,8 +695,17 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                     if (stdinFD >= 0) close(stdinFD);
                     if (errB == 0) {
                         int st = 0;
-                        if (waitpid(pidB, &st, 0) == -1) exitBVal = [NSString stringWithFormat:@"waitpid_errno=%d", errno];
-                        else exitBVal = [NSString stringWithFormat:@"%d", WIFEXITED(st) ? WEXITSTATUS(st) : -1];
+                        int wB = zxWaitTimeout(pidB, 10.0, &st);
+                        if (wB == 1) {
+                            kill(pidB, SIGKILL);
+                            int stKill = 0;
+                            zxWaitTimeout(pidB, 2.0, &stKill);
+                            exitBVal = @"timeout(killed)";
+                        } else if (wB == -1) {
+                            exitBVal = [NSString stringWithFormat:@"waitpid_errno=%d", errno];
+                        } else {
+                            exitBVal = [NSString stringWithFormat:@"%d", WIFEXITED(st) ? WEXITSTATUS(st) : -1];
+                        }
                     } else {
                         exitBVal = [NSString stringWithFormat:@"posix_spawn_err=%d(%s)", errB, strerror(errB)];
                     }
@@ -759,8 +768,17 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                     NSString *iexit = @"-1";
                     if (ierr == 0) {
                         int ist = 0;
-                        waitpid(ipid, &ist, 0);
-                        iexit = [NSString stringWithFormat:@"%d", WIFEXITED(ist) ? WEXITSTATUS(ist) : -1];
+                        int wI = zxWaitTimeout(ipid, 10.0, &ist);
+                        if (wI == 1) {
+                            kill(ipid, SIGKILL);
+                            int stKillI = 0;
+                            zxWaitTimeout(ipid, 2.0, &stKillI);
+                            iexit = @"timeout(killed)";
+                        } else if (wI == -1) {
+                            iexit = [NSString stringWithFormat:@"waitpid_errno=%d", errno];
+                        } else {
+                            iexit = [NSString stringWithFormat:@"%d", WIFEXITED(ist) ? WEXITSTATUS(ist) : -1];
+                        }
                     } else {
                         iexit = [NSString stringWithFormat:@"posix_spawn_err=%d(%s)", ierr, strerror(ierr)];
                     }
@@ -805,9 +823,12 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                     NSString *admindir = [dq stringByAppendingPathComponent:@"var/lib/dpkg"];
                     NSString *cmd = [NSString stringWithFormat:@"'%@/usr/bin/dpkg-query' --admindir='%@' -W %@ > '%@' 2>&1 || echo QUERY_FAILED",
                                      dq, admindir, pkgArgs, probeFile];
-                    call_system(cmd.UTF8String);
+                    int stD = call_system(cmd.UTF8String);
                     NSString *out = [NSString stringWithContentsOfFile:probeFile encoding:NSUTF8StringEncoding error:nil] ?: @"";
                     out = [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    if (out.length == 0) {
+                        out = (stD == -1) ? @"(查询通道不可用：shell 无法执行)" : @"(无输出)";
+                    }
                     if (out.length > 500) out = [[out substringToIndex:500] stringByAppendingString:@"…"];
                     dpkgOut[dq] = out;
                 }
@@ -951,45 +972,6 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 daemonInfo[@"socket_connect_ok"] = @(sockConnected);
                 daemonInfo[@"socket_connect_errno"] = @(sockErrno);
                 daemonInfo[@"socket_ping_reply"] = [pingReply stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-
-                // 4. 强制触发一次：SpringBoard 里手动 fork+exec zxrunner
-                //    （验证 SpringBoard 虽然不能 exec /var/jb/usr/bin/python，但
-                //     能不能 exec /var/jb/usr/libexec/zxrunner）
-                if (binAcc) {
-                    int pipefd[2];
-                    if (pipe(pipefd) == 0) {
-                        posix_spawn_file_actions_t fa;
-                        posix_spawn_file_actions_init(&fa);
-                        posix_spawn_file_actions_addopen(&fa, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
-                        posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDOUT_FILENO);
-                        posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDERR_FILENO);
-                        posix_spawnattr_t attr;
-                        posix_spawnattr_init(&attr);
-                        sigset_t emp; sigemptyset(&emp);
-                        posix_spawnattr_setsigmask(&attr, &emp);
-                        posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK);
-                        char *argv[] = { (char *)binPath.UTF8String, NULL };
-                        extern char **environ;
-                        pid_t pid = 0;
-                        int err = posix_spawn(&pid, binPath.UTF8String, &fa, &attr, argv, environ);
-                        posix_spawn_file_actions_destroy(&fa);
-                        posix_spawnattr_destroy(&attr);
-                        close(pipefd[1]);
-                        char buf[512];
-                        ssize_t n = read(pipefd[0], buf, sizeof(buf) - 1);
-                        buf[n > 0 ? n : 0] = '\0';
-                        close(pipefd[0]);
-                        int st = 0;
-                        if (err == 0) waitpid(pid, &st, 0);
-                        daemonInfo[@"spawn_direct_err"] = @(err);
-                        daemonInfo[@"spawn_direct_exit"] = @(err == 0 ? (WIFEXITED(st) ? WEXITSTATUS(st) : -1) : -1);
-                        daemonInfo[@"spawn_direct_output"] = [NSString stringWithUTF8String:buf] ?: @"";
-                    }
-                } else {
-                    daemonInfo[@"spawn_direct_err"] = @(binExists ? binErrno : ENOENT);
-                    daemonInfo[@"spawn_direct_exit"] = @(-1);
-                    daemonInfo[@"spawn_direct_output"] = @"skipped (bin not accessible)";
-                }
 
                 root[@"daemon_probe"] = daemonInfo;
             }

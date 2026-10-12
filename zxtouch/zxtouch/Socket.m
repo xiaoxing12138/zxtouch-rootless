@@ -108,6 +108,32 @@
     return data;
 }
 
+-(void) setTimeout:(int)seconds
+{
+    if (!socketHandle) return;
+    struct timeval tv;
+    tv.tv_sec = seconds;
+    tv.tv_usec = 0;
+    setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+}
+
+-(NSString*) recvUntilCRLF
+{
+    NSMutableData *all = [NSMutableData data];
+    char buffer[4096];
+    while (1) {
+        ssize_t n = recv(socketHandle, buffer, sizeof(buffer), 0);
+        if (n <= 0) break;
+        [all appendBytes:buffer length:(NSUInteger)n];
+        if (all.length >= 2) {
+            const unsigned char *bytes = all.bytes;
+            if (bytes[all.length - 2] == '\r' && bytes[all.length - 1] == '\n') break;
+        }
+    }
+    if (all.length == 0) return @"";
+    return [[NSString alloc] initWithData:all encoding:NSUTF8StringEncoding] ?: @"";
+}
+
 -(void)close {
     if (!socketHandle)
         return;
