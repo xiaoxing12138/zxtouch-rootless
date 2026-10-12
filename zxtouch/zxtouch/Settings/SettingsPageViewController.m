@@ -740,8 +740,8 @@ static NSString *ZXPythonErrnoName(int e) {
                     NSDictionary *prB = dict[@"spawn_probe_B_direct"];
                     if (prA || prB) {
                         [report appendString:@"\n执行链路对比（SpringBoard 进程内）：\n"];
-                        [report appendFormat:@"  A  shell间接  sh -c 'python3.9 --version' → exit=%@\n", prA[@"exit"] ?: @"?"];
-                        [report appendFormat:@"  B  直接exec   posix_spawn(python3.9)       → exit=%@\n", prB[@"exit"] ?: @"?"];
+                        [report appendFormat:@"  A  shell间接  sh -c '<python> --version' → exit=%@\n     输出：%@\n", prA[@"exit"] ?: @"?", [prA[@"output"] length] ? prA[@"output"] : @"(无)"];
+                        [report appendFormat:@"  B  直接exec   posix_spawn(python)     → exit=%@\n     输出：%@\n", prB[@"exit"] ?: @"?", [prB[@"output"] length] ? prB[@"output"] : @"(无)"];
                     }
 
                     // 环境信息
@@ -823,7 +823,13 @@ static NSString *ZXPythonErrnoName(int e) {
                         for (NSString *m in mods) [report appendFormat:@"  %@\n", m];
                     }
 
-                    // 守护进程 PoC 结果（zxrunner）
+                    NSDictionary *imp = dict[@"module_import"];
+                    if ([imp isKindOfClass:[NSDictionary class]]) {
+                        [report appendFormat:@"\nzxtouch import 实测：exit=%@\n  输出：%@\n",
+                         imp[@"exit"] ?: @"?", [imp[@"output"] length] ? imp[@"output"] : @"(无)"];
+                    }
+
+                    // 守护进程（zxrunner）
                     NSDictionary *daemon = dict[@"daemon_probe"];
                     if ([daemon isKindOfClass:[NSDictionary class]]) {
                         [report appendString:@"\n守护进程 zxrunner：\n"];
@@ -837,26 +843,26 @@ static NSString *ZXPythonErrnoName(int e) {
                          [daemon[@"bin_exists"] boolValue] && ![daemon[@"bin_access_X_OK"] boolValue]
                             ? [NSString stringWithFormat:@" errno=%@", daemon[@"bin_access_errno"]]
                             : @""];
-                        // probe（daemon 被 launchd 拉起后写的探测结果）
-                        if ([daemon[@"probe_exists"] boolValue]) {
-                            [report appendFormat:@"  launchd probe  ✅ 已生成\n"];
-                            NSString *probeContent = daemon[@"probe_content"];
-                            if (probeContent.length > 0) {
-                                NSArray *lines = [probeContent componentsSeparatedByString:@"\n"];
-                                for (NSString *ln in lines) {
-                                    if (ln.length == 0) continue;
-                                    if ([ln hasPrefix:@"pid="] ||
-                                        [ln containsString:@"python3.9"] ||
-                                        [ln containsString:@"→ exec"] ||
-                                        [ln hasPrefix:@"zxrunner probe"]) {
-                                        [report appendFormat:@"    %@\n", ln];
-                                    }
-                                }
-                            }
+                        BOOL sExists = [daemon[@"socket_exists"] boolValue];
+                        BOOL sConn = [daemon[@"socket_connect_ok"] boolValue];
+                        NSString *sReply = daemon[@"socket_ping_reply"];
+                        [report appendFormat:@"  socket  %@  存在=%@  连接=%@%@\n",
+                         daemon[@"socket_path"] ?: @"?",
+                         sExists ? @"Y" : @"N",
+                         sConn ? @"Y" : @"N",
+                         sConn ? @"" : [NSString stringWithFormat:@" errno=%@(%@)",
+                                        daemon[@"socket_connect_errno"] ?: @0,
+                                        ZXPythonErrnoName([daemon[@"socket_connect_errno"] intValue])]];
+                        if (sConn) {
+                            [report appendFormat:@"  真实握手  %@  ping 回复：%@\n",
+                             sReply.length > 0 ? @"✅ 通了" : @"⚠️ 已连上但无回复",
+                             sReply.length > 0 ? sReply : @"(空)"];
                         } else {
-                            [report appendFormat:@"  launchd probe  ❌ 未生成（daemon 未被拉起）\n"];
+                            [report appendString:@"  真实握手  ❌ 不通（没有进程在监听）\n"];
                         }
-                        // SpringBoard 直接 posix_spawn zxrunner 的结果
+                        [report appendString:[daemon[@"probe_exists"] boolValue]
+                            ? @"  launchd probe  已生成\n"
+                            : @"  launchd probe  未生成（postinst 方式拉起不写此文件，不代表进程没跑）\n"];
                         [report appendFormat:@"  SpringBoard直接spawn zxrunner  err=%@  exit=%@  output=%@\n",
                          daemon[@"spawn_direct_err"] ?: @"?",
                          daemon[@"spawn_direct_exit"] ?: @"?",

@@ -7,6 +7,7 @@
 #import <sys/stat.h>
 #import <sys/wait.h>
 #import <sys/select.h>
+#import <sys/time.h>
 #import <signal.h>
 #import <fcntl.h>
 #import <spawn.h>
@@ -214,28 +215,37 @@ static void handle_client(int client)
     close(client);
 }
 
-static void run_server(void)
+static int run_server(void)
 {
     unlink(ZXRUNNER_SOCKET_PATH);
 
     int server = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (server < 0) { perror("zxrunner: socket"); return; }
+    if (server < 0) { perror("zxrunner: socket"); return 1; }
 
     struct sockaddr_un addr = {0};
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, ZXRUNNER_SOCKET_PATH, sizeof(addr.sun_path) - 1);
 
     if (bind(server, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("zxrunner: bind");
+        int alive = 0;
+        int probe = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (probe >= 0) {
+            struct timeval tv = { 0, 300 * 1000 };
+            setsockopt(probe, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            alive = (connect(probe, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+            close(probe);
+        }
+        fprintf(stderr, "zxrunner: bind: %s (existing instance %s)\n",
+                strerror(errno), alive ? "alive" : "dead/unreachable");
         close(server);
-        return;
+        return alive ? 2 : 3;
     }
     chmod(ZXRUNNER_SOCKET_PATH, 0666);
 
     if (listen(server, 5) < 0) {
         perror("zxrunner: listen");
         close(server);
-        return;
+        return 4;
     }
 
     NSLog(@"[zxrunner] listening on %s (uid=%d)", ZXRUNNER_SOCKET_PATH, getuid());
@@ -254,7 +264,6 @@ int main(int argc, char *argv[])
         signal(SIGCHLD, SIG_IGN);
         signal(SIGPIPE, SIG_IGN);
 
-        run_server();
-        return 0;
+        return run_server();
     }
 }

@@ -319,27 +319,37 @@ static NSString *fmConfigPath(void)
 }
 
 // 圆点图标选「App 图标」时读安装包内的 AppIcon*.png：
-// rootless 下 app 装在 /var/jb/Applications/zxtouch.app（见 layout/DEBIAN/postinst），
-// 直接从包内取图，不依赖 App 端导出、装完即生效。
+// app 可能装在 /var/jb/Applications/zxtouch.app（deb 安装），
+// 也可能被 TrollStore 侧载到 /private/var/containers/Bundle/Application/<UUID>/zxtouch.app，
+// 两条路径都要扫，否则圆点取不到图只显示灰底。
 static NSString *fmAppIconPath(void)
 {
-    static NSArray<NSString *> *names = nil;
+    static NSString *cached = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        names = @[@"AppIcon83.5x83.5@2x~ipad.png", @"AppIcon76x76@2x~ipad.png",
-                  @"AppIcon60x60@3x.png", @"AppIcon76x76~ipad.png",
-                  @"AppIcon60x60@2x.png", @"AppIcon40x40@3x.png", @"AppIcon29x29@3x.png"];
-    });
-    NSFileManager *fm = [NSFileManager defaultManager];
-    for (NSString *dir in @[@"/var/jb/Applications/zxtouch.app", @"/Applications/zxtouch.app"]) {
-        for (NSString *name in names) {
-            NSString *path = [dir stringByAppendingPathComponent:name];
-            if ([fm fileExistsAtPath:path]) {
-                return path;
+        NSArray<NSString *> *names = @[@"AppIcon83.5x83.5@2x~ipad.png", @"AppIcon76x76@2x~ipad.png",
+                                       @"AppIcon60x60@3x.png", @"AppIcon76x76~ipad.png",
+                                       @"AppIcon60x60@2x.png", @"AppIcon40x40@3x.png", @"AppIcon29x29@3x.png"];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSMutableArray<NSString *> *dirs = [NSMutableArray arrayWithObjects:
+                                            @"/var/jb/Applications/zxtouch.app",
+                                            @"/Applications/zxtouch.app", nil];
+        NSString *base = @"/private/var/containers/Bundle/Application";
+        NSArray<NSString *> *containers = [fm contentsOfDirectoryAtPath:base error:nil];
+        for (NSString *uuid in containers) {
+            [dirs addObject:[[base stringByAppendingPathComponent:uuid] stringByAppendingPathComponent:@"zxtouch.app"]];
+        }
+        for (NSString *dir in dirs) {
+            for (NSString *name in names) {
+                NSString *path = [dir stringByAppendingPathComponent:name];
+                if ([fm fileExistsAtPath:path]) {
+                    cached = path;
+                    return;
+                }
             }
         }
-    }
-    return nil;
+    });
+    return cached;
 }
 
 // 「自定义图片」由 App 端把 PNG 导出到共享目录，tweak 端只读文件。

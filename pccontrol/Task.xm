@@ -16,6 +16,9 @@
 #import <mach/mach.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/time.h>
 #include <limits.h>
 #include <unistd.h>
 #include <spawn.h>
@@ -728,6 +731,50 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                     if ([fm fileExistsAtPath:p]) [modulePaths addObject:p];
                 }
                 root[@"module_paths_found"] = modulePaths;
+
+                NSString *impFile = @"/var/mobile/Library/ZXTouch/.pycheck_import";
+                NSMutableDictionary *impInfo = [NSMutableDictionary dictionary];
+                int ifd = open(impFile.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (ifd >= 0) {
+                    int stdinFD2 = open("/dev/null", O_RDONLY);
+                    posix_spawn_file_actions_t fa2;
+                    posix_spawn_file_actions_init(&fa2);
+                    posix_spawn_file_actions_adddup2(&fa2, stdinFD2, STDIN_FILENO);
+                    posix_spawn_file_actions_adddup2(&fa2, ifd, STDOUT_FILENO);
+                    posix_spawn_file_actions_adddup2(&fa2, ifd, STDERR_FILENO);
+                    posix_spawnattr_t attr2;
+                    posix_spawnattr_init(&attr2);
+                    sigset_t emp2; sigemptyset(&emp2);
+                    posix_spawnattr_setsigmask(&attr2, &emp2);
+                    posix_spawnattr_setflags(&attr2, POSIX_SPAWN_SETSIGMASK);
+                    char *iargv[] = { (char *)found.UTF8String, (char *)"-c",
+                                      (char *)"import zxtouch,sys;print(zxtouch.__file__)", NULL };
+                    extern char **environ;
+                    pid_t ipid = 0;
+                    int ierr = posix_spawn(&ipid, found.UTF8String, &fa2, &attr2, iargv, environ);
+                    posix_spawn_file_actions_destroy(&fa2);
+                    posix_spawnattr_destroy(&attr2);
+                    close(ifd);
+                    if (stdinFD2 >= 0) close(stdinFD2);
+                    NSString *iexit = @"-1";
+                    if (ierr == 0) {
+                        int ist = 0;
+                        waitpid(ipid, &ist, 0);
+                        iexit = [NSString stringWithFormat:@"%d", WIFEXITED(ist) ? WEXITSTATUS(ist) : -1];
+                    } else {
+                        iexit = [NSString stringWithFormat:@"posix_spawn_err=%d(%s)", ierr, strerror(ierr)];
+                    }
+                    NSString *iout = [NSString stringWithContentsOfFile:impFile encoding:NSUTF8StringEncoding error:nil] ?: @"";
+                    iout = [iout stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    if (iout.length > 200) iout = [[iout substringToIndex:200] stringByAppendingString:@"…"];
+                    [[NSFileManager defaultManager] removeItemAtPath:impFile error:nil];
+                    impInfo[@"exit"] = iexit;
+                    impInfo[@"output"] = iout;
+                } else {
+                    impInfo[@"exit"] = [NSString stringWithFormat:@"open_errno=%d", errno];
+                    impInfo[@"output"] = @"";
+                }
+                root[@"module_import"] = impInfo;
             } else {
                 // ---- 一个能用的解释器都没有：取证模式 ----
                 // 1) 对每个「存在」的候选直接试跑 --version（不管 access(X_OK) 结果），
@@ -869,6 +916,41 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 daemonInfo[@"probe_path"] = probePath;
                 daemonInfo[@"probe_exists"] = @(probeContent.length > 0);
                 daemonInfo[@"probe_content"] = probeContent ?: @"";
+
+                NSString *sockPath = @"/tmp/zxrunner.sock";
+                daemonInfo[@"socket_path"] = sockPath;
+                daemonInfo[@"socket_exists"] = @([[NSFileManager defaultManager] fileExistsAtPath:sockPath]);
+                BOOL sockConnected = NO;
+                int sockErrno = 0;
+                NSString *pingReply = @"";
+                int cfd = socket(AF_UNIX, SOCK_STREAM, 0);
+                if (cfd >= 0) {
+                    struct sockaddr_un saddr = {0};
+                    saddr.sun_family = AF_UNIX;
+                    strncpy(saddr.sun_path, sockPath.UTF8String, sizeof(saddr.sun_path) - 1);
+                    struct timeval ctv = { 1, 0 };
+                    setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &ctv, sizeof(ctv));
+                    setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &ctv, sizeof(ctv));
+                    if (connect(cfd, (struct sockaddr *)&saddr, sizeof(saddr)) == 0) {
+                        sockConnected = YES;
+                        if (write(cfd, "{\"cmd\":\"ping\"}\r\n", sizeof("{\"cmd\":\"ping\"}\r\n") - 1) > 0) {
+                            char rbuf[256];
+                            ssize_t rn = read(cfd, rbuf, sizeof(rbuf) - 1);
+                            if (rn > 0) {
+                                rbuf[rn] = '\0';
+                                pingReply = [NSString stringWithUTF8String:rbuf] ?: @"";
+                            }
+                        }
+                    } else {
+                        sockErrno = errno;
+                    }
+                    close(cfd);
+                } else {
+                    sockErrno = errno;
+                }
+                daemonInfo[@"socket_connect_ok"] = @(sockConnected);
+                daemonInfo[@"socket_connect_errno"] = @(sockErrno);
+                daemonInfo[@"socket_ping_reply"] = [pingReply stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 
                 // 4. 强制触发一次：SpringBoard 里手动 fork+exec zxrunner
                 //    （验证 SpringBoard 虽然不能 exec /var/jb/usr/bin/python，但

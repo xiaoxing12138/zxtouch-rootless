@@ -22,27 +22,6 @@
 
 static BOOL isPlaying = false;
 
-static int zx_run_launchctl_bootstrap(void)
-{
-    const char *plist = "/var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist";
-    const char *launchctl_paths[] = {
-        "/var/jb/usr/bin/launchctl",
-        "/usr/bin/launchctl",
-        NULL
-    };
-    for (int i = 0; launchctl_paths[i]; i++) {
-        char *const argv[] = { (char *)launchctl_paths[i], (char *)"bootstrap", (char *)"gui/501", (char *)plist, NULL };
-        pid_t pid = 0;
-        int err = posix_spawn(&pid, launchctl_paths[i], NULL, NULL, argv, NULL);
-        if (err == 0) {
-            int st = 0;
-            waitpid(pid, &st, 0);
-            if (WIFEXITED(st) && WEXITSTATUS(st) == 0) return 0;
-        }
-    }
-    return -1;
-}
-
 static NSString *ZXPythonPath(void)
 {
     NSArray<NSString *> *candidates = @[

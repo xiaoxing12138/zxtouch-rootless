@@ -118,12 +118,13 @@ fi
 DAEMON=/var/jb/usr/libexec/zxrunner
 if [ -x "$DAEMON" ]; then
     # Kill any stale instance from before, then start fresh
-    pkill -f "$DAEMON" 2>/dev/null || true
+    if [ -x /var/jb/usr/bin/killall ]; then
+        /var/jb/usr/bin/killall zxrunner 2>/dev/null || true
+    fi
     sleep 0.3
     rm -f /tmp/zxrunner.sock
-    nohup "$DAEMON" >/dev/null 2>&1 &
-    disown 2>/dev/null || true
-    sleep 0.3
+    su mobile -c "nohup $DAEMON >/dev/null 2>&1 </dev/null &" 2>/dev/null || true
+    sleep 0.5
 fi
 
 # Never restart SpringBoard from a maintainer script. Package managers run this
