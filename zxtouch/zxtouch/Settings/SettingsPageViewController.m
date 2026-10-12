@@ -861,6 +861,16 @@ static NSString *ZXPythonErrnoName(int e) {
                         } else {
                             [report appendString:@"  真实握手  ❌ 不通（没有进程在监听）\n"];
                         }
+                        NSString *dpExit = daemon[@"python_spawn_exit"];
+                        NSString *dpErr = daemon[@"python_spawn_error"];
+                        if ([dpExit isKindOfClass:[NSString class]] && dpExit.length > 0) {
+                            NSString *dpOut = daemon[@"python_spawn_output"];
+                            [report appendFormat:@"  守护进程代跑  %@ --version → exit=%@\n     输出：%@\n",
+                             daemon[@"python_spawn_path"] ?: @"?", dpExit,
+                             [dpOut length] ? dpOut : @"(无输出)"];
+                        } else if ([dpErr isKindOfClass:[NSString class]] && dpErr.length > 0) {
+                            [report appendFormat:@"  守护进程代跑 python  ❌ %@\n", dpErr];
+                        }
                         [report appendString:[daemon[@"probe_exists"] boolValue]
                             ? @"  launchd probe  已生成\n"
                             : @"  launchd probe  未生成（postinst 方式拉起不写此文件，不代表进程没跑）\n"];

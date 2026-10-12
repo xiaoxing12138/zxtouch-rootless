@@ -887,7 +887,15 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                                 close(sfd);
                                 if (err2 == 0) {
                                     int st2 = 0;
-                                    if (waitpid(pid2, &st2, 0) != -1) {
+                                    int w2 = zxWaitTimeout(pid2, 10.0, &st2);
+                                    if (w2 == 1) {
+                                        kill(pid2, SIGKILL);
+                                        int stK2 = 0;
+                                        zxWaitTimeout(pid2, 2.0, &stK2);
+                                        spawnResult = @"spawn_ok timeout(killed)";
+                                    } else if (w2 == -1) {
+                                        spawnResult = [NSString stringWithFormat:@"waitpid_errno=%d", errno];
+                                    } else {
                                         spawnResult = [NSString stringWithFormat:@"spawn_ok exit=%d", WIFEXITED(st2) ? WEXITSTATUS(st2) : -1];
                                     }
                                 } else {
@@ -972,6 +980,82 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 daemonInfo[@"socket_connect_ok"] = @(sockConnected);
                 daemonInfo[@"socket_connect_errno"] = @(sockErrno);
                 daemonInfo[@"socket_ping_reply"] = [pingReply stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+
+                {
+                    NSString *dpPy = found ?: @"";
+                    if (dpPy.length == 0) {
+                        for (NSDictionary *c in checks) {
+                            if ([c[@"exists"] boolValue]) { dpPy = c[@"path"]; break; }
+                        }
+                    }
+                    NSMutableString *dpOut = [NSMutableString string];
+                    NSString *dpExit = @"";
+                    NSString *dpErr = @"";
+                    if (dpPy.length == 0) {
+                        dpErr = @"无候选 python 路径";
+                    } else {
+                        int dfd = socket(AF_UNIX, SOCK_STREAM, 0);
+                        if (dfd < 0) {
+                            dpErr = [NSString stringWithFormat:@"socket errno=%d", errno];
+                        } else {
+                            struct sockaddr_un daddr = {0};
+                            daddr.sun_family = AF_UNIX;
+                            strncpy(daddr.sun_path, sockPath.UTF8String, sizeof(daddr.sun_path) - 1);
+                            struct timeval dtv = { 8, 0 };
+                            setsockopt(dfd, SOL_SOCKET, SO_RCVTIMEO, &dtv, sizeof(dtv));
+                            setsockopt(dfd, SOL_SOCKET, SO_SNDTIMEO, &dtv, sizeof(dtv));
+                            if (connect(dfd, (struct sockaddr *)&daddr, sizeof(daddr)) != 0) {
+                                dpErr = [NSString stringWithFormat:@"connect errno=%d", errno];
+                            } else {
+                                NSDictionary *dc = @{ @"cmd": @"spawn_python", @"path": dpPy, @"args": @[@"--version"],
+                                                      @"env": @{ @"PATH": @"/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin" } };
+                                NSData *dj = [NSJSONSerialization dataWithJSONObject:dc options:0 error:nil];
+                                NSMutableData *dbuf = [NSMutableData dataWithData:dj ?: [NSData data]];
+                                [dbuf appendBytes:"\r\n" length:2];
+                                if (write(dfd, dbuf.bytes, dbuf.length) == (ssize_t)dbuf.length) {
+                                    char lbuf[4096];
+                                    int lpos = 0;
+                                    while (1) {
+                                        char ch;
+                                        ssize_t rn = read(dfd, &ch, 1);
+                                        if (rn <= 0) break;
+                                        if (ch == '\n') {
+                                            if (lpos == 0) continue;
+                                            if (lbuf[lpos - 1] == '\r') lpos--;
+                                            lbuf[lpos] = '\0';
+                                            NSData *ld = [NSData dataWithBytes:lbuf length:lpos];
+                                            NSDictionary *r = [NSJSONSerialization JSONObjectWithData:ld options:0 error:nil];
+                                            if ([r isKindOfClass:[NSDictionary class]]) {
+                                                NSString *rt = r[@"type"];
+                                                if ([rt isEqualToString:@"stdout"] || [rt isEqualToString:@"stderr"]) {
+                                                    [dpOut appendString:(r[@"data"] ?: @"")];
+                                                } else if ([rt isEqualToString:@"exit"]) {
+                                                    dpExit = [NSString stringWithFormat:@"%@", r[@"code"] ?: @"?"];
+                                                    break;
+                                                } else if ([rt isEqualToString:@"error"]) {
+                                                    dpErr = r[@"msg"] ?: @"error";
+                                                    break;
+                                                }
+                                            }
+                                            lpos = 0;
+                                        } else if (lpos < (int)sizeof(lbuf) - 1) {
+                                            lbuf[lpos++] = ch;
+                                        }
+                                    }
+                                } else {
+                                    dpErr = @"write failed";
+                                }
+                            }
+                            close(dfd);
+                        }
+                    }
+                    NSString *dpOutStr = [dpOut stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    if (dpOutStr.length > 200) dpOutStr = [[dpOutStr substringToIndex:200] stringByAppendingString:@"…"];
+                    daemonInfo[@"python_spawn_path"] = dpPy;
+                    daemonInfo[@"python_spawn_exit"] = dpExit;
+                    daemonInfo[@"python_spawn_output"] = dpOutStr;
+                    daemonInfo[@"python_spawn_error"] = dpErr;
+                }
 
                 root[@"daemon_probe"] = daemonInfo;
             }
