@@ -170,6 +170,7 @@ jobs:
           dpkg-deb -x "$DEB" deb-root/
 
           TARGET="deb-root/Applications/zxtouch.app"
+          mkdir -p deb-root/Applications
           rm -rf "$TARGET"
           cp -R zxtouch.app "$TARGET"
           chmod -R 755 deb-root/Applications/zxtouch.app
