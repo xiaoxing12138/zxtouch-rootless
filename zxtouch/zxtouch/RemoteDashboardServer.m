@@ -28,6 +28,35 @@ static const char *ZXDashboardConfigurationNotification = "com.zjx.zxtouch.remot
 static const unsigned long long ZXDashboardMaximumAssetSize = 25ULL * 1024ULL * 1024ULL;
 static const NSUInteger ZXDashboardMaximumLogLength = 256 * 1024;
 
+// App 可能装在 /var/jb/Applications（deb 安装），也可能被 TrollStore 侧载到
+// /private/var/containers/Bundle/Application/<UUID>/zxtouch.app，两条都要找。
+static NSString *ZXDashboardAppBundleDir(void)
+{
+    static NSString *dir = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSMutableArray<NSString *> *candidates = [NSMutableArray array];
+#if !ZX_DASHBOARD_SPRINGBOARD_SERVER
+        if ([NSBundle mainBundle].bundlePath.length > 0) {
+            [candidates addObject:[NSBundle mainBundle].bundlePath];
+        }
+#endif
+        [candidates addObject:@"/var/jb/Applications/zxtouch.app"];
+        [candidates addObject:@"/Applications/zxtouch.app"];
+        NSString *base = @"/private/var/containers/Bundle/Application";
+        for (NSString *uuid in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:base error:nil]) {
+            [candidates addObject:[[base stringByAppendingPathComponent:uuid] stringByAppendingPathComponent:@"zxtouch.app"]];
+        }
+        for (NSString *path in candidates) {
+            if ([[NSFileManager defaultManager] fileExistsAtPath:[path stringByAppendingPathComponent:@"index.html"]]) {
+                dir = [path copy];
+                break;
+            }
+        }
+    });
+    return dir;
+}
+
 static NSString *ZXDashboardIPAddress(void)
 {
     struct ifaddrs *interfaces = NULL;
@@ -59,17 +88,12 @@ static NSString *ZXDashboardAppVersion(void)
     static NSString *version = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSArray<NSString *> *candidates = @[
-            @"/var/jb/Applications/zxtouch.app/Info.plist",
-            @"/Applications/zxtouch.app/Info.plist"
-        ];
-        for (NSString *path in candidates) {
-            NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:path];
+        NSString *bundleDir = ZXDashboardAppBundleDir();
+        if (bundleDir.length > 0) {
+            NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:
+                                  [bundleDir stringByAppendingPathComponent:@"Info.plist"]];
             NSString *value = [info[@"CFBundleShortVersionString"] isKindOfClass:[NSString class]] ? info[@"CFBundleShortVersionString"] : nil;
-            if (value.length > 0) {
-                version = [value copy];
-                break;
-            }
+            if (value.length > 0) version = [value copy];
         }
         if (version == nil) {
             version = [[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] copy] ?: @"";
@@ -318,8 +342,8 @@ static NSString *ZXDashboardAppVersion(void)
 
 - (NSString *)dashboardHTML
 {
-    NSString *path = @"/var/jb/Applications/zxtouch.app/index.html";
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) path = nil;
+    NSString *bundleDir = ZXDashboardAppBundleDir();
+    NSString *path = bundleDir.length > 0 ? [bundleDir stringByAppendingPathComponent:@"index.html"] : nil;
     NSString *html = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] : nil;
     return html ?: @"<h1>小新Lap 控制台不可用。</h1>";
 }

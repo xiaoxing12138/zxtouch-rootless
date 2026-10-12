@@ -87,6 +87,7 @@ static NSString *ZXPythonModulePath(void)
     NSTimer *replayTimer;
     Boolean scriptPlayForceStop;
     volatile sig_atomic_t scriptStopRequested;
+    volatile sig_atomic_t scriptStopByUser;
     volatile sig_atomic_t scriptPauseRequested;
     pid_t pythonProcessGroup;
     Boolean switchAppBeforePlaying;
@@ -207,6 +208,7 @@ static NSString *ZXPythonModulePath(void)
 
 -(int)runScript:(NSError**)error {
     scriptStopRequested = 0;
+    scriptStopByUser = 0;
     scriptPauseRequested = 0;
     pythonProcessGroup = 0;
 
@@ -582,8 +584,9 @@ static NSString *ZXPythonModulePath(void)
     [logHandle closeFile];
 
     // ── 4. 回收子进程 ──
-    BOOL stoppedByUser = scriptStopRequested != 0;
+    BOOL stoppedByUser = (scriptStopRequested != 0) || (scriptStopByUser != 0);
     scriptStopRequested = 0;
+    scriptStopByUser = 0;
 
     int status = 0;
     int pythonExitCode = -1;
@@ -709,6 +712,7 @@ static NSString *ZXPythonModulePath(void)
     else if (currentScriptType == 2)
     {
         scriptStopRequested = 1;
+        scriptStopByUser = 1;
         pid_t processGroup = pythonProcessGroup;
         if (scriptPauseRequested && processGroup > 0) {
             kill(-processGroup, SIGCONT);
