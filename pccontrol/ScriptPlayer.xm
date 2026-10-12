@@ -77,6 +77,12 @@ static NSString *ZXPythonModulePath(void)
     return [paths componentsJoinedByString:@":"];
 }
 
+static BOOL ZXForceDaemon(void)
+{
+    NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:@"/var/mobile/Library/ZXTouch/config/tweak/config.plist"];
+    return [cfg[@"forceDaemon"] boolValue];
+}
+
 @implementation ScriptPlayer
 {
     int repeatTime;
@@ -471,7 +477,7 @@ static NSString *ZXPythonModulePath(void)
     };
 
     pid_t pid = 0;
-    int spawnErr = posix_spawn(&pid, pythonPath.UTF8String, &actions, &attrs, (char *const *)argv, envp);
+    int spawnErr = ZXForceDaemon() ? EPERM : posix_spawn(&pid, pythonPath.UTF8String, &actions, &attrs, (char *const *)argv, envp);
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attrs);
     free(envp);

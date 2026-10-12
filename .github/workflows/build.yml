@@ -1,6 +1,6 @@
 name: Build ZXTouch Package
 
-run-name: v3.1.0
+run-name: v3.1.1
 
 on:
   push:
@@ -170,7 +170,7 @@ jobs:
           mkdir -p deb-root/var/jb/Applications
           cp -R zxtouch.app deb-root/var/jb/Applications/zxtouch.app
           chmod -R 755 deb-root/var/jb/Applications/zxtouch.app
-          dpkg-deb -b deb-root "final/小新Lap_${VERSION}_rootless.deb"
+          dpkg-deb --root-owner-group -b deb-root "final/小新Lap_${VERSION}_rootless.deb"
           mkdir -p Payload
           cp -R zxtouch.app Payload/
           zip -rq "final/小新Lap_${VERSION}.ipa" Payload
