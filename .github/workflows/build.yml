@@ -1,6 +1,6 @@
 name: Build ZXTouch Package
 
-run-name: v3.0.94
+run-name: v3.0.95
 
 on:
   push:
@@ -151,38 +151,20 @@ jobs:
           name: theos-deb
           path: downloads
 
-      - name: Install dpkg
-        run: brew install dpkg
-
-      - name: Assemble final .deb
+      - name: Rename final artifacts
         run: |
           echo "=== downloads/ contents ==="
           ls -la downloads/
-          echo "=== extracting app ==="
-          tar -xzf downloads/zxtouch-app.tar.gz
-          ls -la zxtouch.app
-          echo "=== looking for deb ==="
           DEB=$(find downloads -maxdepth 2 -name "*.deb" | head -1)
           echo "DEB=$DEB"
-          if [ -z "$DEB" ]; then echo "ERROR: no deb"; exit 1; fi
-
-          mkdir -p deb-root
-          dpkg-deb -x "$DEB" deb-root/
-          dpkg-deb -e "$DEB" deb-root/DEBIAN/
-
-          TARGET="deb-root/Applications/zxtouch.app"
-          mkdir -p deb-root/Applications
-          rm -rf "$TARGET"
-          cp -R zxtouch.app "$TARGET"
-          chmod -R 755 deb-root/Applications/zxtouch.app
-
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           echo "VERSION=$VERSION"
           mkdir -p final
-          dpkg-deb -b deb-root "final/小新Lap_${VERSION}_rootless.deb"
+          cp "$DEB" "final/小新Lap_${VERSION}_tweak_rootless.deb"
+          cp downloads/zxtouch-app.tar.gz "final/小新Lap_${VERSION}_app.tar.gz"
           ls -la final/
 
-      - name: Upload final deb
+      - name: Upload final artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ZXTouch-rootless-deb

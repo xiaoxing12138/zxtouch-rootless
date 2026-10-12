@@ -11,6 +11,7 @@
 #import <sys/stat.h>
 #import <sys/socket.h>
 #import <sys/un.h>
+#import <sys/select.h>
 #include <errno.h>
 #include <unistd.h>
 #include <signal.h>
@@ -338,19 +339,24 @@ static NSString *ZXPythonModulePath(void)
         {
             break;
         }
-        if (speed > 0 && speed != 1)
+        int type, sleepTime;
+        sscanf(buffer, "%2d", &type);
+        if (type == TASK_USLEEP)
         {
-            int type, sleepTime;
-            sscanf(buffer, "%2d", &type);
-            if (type == TASK_USLEEP)
+            sscanf(buffer, "%2d%d", &type, &sleepTime);
+            if (speed > 0 && speed != 1) sleepTime = sleepTime / speed;
+            int remaining = sleepTime;
+            while (remaining > 0 && !scriptPlayForceStop)
             {
-                sscanf(buffer, "%2d%d", &type, &sleepTime);
-                sleepTime = sleepTime / speed;
-                processTask((UInt8*)[[NSString stringWithFormat:@"18%d", sleepTime] UTF8String], NULL);
+                int chunk = remaining > 50000 ? 50000 : remaining;
+                usleep(chunk);
+                remaining -= chunk;
             }
-            else
+            if (scriptPlayForceStop)
             {
-                processTask((UInt8*)buffer, NULL);
+                scriptPlayForceStop = false;
+                stoppedByUser = YES;
+                break;
             }
         }
         else
@@ -548,6 +554,13 @@ static NSString *ZXPythonModulePath(void)
     NSMutableData *pendingBuf = [NSMutableData data];
 
     while (!scriptStopRequested) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(p_stdout[0], &rfds);
+        struct timeval tv = { 0, 50 * 1000 };
+        int ret = select(p_stdout[0] + 1, &rfds, NULL, NULL, &tv);
+        if (ret < 0 && errno == EINTR) continue;
+        if (ret <= 0) continue;
         ssize_t n = read(p_stdout[0], readBuf, sizeof(readBuf));
         if (n <= 0) break;
         [pendingBuf appendBytes:readBuf length:n];
@@ -685,7 +698,9 @@ static NSString *ZXPythonModulePath(void)
     speed = 1.0f;
     scriptBundlePath = nil;
     isPlaying = false;
+    scriptStopRequested = 0;
     scriptPauseRequested = 0;
+    pythonProcessGroup = 0;
     currentScriptType = -1;
 
     if (replayTimer)
@@ -720,9 +735,9 @@ static NSString *ZXPythonModulePath(void)
             kill(-processGroup, SIGCONT);
         }
         scriptPauseRequested = 0;
-        if (processGroup > 0 && kill(-processGroup, SIGKILL) != 0 && errno != ESRCH) {
-            NSLog(@"com.zjx.springboard: failed to stop Python process group %d: errno %d",
-                  processGroup, errno);
+        if (processGroup > 0) {
+            kill(processGroup, SIGKILL);
+            kill(-processGroup, SIGKILL);
         }
         [self clear];
     }
@@ -849,6 +864,13 @@ static NSString *ZXPythonModulePath(void)
     BOOL gotError = NO;
 
     while (!exited && !scriptStopRequested) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(fd, &rfds);
+        struct timeval tv = { 0, 50 * 1000 };
+        int ret = select(fd + 1, &rfds, NULL, NULL, &tv);
+        if (ret < 0 && errno == EINTR) continue;
+        if (ret <= 0) continue;
         char ch;
         ssize_t nr = read(fd, &ch, 1);
         if (nr <= 0) break;
@@ -898,10 +920,9 @@ static NSString *ZXPythonModulePath(void)
         }
     }
 
-    // 用户请求停止：daemon 会继续读 python stdout 直到 python 退出。
-    // 但我们这边不关心了，直接关 socket。python 进程残留是 daemon 的事（需要后续加 kill 命令）。
     close(fd);
 
+    pythonProcessGroup = 0;
     isPlaying = NO;
     [logHandle closeFile];
 

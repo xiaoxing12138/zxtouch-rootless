@@ -6,6 +6,7 @@
 #import <sys/types.h>
 #import <sys/stat.h>
 #import <sys/wait.h>
+#import <sys/select.h>
 #import <signal.h>
 #import <fcntl.h>
 #import <spawn.h>
@@ -14,7 +15,7 @@
 #define ZXRUNNER_SOCKET_PATH "/tmp/zxrunner.sock"
 #define ZXRUNNER_VERSION "1.0.0"
 
-static void send_json_line(int fd, const char *type, const char *extra_json)
+static int send_json_line(int fd, const char *type, const char *extra_json)
 {
     char line[4096];
     if (extra_json && strlen(extra_json) > 0) {
@@ -22,10 +23,10 @@ static void send_json_line(int fd, const char *type, const char *extra_json)
     } else {
         snprintf(line, sizeof(line), "{\"type\":\"%s\"}\r\n", type);
     }
-    write(fd, line, strlen(line));
+    return (int)write(fd, line, strlen(line));
 }
 
-static void send_data(int fd, const char *type, const char *data, size_t len)
+static int send_data(int fd, const char *type, const char *data, size_t len)
 {
     NSMutableString *escaped = [NSMutableString stringWithCapacity:len * 2];
     for (size_t i = 0; i < len; i++) {
@@ -47,7 +48,7 @@ static void send_data(int fd, const char *type, const char *data, size_t len)
     char line[8192];
     snprintf(line, sizeof(line), "{\"type\":\"%s\",\"data\":\"%s\"}\r\n",
              type, escaped.UTF8String);
-    write(fd, line, strlen(line));
+    return (int)write(fd, line, strlen(line));
 }
 
 static int handle_spawn_python(int client, NSDictionary *cmd)
@@ -101,7 +102,8 @@ static int handle_spawn_python(int client, NSDictionary *cmd)
     posix_spawnattr_init(&attr);
     sigset_t empty; sigemptyset(&empty);
     posix_spawnattr_setsigmask(&attr, &empty);
-    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK);
+    posix_spawnattr_setpgroup(&attr, 0);
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETPGROUP);
 
     pid_t pid = 0;
     int err = posix_spawn(&pid, pythonPath.UTF8String, &fa, &attr, argv, envp);
@@ -120,17 +122,52 @@ static int handle_spawn_python(int client, NSDictionary *cmd)
 
     char started[64];
     snprintf(started, sizeof(started), "\"pid\":%d", pid);
-    send_json_line(client, "started", started);
+    if (send_json_line(client, "started", started) < 0) {
+        kill(pid, SIGKILL);
+        waitpid(pid, NULL, 0);
+        return -1;
+    }
 
     char buf[4096];
-    ssize_t n;
-    while ((n = read(pipefd[0], buf, sizeof(buf))) > 0) {
-        send_data(client, "stdout", buf, n);
+    int pipefd_local = pipefd[0];
+    int died = 0;
+    while (1) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(pipefd_local, &rfds);
+        FD_SET(client, &rfds);
+        int maxfd = pipefd_local > client ? pipefd_local : client;
+
+        struct timeval tv = { 0, 50 * 1000 };
+        int ret = select(maxfd + 1, &rfds, NULL, NULL, &tv);
+        if (ret < 0 && errno == EINTR) continue;
+        if (ret <= 0) continue;
+
+        if (FD_ISSET(client, &rfds)) {
+            char dummy;
+            ssize_t nr = read(client, &dummy, 1);
+            if (nr <= 0) {
+                kill(pid, SIGKILL);
+                died = 1;
+                break;
+            }
+        }
+
+        if (FD_ISSET(pipefd_local, &rfds)) {
+            ssize_t n = read(pipefd_local, buf, sizeof(buf));
+            if (n <= 0) break;
+            if (send_data(client, "stdout", buf, n) < 0) {
+                kill(pid, SIGKILL);
+                died = 1;
+                break;
+            }
+        }
     }
-    close(pipefd[0]);
+    close(pipefd_local);
 
     int st = 0;
     waitpid(pid, &st, 0);
+    if (died) return 0;
     int code = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
     char exit[64];
     snprintf(exit, sizeof(exit), "\"code\":%d", code);
