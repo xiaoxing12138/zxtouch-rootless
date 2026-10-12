@@ -1,6 +1,6 @@
 name: Build ZXTouch Package
 
-run-name: v3.0.99
+run-name: v3.1.0
 
 on:
   push:
@@ -153,20 +153,28 @@ jobs:
 
       - name: Assemble final artifacts
         run: |
+          set -euo pipefail
           brew install zip 2>/dev/null || true
+          brew install dpkg 2>/dev/null || true
           echo "=== downloads/ contents ==="
           ls -la downloads/
           DEB=$(find downloads -maxdepth 2 -name "*.deb" | head -1)
           echo "DEB=$DEB"
-          VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
-          echo "VERSION=$VERSION"
           mkdir -p final
-          cp "$DEB" "final/小新Lap_${VERSION}_tweak_rootless.deb"
           tar -xzf downloads/zxtouch-app.tar.gz
+          rm -rf deb-root
+          dpkg-deb -x "$DEB" deb-root/
+          dpkg-deb -e "$DEB" deb-root/DEBIAN/
+          VERSION=$(awk '/^Version:/{print $2}' deb-root/DEBIAN/control)
+          echo "VERSION=$VERSION"
+          mkdir -p deb-root/var/jb/Applications
+          cp -R zxtouch.app deb-root/var/jb/Applications/zxtouch.app
+          chmod -R 755 deb-root/var/jb/Applications/zxtouch.app
+          dpkg-deb -b deb-root "final/小新Lap_${VERSION}_rootless.deb"
           mkdir -p Payload
-          mv zxtouch.app Payload/
+          cp -R zxtouch.app Payload/
           zip -rq "final/小新Lap_${VERSION}.ipa" Payload
-          rm -rf Payload
+          rm -rf Payload deb-root
           ls -la final/
 
       - name: Upload final artifacts
@@ -182,14 +190,16 @@ jobs:
         with:
           files: |
             final/*_rootless.deb
+            final/*.ipa
           generate_release_notes: true
           append_body: true
           body: |
             ## ZXTouch Rootless
 
-            | File | Jailbreak | iOS |
-            |------|-----------|-----|
-            | `*_rootless.deb` | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
+            | File | 用途 | Jailbreak | iOS |
+            |------|------|-----------|-----|
+            | `*_rootless.deb` | 一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
+            | `*.ipa` | 可选：TrollStore 侧载 App | 任意 | 任意 |
 
             ### Installation
             1. Download the `.deb` for your jailbreak
