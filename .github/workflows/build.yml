@@ -1,6 +1,6 @@
 name: Build ZXTouch Package
 
-run-name: v3.0.96
+run-name: v3.0.97
 
 on:
   push:
@@ -153,6 +153,7 @@ jobs:
 
       - name: Assemble final artifacts
         run: |
+          brew install zip 2>/dev/null || true
           echo "=== downloads/ contents ==="
           ls -la downloads/
           DEB=$(find downloads -maxdepth 2 -name "*.deb" | head -1)
@@ -171,8 +172,8 @@ jobs:
       - name: Upload final artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ZXTouch-rootless-deb
-          path: final/*_rootless.deb
+          name: ZXTouch-final
+          path: final/
           if-no-files-found: error
 
       - name: Create Release
