@@ -119,6 +119,8 @@ jobs:
           export CCACHE_SLOPPINESS="file_macro,include_file_mtime,include_file_ctime,pch_defines,time_macros"
           ccache -s || true
           rm -rf .theos packages out
+          cp -f control-rootless control
+          ls -l control control-rootless || true
           make -j$(sysctl -n hw.ncpu) package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
           local_rc=$?
           ccache -s || true
@@ -138,6 +140,8 @@ jobs:
           export CCACHE_SLOPPINESS="file_macro,include_file_mtime,include_file_ctime,pch_defines,time_macros"
           ccache -s || true
           rm -rf .theos packages
+          cp -f control-rootful control
+          ls -l control control-rootful || true
           make -j$(sysctl -n hw.ncpu) package FINALPACKAGE=1
           local_rc=$?
           ccache -s || true
@@ -194,7 +198,7 @@ jobs:
             chmod -R 755 "deb-root/$APP_DEST"
             dpkg-deb --root-owner-group -b deb-root "final/$OUT_NAME"
           }
-          build_deb downloads/rootless.deb "var/jb/Applications/zxtouch.app" "小新Lap_${VERSION}_（无根rootless）.deb"
+          build_deb downloads/rootless.deb "var/jb/Applications/zxtouch.app" "小新Lap_${VERSION}（无根rootless）.deb"
           build_deb downloads/rootful.deb "Applications/zxtouch.app" "小新Lap_${VERSION}（有根）.deb"
           rm -rf deb-root zxtouch.app
           ls -la final/
@@ -218,7 +222,7 @@ jobs:
 
             | File | 用途 | 越狱 | iOS |
             |------|------|------|-----|
-            | `小新Lap_3.1.7_（无根rootless）.deb` | 无根越狱一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
+            | `小新Lap_3.1.7（无根rootless）.deb` | 无根越狱一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
             | `小新Lap_3.1.7（有根）.deb` | 有根越狱一键安装（含 App + 触摸引擎） | palera1n (rootful), checkra1n | 15.0 - 16.x |
 
             ### Installation

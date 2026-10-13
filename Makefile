@@ -3,14 +3,10 @@ export TARGET = iphone:clang:16.5:15.0
 
 ifeq ($(THEOS_PACKAGE_SCHEME),rootless)
 ZX_ROOT_PREFIX = /var/jb
-ZX_CONTROL_FILE = control-rootless
 else
 ZX_ROOT_PREFIX =
-ZX_CONTROL_FILE = control-rootful
 endif
 export ZX_ROOT_PREFIX
-
-$(shell cp -f $(ZX_CONTROL_FILE) control)
 
 SUBPROJECTS = appdelegate zxtouch-binary pccontrol
 
