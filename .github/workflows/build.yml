@@ -199,7 +199,7 @@ jobs:
             dpkg-deb --root-owner-group -b deb-root "final/$OUT_NAME"
           }
           build_deb downloads/rootless.deb "var/jb/Applications/zxtouch.app" "小新Lap_${VERSION}（无根rootless）.deb"
-          build_deb downloads/rootful.deb "Applications/zxtouch.app" "小新Lap_${VERSION}（有根）.deb"
+          build_deb downloads/rootful.deb "Applications/zxtouch.app" "小新Lap_${VERSION}（有根rootful）.deb"
           rm -rf deb-root zxtouch.app
           ls -la final/
 
@@ -220,7 +220,7 @@ jobs:
           echo "VERSION=$VERSION"
           TAG="v${VERSION}"
           RL="final/小新Lap_${VERSION}（无根rootless）.deb"
-          RF="final/小新Lap_${VERSION}（有根）.deb"
+          RF="final/小新Lap_${VERSION}（有根rootful）.deb"
 
           cat > release-notes.md <<EOF
           ## 小新Lap ${VERSION}
@@ -228,7 +228,7 @@ jobs:
           | File | 用途 | 越狱 | iOS |
           |------|------|------|-----|
           | \`小新Lap_${VERSION}（无根rootless）.deb\` | 无根越狱一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
-          | \`小新Lap_${VERSION}（有根）.deb\` | 有根越狱一键安装（含 App + 触摸引擎） | palera1n (rootful), checkra1n | 15.0 - 16.x |
+          | \`小新Lap_${VERSION}（有根rootful）.deb\` | 有根越狱一键安装（含 App + 触摸引擎） | palera1n (rootful), checkra1n | 15.0 - 16.x |
 
           ### 安装
           1. 下载对应自己越狱方式的 \`.deb\`
@@ -242,5 +242,9 @@ jobs:
           else
             gh release create "$TAG" --title "$TAG" --notes-file release-notes.md
           fi
+          gh release view "$TAG" --json assets --jq '.assets[].name' > release-assets.txt
+          while IFS= read -r asset; do
+            if [ -n "$asset" ]; then gh release delete-asset "$TAG" "$asset" --yes; fi
+          done < release-assets.txt
           gh release upload "$TAG" "$RL" "$RF" --clobber
           gh release view "$TAG" --json assets --jq '.assets[].name'
