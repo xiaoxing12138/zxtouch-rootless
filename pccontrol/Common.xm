@@ -699,6 +699,12 @@ void ZXShowMiniMenuNearView(UIView *anchor, NSArray<NSDictionary *> *items)
 - (BOOL)getVolume:(float *)volume forCategory:(NSString *)category;
 @end
 
+// 老系统的 WiFi 开关；新系统上这个类已经没了，只为让编译器认识 setWiFiEnabled: 这个选择子
+@interface ZXWiFiManager : NSObject
++ (instancetype)sharedInstance;
+- (void)setWiFiEnabled:(BOOL)enabled;
+@end
+
 static NSError *ZXActionError(NSString *message)
 {
     return [NSError errorWithDomain:@"小新Lap" code:1
@@ -1240,7 +1246,7 @@ BOOL ZXSetWiFi(BOOL enabled, NSError **error)
             Class managerClass = objc_getClass("SBWiFiManager");
             if (!managerClass) return;
             if (![managerClass respondsToSelector:@selector(sharedInstance)]) return;
-            id manager = [(id)managerClass sharedInstance];
+            ZXWiFiManager *manager = (ZXWiFiManager *)[(id)managerClass sharedInstance];
             if ([manager respondsToSelector:@selector(setWiFiEnabled:)]) {
                 [manager setWiFiEnabled:enabled];
                 done = YES;
