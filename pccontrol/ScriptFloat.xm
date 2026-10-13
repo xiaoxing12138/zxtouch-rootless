@@ -148,6 +148,60 @@ static NSString *sfAppIconPath(void)
     return cached;
 }
 
+static NSString *sfScriptsRootDir(void)
+{
+    return @"/var/mobile/Library/ZXTouch/scripts";
+}
+
+static NSString *sfInoTokenForPath(NSString *path)
+{
+    if (path.length == 0) {
+        return nil;
+    }
+    NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
+    NSNumber *ino = attrs[NSFileSystemFileNumber];
+    NSNumber *dev = attrs[NSFileSystemNumber];
+    if (!ino || !dev) {
+        return nil;
+    }
+    return [NSString stringWithFormat:@"%@:%@", dev, ino];
+}
+
+static NSString *sfPathForInoToken(NSString *token)
+{
+    if (token.length == 0) {
+        return nil;
+    }
+    NSArray<NSString *> *parts = [token componentsSeparatedByString:@":"];
+    if (parts.count != 2) {
+        return nil;
+    }
+    NSNumber *dev = @([parts[0] longLongValue]);
+    NSNumber *ino = @([parts[1] longLongValue]);
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSMutableArray<NSString *> *stack = [NSMutableArray arrayWithObject:sfScriptsRootDir()];
+    while (stack.count > 0) {
+        NSString *dir = stack.lastObject;
+        [stack removeLastObject];
+        NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:dir error:nil];
+        for (NSString *name in items) {
+            NSString *full = [dir stringByAppendingPathComponent:name];
+            NSDictionary *attrs = [fm attributesOfItemAtPath:full error:nil];
+            if (![attrs[NSFileType] isEqual:NSFileTypeDirectory]) {
+                continue;
+            }
+            if ([[full pathExtension] isEqualToString:@"bdl"]) {
+                if ([attrs[NSFileSystemFileNumber] isEqual:ino] && [attrs[NSFileSystemNumber] isEqual:dev]) {
+                    return full;
+                }
+            } else {
+                [stack addObject:full];
+            }
+        }
+    }
+    return nil;
+}
+
 @interface SFPassthroughView : UIView
 @end
 
@@ -413,6 +467,13 @@ static ScriptFloat *_sfShared = nil;
         entry[@"icon"] = ([item[@"icon"] integerValue] == kSFIconApp) ? @(kSFIconApp) : @(kSFIconTitle);
         entry[@"x"] = [item[@"x"] isKindOfClass:[NSNumber class]] ? @([item[@"x"] doubleValue]) : @(0.5);
         entry[@"y"] = [item[@"y"] isKindOfClass:[NSNumber class]] ? @([item[@"y"] doubleValue]) : @(0.5);
+        NSString *token = [item[@"ino"] isKindOfClass:[NSString class]] ? item[@"ino"] : nil;
+        if (token.length == 0) {
+            token = sfInoTokenForPath(key);
+        }
+        if (token.length > 0) {
+            entry[@"ino"] = token;
+        }
         result[key] = entry;
     }
     _configs = result;
@@ -442,20 +503,53 @@ static ScriptFloat *_sfShared = nil;
     });
 }
 
-- (BOOL)isBallEnabledForPath:(NSString *)path
-{
-    if (path.length == 0) {
-        return NO;
-    }
-    return [_configs[path][@"enabled"] boolValue];
-}
-
-- (NSDictionary *)ballEntryForPath:(NSString *)path
+- (NSString *)configKeyForPath:(NSString *)path
 {
     if (path.length == 0) {
         return nil;
     }
-    NSDictionary *entry = _configs[path];
+    if (_configs[path]) {
+        return path;
+    }
+    NSString *token = sfInoTokenForPath(path);
+    if (token.length == 0) {
+        return nil;
+    }
+    for (NSString *key in _configs) {
+        if ([_configs[key][@"ino"] isEqualToString:token]) {
+            return key;
+        }
+    }
+    return nil;
+}
+
+- (BOOL)resolveRenamedConfigs
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    BOOL changed = NO;
+    for (NSString *key in [_configs allKeys]) {
+        NSMutableDictionary *entry = _configs[key];
+        if ([fm fileExistsAtPath:key]) {
+            continue;
+        }
+        NSString *token = [entry[@"ino"] isKindOfClass:[NSString class]] ? entry[@"ino"] : nil;
+        NSString *found = token.length > 0 ? sfPathForInoToken(token) : nil;
+        [_configs removeObjectForKey:key];
+        if (found.length > 0 && !_configs[found]) {
+            _configs[found] = entry;
+        }
+        changed = YES;
+    }
+    if (changed) {
+        [self persistToDisk];
+    }
+    return changed;
+}
+
+- (NSDictionary *)ballEntryForPath:(NSString *)path
+{
+    NSString *key = [self configKeyForPath:path];
+    NSDictionary *entry = key ? _configs[key] : nil;
     return entry ? [entry copy] : nil;
 }
 
@@ -464,51 +558,46 @@ static ScriptFloat *_sfShared = nil;
     if (path.length == 0) {
         return;
     }
-    NSMutableDictionary *entry = _configs[path];
-    if (!entry) {
+    NSString *key = [self configKeyForPath:path];
+    if (!key) {
         if (!enabled) {
             return;
         }
-        entry = [NSMutableDictionary dictionary];
+        key = path;
+        NSMutableDictionary *entry = [NSMutableDictionary dictionary];
         entry[@"x"] = @(0.5);
         entry[@"y"] = @(MIN(0.15 + 0.12 * (double)_configs.count, 0.85));
         entry[@"locked"] = @NO;
         entry[@"icon"] = @(kSFIconTitle);
-        _configs[path] = entry;
+        _configs[key] = entry;
     }
-    entry[@"enabled"] = @(enabled);
+    NSString *token = sfInoTokenForPath(path);
+    if (token.length > 0) {
+        _configs[key][@"ino"] = token;
+    }
+    _configs[key][@"enabled"] = @(enabled);
     [self persistToDisk];
     [self rebuildBalls];
 }
 
 - (void)setBallLocked:(BOOL)locked forPath:(NSString *)path
 {
-    NSMutableDictionary *entry = _configs[path];
-    if (!entry) {
+    NSString *key = [self configKeyForPath:path];
+    if (!key) {
         return;
     }
-    entry[@"locked"] = @(locked);
+    _configs[key][@"locked"] = @(locked);
     [self persistToDisk];
     [self rebuildBalls];
 }
 
 - (void)setBallIconMode:(NSInteger)mode forPath:(NSString *)path
 {
-    NSMutableDictionary *entry = _configs[path];
-    if (!entry) {
+    NSString *key = [self configKeyForPath:path];
+    if (!key) {
         return;
     }
-    entry[@"icon"] = (mode == kSFIconApp) ? @(kSFIconApp) : @(kSFIconTitle);
-    [self persistToDisk];
-    [self rebuildBalls];
-}
-
-- (void)removeBallForPath:(NSString *)path
-{
-    if (path.length == 0 || !_configs[path]) {
-        return;
-    }
-    [_configs removeObjectForKey:path];
+    _configs[key][@"icon"] = (mode == kSFIconApp) ? @(kSFIconApp) : @(kSFIconTitle);
     [self persistToDisk];
     [self rebuildBalls];
 }
@@ -522,15 +611,6 @@ static ScriptFloat *_sfShared = nil;
         [m loadConfigsFromDisk];
         [m rebuildBalls];
     });
-}
-
-+ (BOOL)hasBallForScriptPath:(NSString *)scriptPath
-{
-    __block BOOL enabled = NO;
-    sfRunOnMain(^{
-        enabled = [[self shared] isBallEnabledForPath:scriptPath];
-    });
-    return enabled;
 }
 
 + (NSDictionary *)ballConfigForScriptPath:(NSString *)scriptPath
@@ -560,13 +640,6 @@ static ScriptFloat *_sfShared = nil;
 {
     sfRunOnMain(^{
         [[self shared] setBallIconMode:mode forPath:scriptPath];
-    });
-}
-
-+ (void)removeBallForScriptPath:(NSString *)scriptPath
-{
-    sfRunOnMain(^{
-        [[self shared] removeBallForPath:scriptPath];
     });
 }
 
@@ -660,6 +733,7 @@ static ScriptFloat *_sfShared = nil;
 
 - (void)rebuildBalls
 {
+    [self resolveRenamedConfigs];
     NSMutableArray<NSString *> *paths = [NSMutableArray array];
     for (NSString *path in _configs) {
         if ([_configs[path][@"enabled"] boolValue]) {
@@ -840,6 +914,10 @@ static ScriptFloat *_sfShared = nil;
     ZXSafeMainAsync(^{
         @try {
             if (self->_balls.count == 0) {
+                return;
+            }
+            if ([self resolveRenamedConfigs]) {
+                [self rebuildBalls];
                 return;
             }
             if (!self->_window) {

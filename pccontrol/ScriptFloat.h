@@ -13,12 +13,10 @@ BOOL ZXEventIsScriptInjection(UIEvent *event);
 @interface ScriptFloat : NSObject
 
 + (void)reloadConfig;
-+ (BOOL)hasBallForScriptPath:(NSString *)scriptPath;
 + (NSDictionary *)ballConfigForScriptPath:(NSString *)scriptPath;
 + (void)setBallEnabled:(BOOL)enabled forScriptPath:(NSString *)scriptPath;
 + (void)setBallLocked:(BOOL)locked forScriptPath:(NSString *)scriptPath;
 + (void)setBallIconMode:(NSInteger)mode forScriptPath:(NSString *)scriptPath;
-+ (void)removeBallForScriptPath:(NSString *)scriptPath;
 + (void)refreshPlayState;
 
 @end

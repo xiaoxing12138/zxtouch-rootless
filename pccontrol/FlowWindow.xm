@@ -401,6 +401,7 @@ static FlowWindow *_fwShared = nil;
     CGFloat                      _subResizeW;    // 拖把手时的基准宽高（增量累加用）
     CGFloat                      _subResizeH;
     CGFloat                      _kbShift;       // 键盘避让把子浮窗上移了多少
+    BOOL                         _subQuietRebuild;
 
     // 重开子浮窗要用到的参数：改完尺寸要按新宽度把内容重排一遍
     NSString                    *_subTitle;
@@ -1010,7 +1011,7 @@ static FlowWindow *_fwShared = nil;
     _subStep = step;
     _subBuilder = [builder copy];
     _subExec = [exec copy];
-    [self rebuildSubAnimated:YES];
+    [self rebuildSubAnimated:!_subQuietRebuild];
 }
 
 // 按记录的宽高把子浮窗重新铺一遍；改完尺寸要靠它把内容按新宽度重排
@@ -1890,7 +1891,17 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 #pragma mark - 子浮窗：设置（运行方式 + 定时，全都改完即存）
 
 - (void)showSettings {
+    [self showSettingsKeepingY:-1];
+}
+
+- (void)refreshSettingsKeepingY:(CGFloat)keepY {
+    [self showSettingsKeepingY:keepY];
+}
+
+- (void)showSettingsKeepingY:(CGFloat)keepY {
     if (_bundlePath.length == 0 || !_flow) return;
+    BOOL sfKeep = (keepY >= 0);
+    _subQuietRebuild = sfKeep;
 
     // 从 info.plist 读当前的定时设置（默认值和 App 的设置页一致）
     NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:
@@ -1954,9 +1965,10 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             UIView *row = [strongSelf makeActionRow:startTitles[i] detail:(selected ? @"✓" : nil)
                                               color:ZXPalette(ZXPalAccent) primary:selected width:w
                                              action:^{
+                                                 CGFloat keepY = strongSelf->_subScroll ? strongSelf->_subScroll.contentOffset.y : 0.0f;
                                                  startMode = mode;
                                                  persist();
-                                                 [weakSelf showSettings];   // 可见的行跟着模式变，重铺一遍
+                                                 [weakSelf refreshSettingsKeepingY:keepY];
                                              }];
             y = [strongSelf subAddRow:row y:y];
         }
@@ -2013,9 +2025,10 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             UIView *row = [strongSelf makeActionRow:endTitles[i] detail:(selected ? @"✓" : nil)
                                               color:ZXPalette(ZXPalAccent) primary:selected width:w
                                              action:^{
+                                                 CGFloat keepY = strongSelf->_subScroll ? strongSelf->_subScroll.contentOffset.y : 0.0f;
                                                  endMode = mode;
                                                  persist();
-                                                 [weakSelf showSettings];
+                                                 [weakSelf refreshSettingsKeepingY:keepY];
                                              }];
             y = [strongSelf subAddRow:row y:y];
         }
@@ -2049,12 +2062,13 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             BOOL ballLocked = [ballConfig[@"locked"] boolValue];
             NSInteger ballIcon = ballConfig[@"icon"] ? [ballConfig[@"icon"] integerValue] : 1;
 
-            UIView *ballToggle = [strongSelf makeActionRow:(ballOn ? @"关闭悬浮球" : @"开启悬浮球")
+            UIView *ballToggle = [strongSelf makeActionRow:@"启停悬浮球"
                                                     detail:(ballOn ? @"已开启" : @"未开启")
                                                      color:ZXPalette(ZXPalAccent) primary:ballOn width:w
                                                     action:^{
+                CGFloat keepY = strongSelf->_subScroll ? strongSelf->_subScroll.contentOffset.y : 0.0f;
                 [ScriptFloat setBallEnabled:!ballOn forScriptPath:ballPath];
-                [weakSelf showSettings];
+                [weakSelf refreshSettingsKeepingY:keepY];
             }];
             y = [strongSelf subAddRow:ballToggle y:y];
 
@@ -2063,8 +2077,9 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                                                       detail:(ballLocked ? @"已锁定" : @"可拖动")
                                                        color:ZXPalette(ZXPalAccent) primary:ballLocked width:w
                                                       action:^{
+                    CGFloat keepY = strongSelf->_subScroll ? strongSelf->_subScroll.contentOffset.y : 0.0f;
                     [ScriptFloat setBallLocked:!ballLocked forScriptPath:ballPath];
-                    [weakSelf showSettings];
+                    [weakSelf refreshSettingsKeepingY:keepY];
                 }];
                 y = [strongSelf subAddRow:ballLock y:y];
 
@@ -2072,18 +2087,11 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                                                          titles:@[ @"脚本首字", @"App 图标" ]
                                                        selected:(ballIcon == 2 ? 1 : 0) width:w
                                                        onChange:^(NSInteger idx) {
+                    CGFloat keepY = strongSelf->_subScroll ? strongSelf->_subScroll.contentOffset.y : 0.0f;
                     [ScriptFloat setBallIconMode:(idx == 1 ? 2 : 1) forScriptPath:ballPath];
-                    [weakSelf showSettings];
+                    [weakSelf refreshSettingsKeepingY:keepY];
                 }];
                 y = [strongSelf subAddRow:ballIconRow y:y];
-
-                UIView *ballRemove = [strongSelf makeActionRow:@"移除这个悬浮球" detail:nil
-                                                         color:ZXPalette(ZXPalDanger) primary:NO width:w
-                                                        action:^{
-                    [ScriptFloat removeBallForScriptPath:ballPath];
-                    [weakSelf showSettings];
-                }];
-                y = [strongSelf subAddRow:ballRemove y:y];
             }
         }
 
@@ -2140,6 +2148,11 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 
         return y;
     }];
+    _subQuietRebuild = NO;
+    if (sfKeep && _subScroll) {
+        CGFloat maxY = MAX(0.0f, _subScroll.contentSize.height - _subScroll.bounds.size.height);
+        _subScroll.contentOffset = CGPointMake(0, MIN(MAX(keepY, 0.0f), maxY));
+    }
 }
 
 #pragma mark - 内容刷新
