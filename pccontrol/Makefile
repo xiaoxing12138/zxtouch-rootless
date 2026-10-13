@@ -1,5 +1,11 @@
 include $(THEOS)/makefiles/common.mk
 
+ifeq ($(THEOS_PACKAGE_SCHEME),rootless)
+ZX_ROOT_PREFIX = /var/jb
+else
+ZX_ROOT_PREFIX =
+endif
+
 TWEAK_NAME = pccontrol
 pccontrol_FILES = Tweak.xm SocketServer.xm Touch.xm Screen.xm Task.xm Process.xm AlertBox.xm Common.xm Record.xm Play.xm Window.xm Toast.xm UIKeyboard.xm DeviceInfo.xm TouchIndicator/TouchIndicatorWindow.xm TouchIndicator/TouchIndicatorView.xm TouchIndicator/TouchIndicatorCoordinateView.xm TouchIndicator/TouchIndicatorViewList.xm ScriptPlayer.xm TextRecognization/VKOcrManager.xm TextRecognization/TextRecognizer.xm UpdateCache.xm ColorPicker.xm TemplateMatch.xm ScreenMatch.xm NetSpeedIndicator.xm TouchCoordinateIndicator.xm FloatingMenu.xm TapTestWindow.xm ScriptFunctions.xm FunctionWindow.xm FlowScript.xm PickOverlay.xm FlowWindow.xm Schedule.xm \
 	../zxtouch/zxtouch/RemoteDashboardServer.m \
@@ -65,9 +71,10 @@ after-pccontrol-all:: zxrunner-bin
 	@cp $(ZXRUNNER_BIN) $(THEOS_PROJECT_DIR)/layout/usr/libexec/zxrunner
 	@chmod 0755 $(THEOS_PROJECT_DIR)/layout/usr/libexec/zxrunner
 	@mkdir -p $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents
-	@cp $(THEOS_PROJECT_DIR)/zxrunner/resources/com.zjx.zxrunner.plist \
-	   $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents/com.zjx.zxrunner.plist
+	@sed 's|@ZX_ROOT_PREFIX@|$(ZX_ROOT_PREFIX)|g' \
+	   $(THEOS_PROJECT_DIR)/zxrunner/resources/com.zjx.zxrunner.plist \
+	   > $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents/com.zjx.zxrunner.plist
 	@chmod 0644 $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents/com.zjx.zxrunner.plist
 
 after-install::
-	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall SpringBoard; launchctl bootstrap gui/501 /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || launchctl load /var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || true"
+	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall SpringBoard; launchctl bootstrap gui/501 $(ZX_ROOT_PREFIX)/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || launchctl load $(ZX_ROOT_PREFIX)/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || true"

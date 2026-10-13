@@ -1,16 +1,22 @@
 #!/bin/sh
 
-# Register app with SpringBoard (rootless uicache)
-if [ -x /var/jb/usr/bin/uicache ]; then
-    /var/jb/usr/bin/uicache -a
+# rootless 越狱把整棵越狱树挂在 /var/jb 下，rootful 越狱的根就是 /
+JB=""
+if [ -d /var/jb/usr ]; then
+    JB="/var/jb"
+fi
+
+# Register app with SpringBoard
+if [ -x "$JB/usr/bin/uicache" ]; then
+    "$JB/usr/bin/uicache" -a
 else
     su mobile -c uicache 2>/dev/null || true
 fi
 
 # sudoers.d is writable on rootless; /etc/sudoers is not
-SUDOERS_D="/var/jb/etc/sudoers.d"
+SUDOERS_D="$JB/etc/sudoers.d"
 if [ -d "$SUDOERS_D" ]; then
-    echo "mobile ALL=(root) NOPASSWD:/var/jb/usr/bin/zxtouchb" > "$SUDOERS_D/zxtouch"
+    echo "mobile ALL=(root) NOPASSWD:$JB/usr/bin/zxtouchb" > "$SUDOERS_D/zxtouch"
     chmod 440 "$SUDOERS_D/zxtouch"
 fi
 
@@ -19,13 +25,13 @@ mkdir -p /var/mobile/Library/ZXTouch/scripts/录制脚本/
 mkdir -p /var/mobile/Library/ZXTouch/scripts/示例/
 mkdir -p /var/mobile/Library/ZXTouch/config/tweak/
 mkdir -p /var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/
-mkdir -p /var/jb/usr/bin /var/jb/bin
+mkdir -p "$JB/usr/bin" "$JB/bin"
 
 # Copy bundled example scripts. These are maintained by the package, so refresh
 # them on upgrade while leaving unrelated user scripts alone. The old English
 # "examples" folder is removed as well, otherwise an upgrade would leave two
 # copies of every sample in the script list.
-EXAMPLES=/var/jb/usr/share/zxtouch/examples
+EXAMPLES="$JB/usr/share/zxtouch/examples"
 if [ -d "$EXAMPLES" ]; then
     rm -rf /var/mobile/Library/ZXTouch/scripts/examples
     rm -rf "/var/mobile/Library/ZXTouch/scripts/示例"
@@ -34,13 +40,14 @@ if [ -d "$EXAMPLES" ]; then
 fi
 
 REGISTRY=/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist
-if [ -f /var/jb/usr/share/zxtouch/script-registry.plist ]; then
-    cp -f /var/jb/usr/share/zxtouch/script-registry.plist "$REGISTRY"
+REGISTRY_SOURCE="$JB/usr/share/zxtouch/script-registry.plist"
+if [ -f "$REGISTRY_SOURCE" ]; then
+    cp -f "$REGISTRY_SOURCE" "$REGISTRY"
 fi
 
 ADD_DATETIME=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/add_datetime.sh
-cat > "$ADD_DATETIME" << 'EOF'
-#!/var/jb/bin/sh
+printf '#!%s/bin/sh\n' "$JB" > "$ADD_DATETIME"
+cat >> "$ADD_DATETIME" << 'EOF'
 OUTPUT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output
 DATE=/var/jb/usr/bin/date
 if [ ! -x "$DATE" ]; then DATE=/usr/bin/date; fi
@@ -55,22 +62,22 @@ touch /var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output
 
 chown -R mobile:mobile /var/mobile/Library/ZXTouch
 
-# Point /var/jb/usr/bin/python3 at the newest working Procursus Python we can
+# Point the jailbreak's python3 at the newest working Procursus Python we can
 # find. We no longer ship a bundled Python 3.7 runtime — its libpython dylib
 # lives under /usr/lib on stock iOS which doesn't exist on rootless, so it aborts
 # at dyld load. Users must install python3 from Sileo (Procursus).
 FOUND_PY=""
 for PYBIN in \
-    /var/jb/usr/bin/python3.12 \
-    /var/jb/usr/bin/python3.11 \
-    /var/jb/usr/bin/python3.10 \
-    /var/jb/usr/bin/python3.9 \
-    /var/jb/usr/bin/python3.8 \
+    "$JB/usr/bin/python3.12" \
+    "$JB/usr/bin/python3.11" \
+    "$JB/usr/bin/python3.10" \
+    "$JB/usr/bin/python3.9" \
+    "$JB/usr/bin/python3.8" \
     /usr/bin/python3 \
     /bin/python3; do
     if [ -x "$PYBIN" ]; then
-        ln -sf "$PYBIN" /var/jb/usr/bin/python3
-        ln -sf "$PYBIN" /var/jb/bin/python3
+        [ "$PYBIN" = "$JB/usr/bin/python3" ] || ln -sf "$PYBIN" "$JB/usr/bin/python3"
+        [ "$PYBIN" = "$JB/bin/python3" ] || ln -sf "$PYBIN" "$JB/bin/python3"
         FOUND_PY="$PYBIN"
         break
     fi
@@ -80,9 +87,9 @@ if [ -z "$FOUND_PY" ]; then
 fi
 
 # Install zxtouch Python module into every installed Python's site/dist-packages
-SRC=/var/jb/usr/share/zxtouch/python/zxtouch
+SRC="$JB/usr/share/zxtouch/python/zxtouch"
 if [ -d "$SRC" ]; then
-    for SP in /var/jb/usr/lib/python3*/site-packages /var/jb/usr/lib/python3*/dist-packages /var/jb/usr/lib/python3/dist-packages; do
+    for SP in "$JB"/usr/lib/python3*/site-packages "$JB"/usr/lib/python3*/dist-packages "$JB"/usr/lib/python3/dist-packages; do
         if [ -d "$SP" ]; then
             rm -rf "$SP/zxtouch"
             cp -R "$SRC" "$SP/" 2>/dev/null || true
@@ -91,7 +98,7 @@ if [ -d "$SRC" ]; then
 fi
 
 # Strip expired dev provisioning profile and re-sign with ldid
-APP=/var/jb/Applications/zxtouch.app
+APP="$JB/Applications/zxtouch.app"
 rm -f "$APP/embedded.mobileprovision"
 cat > /tmp/zxtouch-ent.plist << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -109,17 +116,17 @@ cat > /tmp/zxtouch-ent.plist << 'EOF'
 </dict>
 </plist>
 EOF
-if [ -x /var/jb/usr/bin/ldid ]; then
-    /var/jb/usr/bin/ldid -S/tmp/zxtouch-ent.plist "$APP/zxtouch"
+if [ -x "$JB/usr/bin/ldid" ]; then
+    "$JB/usr/bin/ldid" -S/tmp/zxtouch-ent.plist "$APP/zxtouch"
 fi
 
-# Start zxrunner daemon (rootless sandbox: launchctl bootstrap is unusable,
-# iOS has no user/gui domains. Postinst runs as root, bypassing SpringBoard exec restrictions.)
-DAEMON=/var/jb/usr/libexec/zxrunner
+# Start zxrunner daemon. Postinst runs as root, bypassing the SpringBoard exec
+# restrictions, and a respring does not make launchd rescan LaunchAgents.
+DAEMON="$JB/usr/libexec/zxrunner"
 if [ -x "$DAEMON" ]; then
     # Kill any stale instance from before, then start fresh
-    if [ -x /var/jb/usr/bin/killall ]; then
-        /var/jb/usr/bin/killall zxrunner 2>/dev/null || true
+    if [ -x "$JB/usr/bin/killall" ]; then
+        "$JB/usr/bin/killall" zxrunner 2>/dev/null || true
     fi
     sleep 0.3
     rm -f /tmp/zxrunner.sock

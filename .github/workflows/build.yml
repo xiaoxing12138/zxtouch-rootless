@@ -118,19 +118,40 @@ jobs:
           export CCACHE_MAXSIZE="2G"
           export CCACHE_SLOPPINESS="file_macro,include_file_mtime,include_file_ctime,pch_defines,time_macros"
           ccache -s || true
+          rm -rf .theos packages out
           make -j$(sysctl -n hw.ncpu) package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
           local_rc=$?
           ccache -s || true
           ls -la packages/ 2>/dev/null || echo "(packages/ does not exist)"
+          mkdir -p out
+          cp packages/*.deb out/rootless.deb
           exit $local_rc
         env:
           THEOS: ${{ github.workspace }}/theos
 
-      - name: Upload Rootless deb skeleton
+      - name: Build Rootful .deb
+        run: |
+          export CC="ccache clang"
+          export CXX="ccache clang++"
+          export CCACHE_BASEDIR="$GITHUB_WORKSPACE"
+          export CCACHE_MAXSIZE="2G"
+          export CCACHE_SLOPPINESS="file_macro,include_file_mtime,include_file_ctime,pch_defines,time_macros"
+          ccache -s || true
+          rm -rf .theos packages
+          make -j$(sysctl -n hw.ncpu) package FINALPACKAGE=1
+          local_rc=$?
+          ccache -s || true
+          ls -la packages/ 2>/dev/null || echo "(packages/ does not exist)"
+          cp packages/*.deb out/rootful.deb
+          exit $local_rc
+        env:
+          THEOS: ${{ github.workspace }}/theos
+
+      - name: Upload theos debs
         uses: actions/upload-artifact@v4
         with:
           name: theos-deb
-          path: packages/*.deb
+          path: out/
           if-no-files-found: error
 
   assemble:
@@ -145,7 +166,7 @@ jobs:
           name: zxtouch-app
           path: downloads
 
-      - name: Download theos deb
+      - name: Download theos debs
         uses: actions/download-artifact@v4
         with:
           name: theos-deb
@@ -154,27 +175,28 @@ jobs:
       - name: Assemble final artifacts
         run: |
           set -euo pipefail
-          brew install zip 2>/dev/null || true
           brew install dpkg 2>/dev/null || true
           echo "=== downloads/ contents ==="
           ls -la downloads/
-          DEB=$(find downloads -maxdepth 2 -name "*.deb" | head -1)
-          echo "DEB=$DEB"
-          mkdir -p final
           tar -xzf downloads/zxtouch-app.tar.gz
-          rm -rf deb-root
-          dpkg-deb -x "$DEB" deb-root/
-          dpkg-deb -e "$DEB" deb-root/DEBIAN/
-          VERSION=$(awk '/^Version:/{print $2}' deb-root/DEBIAN/control)
+          mkdir -p final
+          VERSION=$(dpkg-deb -f downloads/rootless.deb Version)
           echo "VERSION=$VERSION"
-          mkdir -p deb-root/var/jb/Applications
-          cp -R zxtouch.app deb-root/var/jb/Applications/zxtouch.app
-          chmod -R 755 deb-root/var/jb/Applications/zxtouch.app
-          dpkg-deb --root-owner-group -b deb-root "final/小新Lap_${VERSION}_rootless.deb"
-          mkdir -p Payload
-          cp -R zxtouch.app Payload/
-          zip -rq "final/小新Lap_${VERSION}.ipa" Payload
-          rm -rf Payload deb-root
+          build_deb() {
+            DEB="$1"
+            APP_DEST="$2"
+            OUT_NAME="$3"
+            rm -rf deb-root
+            dpkg-deb -x "$DEB" deb-root/
+            dpkg-deb -e "$DEB" deb-root/DEBIAN/
+            mkdir -p "deb-root/$(dirname "$APP_DEST")"
+            cp -R zxtouch.app "deb-root/$APP_DEST"
+            chmod -R 755 "deb-root/$APP_DEST"
+            dpkg-deb --root-owner-group -b deb-root "final/$OUT_NAME"
+          }
+          build_deb downloads/rootless.deb "var/jb/Applications/zxtouch.app" "小新Lap_${VERSION}_（无根rootless）.deb"
+          build_deb downloads/rootful.deb "Applications/zxtouch.app" "小新Lap_${VERSION}（有根）.deb"
+          rm -rf deb-root zxtouch.app
           ls -la final/
 
       - name: Upload final artifacts
@@ -188,18 +210,16 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            final/*_rootless.deb
-            final/*.ipa
+          files: final/*.deb
           generate_release_notes: true
           append_body: true
           body: |
-            ## ZXTouch Rootless
+            ## 小新Lap 3.1.6
 
-            | File | 用途 | Jailbreak | iOS |
-            |------|------|-----------|-----|
-            | `*_rootless.deb` | 一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
-            | `*.ipa` | 可选：TrollStore 侧载 App | 任意 | 任意 |
+            | File | 用途 | 越狱 | iOS |
+            |------|------|------|-----|
+            | `小新Lap_3.1.6_（无根rootless）.deb` | 无根越狱一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
+            | `小新Lap_3.1.6（有根）.deb` | 有根越狱一键安装（含 App + 触摸引擎） | palera1n (rootful), checkra1n | 15.0 - 16.x |
 
             ### Installation
             1. Download the `.deb` for your jailbreak

@@ -9,7 +9,10 @@ pccontrol/backups
 **/packages
 **/__pycache__
 layout/usr/lib/python3.7/test
+layout/usr/libexec
+layout/Library/LaunchAgents
 zxtouch-xcode-install/
 others/
 debshare/
+control
 
