@@ -1129,11 +1129,15 @@ static FlowWindow *_fwShared = nil;
     backdrop.frame = dim.bounds;
     backdrop.backgroundColor = [UIColor colorWithWhite:0 alpha:0.15];
     [backdrop addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        id<FlowEditorHost> host = weakSelf->_host;
+        __strong FlowWindow *strongSelf = weakSelf;
+        if (!strongSelf) {
+            return;
+        }
+        id<FlowEditorHost> host = strongSelf->_host;
         if (host) {
             [host flowHostRequestHidePanel];
         } else {
-            [weakSelf dismissSubAnimated:YES];
+            [strongSelf dismissSubAnimated:YES];
         }
     }] forControlEvents:UIControlEventTouchUpInside];
     [dim addSubview:backdrop];
