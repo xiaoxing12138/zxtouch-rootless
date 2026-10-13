@@ -62,6 +62,10 @@
 #define TASK_MAKE_CALL 51
 // 52：发送短信；载荷 = 号码;;内容;;卡（default|1|2）
 #define TASK_SEND_SMS 52
+// 53：开关 WiFi；载荷 = 1|0（也认 on|off 字样）
+#define TASK_SET_WIFI 53
+// 54：后台截屏存进相册（无载荷）；返回 0;;<文件路径>
+#define TASK_SAVE_SCREENSHOT 54
 
 #define TASK_UPDATE_CACHE 90
 

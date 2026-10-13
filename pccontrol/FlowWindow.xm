@@ -29,7 +29,7 @@
 #define FW_ROW_H    45.0f
 #define FW_GAP      8.0f
 #define FW_DELETE_W 88.0f   // 左滑露出来的「删除」宽度
-#define FW_CELL_H   54.0f   // 「添加步骤」子浮窗里一个类型格的高度
+#define FW_CELL_H   38.0f   // 「添加步骤」子浮窗里一个类型格的高度
 #define FW_SUB_TITLE_H 46.0f
 #define FW_SUB_MIN_W 220.0f
 #define FW_SUB_MIN_H 120.0f
@@ -113,15 +113,17 @@ static UIColor *fwTypeColor(NSString *kind)
     if ([kind isEqualToString:kFlowFindColor]) return fwColor(0xC22E7A, 0xF0559B);
     if ([kind isEqualToString:kFlowImage])     return fwColor(0x1B8F49, 0x35C46B);
     if ([kind isEqualToString:kFlowOCR])       return fwColor(0x0E7490, 0x2AA6C4);
-    if ([kind isEqualToString:kFlowOpenApp])   return fwColor(0x3F51B5, 0x7C8CF8);
-    if ([kind isEqualToString:kFlowHome])      return fwColor(0x546E7A, 0x90A4AE);
-    if ([kind isEqualToString:kFlowKillApp])   return fwColor(0xC62828, 0xF16A6A);
+    if ([kind isEqualToString:kFlowAppSwitch])  return fwColor(0x3F51B5, 0x7C8CF8);
+    if ([kind isEqualToString:kFlowWiFi])       return fwColor(0x00796B, 0x4DB6AC);
+    if ([kind isEqualToString:kFlowScreenshot]) return fwColor(0x455A64, 0x90A4AE);
     if ([kind isEqualToString:kFlowPaste])     return fwColor(0x6A1B9A, 0xB085D8);
     if ([kind isEqualToString:kFlowRing])      return fwColor(0xB8860B, 0xF0C24B);
     if ([kind isEqualToString:kFlowVolume])    return fwColor(0x00838F, 0x4DD0E1);
     if ([kind isEqualToString:kFlowStopAll])   return fwColor(0x8E24AA, 0xC77DFF);
     if ([kind isEqualToString:kFlowCall])      return fwColor(0x2E7D32, 0x66BB6A);
     if ([kind isEqualToString:kFlowSMS])       return fwColor(0x0277BD, 0x4FC3F7);
+    if ([kind isEqualToString:kFlowDingTalk])  return fwColor(0x1765AD, 0x4A90D9);
+    if ([kind isEqualToString:kFlowWeCom])     return fwColor(0x0FA958, 0x4DD98A);
     if ([kind isEqualToString:kFlowWeChat])    return fwColor(0x1FAE1F, 0x5CE65C);
     return fwColor(0x4C8DFF, 0x6EA8FF);
 }
@@ -157,8 +159,11 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
         @{ @"title": @"判据", @"keys": @[ @"Match", @"Text" ] },
         @{ @"title": @"识别", @"keys": @[ @"Languages" ] },
     ];
-    if ([kind isEqualToString:kFlowOpenApp]) return @[ @{ @"title": @"目标", @"keys": @[ @"Bundle" ] } ];
-    if ([kind isEqualToString:kFlowKillApp]) return @[ @{ @"title": @"目标", @"keys": @[ @"Bundle" ] } ];
+    if ([kind isEqualToString:kFlowAppSwitch]) return @[
+        @{ @"title": @"方式", @"keys": @[ @"Mode" ] },
+        @{ @"title": @"目标", @"keys": @[ @"Bundle" ] },
+    ];
+    if ([kind isEqualToString:kFlowWiFi]) return @[ @{ @"title": @"方式", @"keys": @[ @"Mode" ] } ];
     if ([kind isEqualToString:kFlowPaste]) return @[ @{ @"title": @"内容", @"keys": @[ @"Text" ] } ];
     if ([kind isEqualToString:kFlowRing]) return @[
         @{ @"title": @"铃声", @"keys": @[ @"Sound" ] },
@@ -173,6 +178,14 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
     ];
     if ([kind isEqualToString:kFlowSMS]) return @[
         @{ @"title": @"发送", @"keys": @[ @"Number", @"Text", @"SIM" ] },
+    ];
+    if ([kind isEqualToString:kFlowDingTalk]) return @[
+        @{ @"title": @"接收", @"keys": @[ @"URL", @"Secret" ] },
+        @{ @"title": @"内容", @"keys": @[ @"Text" ] },
+    ];
+    if ([kind isEqualToString:kFlowWeCom]) return @[
+        @{ @"title": @"接收", @"keys": @[ @"URL" ] },
+        @{ @"title": @"内容", @"keys": @[ @"Text" ] },
     ];
     return @[];
 }
@@ -1673,6 +1686,34 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
     return label;
 }
 
+- (void)fwRefreshAboutVersion
+{
+    UILabel *label = (UILabel *)[self->_subScroll viewWithTag:FW_ABOUT_VERSION_TAG];
+    if (![label isKindOfClass:[UILabel class]]) return;
+    NSString *current = fwAppVersion();
+    label.textColor = ZXPalette(ZXPalSub);
+    label.text = @"最新版本：检测中…";
+
+    __weak typeof(self) weakSelf = self;
+    fwFetchLatestVersion(0, ^(NSString *version) {
+        FlowWindow *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        UILabel *l = (UILabel *)[strongSelf->_subScroll viewWithTag:FW_ABOUT_VERSION_TAG];
+        if (![l isKindOfClass:[UILabel class]]) return;
+        if (version.length == 0) {
+            l.text = @"最新版本：获取失败（请检查网络后重试）";
+            l.textColor = ZXPalette(ZXPalDanger);
+            return;
+        }
+        if (current.length > 0 && fwVersionIsNewer(version, current)) {
+            l.text = [NSString stringWithFormat:@"最新版本：v%@（有新版本，请加 QQ 群获取）", version];
+            l.textColor = ZXPalette(ZXPalDanger);
+        } else {
+            l.text = [NSString stringWithFormat:@"最新版本：v%@（已是最新）", version];
+        }
+    });
+}
+
 - (void)showAboutSheet
 {
     NSString *current = fwAppVersion();
@@ -1689,15 +1730,41 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
                                               color:ZXPalette(ZXPalSub) width:w tag:0];
         y = [strongSelf subAddRow:cur y:y];
 
-        UILabel *latest = [strongSelf subAddPlainLabel:@"最新版本：检测中…"
-                                                  font:[UIFont systemFontOfSize:12]
-                                                 color:ZXPalette(ZXPalSub) width:w
-                                                   tag:FW_ABOUT_VERSION_TAG];
-        y = [strongSelf subAddRow:latest y:y];
+        // 版本行：左侧「最新版本：…」（两行自适应），右侧常显的「检测更新」按钮
+        const CGFloat versionRowH = 40.0f;
+        const CGFloat versionBtnW = 82.0f;
+        UIView *versionRow = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w - 16, versionRowH)];
+
+        UILabel *latest = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, MAX(versionRow.frame.size.width - versionBtnW - 8, 60), versionRowH)];
+        latest.text = @"最新版本：检测中…";
+        latest.font = [UIFont systemFontOfSize:12];
+        latest.textColor = ZXPalette(ZXPalSub);
+        latest.numberOfLines = 2;
+        latest.adjustsFontSizeToFitWidth = YES;
+        latest.minimumScaleFactor = 0.7;
+        latest.tag = FW_ABOUT_VERSION_TAG;
+        [versionRow addSubview:latest];
+
+        UIButton *versionBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        versionBtn.frame = CGRectMake(versionRow.frame.size.width - versionBtnW, (versionRowH - 28) / 2.0f, versionBtnW, 28);
+        versionBtn.backgroundColor = [ZXPalette(ZXPalAccent) colorWithAlphaComponent:0.16];
+        versionBtn.layer.cornerRadius = 8;
+        versionBtn.layer.borderWidth = 1;
+        versionBtn.layer.borderColor = [ZXPalette(ZXPalAccent) colorWithAlphaComponent:0.55].CGColor;
+        versionBtn.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        [versionBtn setTitle:@"检测更新" forState:UIControlStateNormal];
+        [versionBtn setTitleColor:ZXPalette(ZXPalAccent) forState:UIControlStateNormal];
+        __weak typeof(strongSelf) weakVersion = strongSelf;
+        [versionBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            [weakVersion fwRefreshAboutVersion];
+        }] forControlEvents:UIControlEventTouchUpInside];
+        [versionRow addSubview:versionBtn];
+        y = [strongSelf subAddRow:versionRow y:y];
+        [strongSelf fwRefreshAboutVersion];
 
         y = [strongSelf subAddSection:@"交流" width:w y:y];
-        UIView *qq = [strongSelf makeActionRow:[NSString stringWithFormat:@"QQ 交流群：%@", kFwQQGroup]
-                                        detail:@"点击复制"
+        UIView *qq = [strongSelf makeActionRow:@"QQ 交流群"
+                                        detail:kFwQQGroup
                                          color:ZXPalette(ZXPalAccent) primary:NO width:w
                                         action:^{
             [UIPasteboard generalPasteboard].string = kFwQQGroup;
@@ -1739,23 +1806,6 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
         y = [strongSelf subAddRow:text y:y];
         return y;
     }];
-
-    fwFetchLatestVersion(0, ^(NSString *version) {
-        FlowWindow *strongSelf = weakSelf;
-        if (!strongSelf) return;
-        UILabel *label = (UILabel *)[strongSelf->_subScroll viewWithTag:FW_ABOUT_VERSION_TAG];
-        if (![label isKindOfClass:[UILabel class]]) return;
-        if (version.length == 0) {
-            label.text = @"最新版本：获取失败（请检查网络后重开本页）";
-            return;
-        }
-        if (current.length > 0 && fwVersionIsNewer(version, current)) {
-            label.text = [NSString stringWithFormat:@"最新版本：v%@（有新版本，请加入 QQ 交流群获取最新文件）", version];
-            label.textColor = ZXPalette(ZXPalDanger);
-        } else {
-            label.text = [NSString stringWithFormat:@"最新版本：v%@（已是最新）", version];
-        }
-    });
 }
 
 #pragma mark - 子浮窗：添加步骤
@@ -1782,9 +1832,9 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
 
     __weak typeof(self) weakSelf = self;
     [self showSubWithTitle:@"添加步骤" builder:^CGFloat(UIScrollView *content, CGFloat w) {
-        const CGFloat cellGap = 8.0f;
-        const CGFloat maxCellW = 168.0f;
-        const CGFloat minCellW = 92.0f;
+        const CGFloat cellGap = 6.0f;
+        const CGFloat maxCellW = 124.0f;
+        const CGFloat minCellW = 72.0f;
         const CGFloat innerW = MAX(w - 16.0f, 60.0f);
 
         // 列数：先按「每个按钮不超过最大宽度」定下限，再按「不小于最小宽度」封顶
@@ -1801,7 +1851,7 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
             label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
             label.textColor = ZXPalette(ZXPalSub);
             [content addSubview:label];
-            y += 26.0f;
+            y += 20.0f;
 
             NSArray<FlowStepType *> *types = group[@"types"];
             for (NSUInteger i = 0; i < types.count; i++) {
@@ -1812,26 +1862,26 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
                 cell.frame = CGRectMake(8 + col * (cellW + cellGap), y + line * (FW_CELL_H + cellGap),
                                         cellW, FW_CELL_H);
                 cell.backgroundColor = ZXPalette(ZXPalRow);
-                cell.layer.cornerRadius = 12;
+                cell.layer.cornerRadius = 10;
                 cell.layer.borderWidth = 1;
                 cell.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
 
                 UIColor *color = fwTypeColor(type.kind);
-                UIView *tile = [[UIView alloc] initWithFrame:CGRectMake(12, (FW_CELL_H - 26) / 2.0f, 26, 26)];
+                UIView *tile = [[UIView alloc] initWithFrame:CGRectMake(9, (FW_CELL_H - 22) / 2.0f, 22, 22)];
                 tile.backgroundColor = [color colorWithAlphaComponent:0.16];
-                tile.layer.cornerRadius = 8;
+                tile.layer.cornerRadius = 7;
                 tile.userInteractionEnabled = NO;
                 [cell addSubview:tile];
 
                 UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:type.symbolName]];
                 icon.tintColor = color;
                 icon.contentMode = UIViewContentModeScaleAspectFit;
-                icon.frame = CGRectInset(tile.bounds, 5, 5);
+                icon.frame = CGRectInset(tile.bounds, 4, 4);
                 [tile addSubview:icon];
 
-                UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(46, 0, MAX(cellW - 54, 40), FW_CELL_H)];
+                UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(37, 0, MAX(cellW - 43, 24), FW_CELL_H)];
                 name.text = type.title;
-                name.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+                name.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
                 name.textColor = ZXPalette(ZXPalText);
                 name.adjustsFontSizeToFitWidth = YES;
                 name.minimumScaleFactor = 0.8;
@@ -1848,7 +1898,7 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
                 [content addSubview:cell];
             }
             NSInteger lines = (NSInteger)ceil((double)types.count / (double)cols);
-            y += lines * FW_CELL_H + (lines - 1) * cellGap + 14.0f;
+            y += lines * FW_CELL_H + (lines - 1) * cellGap + 8.0f;
         }
         return y;
     }];
@@ -2069,25 +2119,52 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         double seconds = MAX(fwStepNumber(step, @"Seconds", 2), 1);
         showAlertBox(@"提示", text.length ? text : @"（没填提示文字）", (int)llround(seconds));
         return;
-    } else if ([kind isEqualToString:kFlowOpenApp]) {
+    } else if ([kind isEqualToString:kFlowAppSwitch]) {
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"open";
         NSString *bundle = [step[@"Bundle"] isKindOfClass:[NSString class]] ? step[@"Bundle"] : @"";
         if (bundle.length == 0) {
-            showAlertBox(@"打开App", @"还没有选择目标 App。", 2);
+            showAlertBox(@"开关app", @"还没有选择目标 App。", 2);
             return;
         }
-        bringAppForeground(bundle);
-        usleep(400000);
-    } else if ([kind isEqualToString:kFlowHome]) {
+        if ([mode isEqualToString:@"close"]) {
+            NSError *error = nil;
+            if (!ZXKillApp(bundle, &error)) {
+                showAlertBox(@"开关app", error.localizedDescription ?: @"执行失败。", 2);
+                return;
+            }
+        } else {
+            bringAppForeground(bundle);
+            usleep(400000);
+        }
+    } else if ([kind isEqualToString:kFlowWiFi]) {
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"on";
         NSError *error = nil;
-        if (!ZXGoHome(&error)) {
-            showAlertBox(@"返回主屏幕", error.localizedDescription ?: @"执行失败。", 2);
+        if (!ZXSetWiFi([mode isEqualToString:@"on"], &error)) {
+            showAlertBox(@"开关WiFi", error.localizedDescription ?: @"执行失败。", 2);
             return;
         }
-    } else if ([kind isEqualToString:kFlowKillApp]) {
-        NSString *bundle = [step[@"Bundle"] isKindOfClass:[NSString class]] ? step[@"Bundle"] : @"";
+    } else if ([kind isEqualToString:kFlowScreenshot]) {
         NSError *error = nil;
-        if (!ZXKillApp(bundle, &error)) {
-            showAlertBox(@"关闭App", error.localizedDescription ?: @"执行失败。", 2);
+        NSString *path = nil;
+        if (!ZXSaveScreenshot(&path, &error)) {
+            showAlertBox(@"截屏保存", error.localizedDescription ?: @"执行失败。", 2);
+            return;
+        }
+    } else if ([kind isEqualToString:kFlowDingTalk]) {
+        NSString *url = [step[@"URL"] isKindOfClass:[NSString class]] ? step[@"URL"] : @"";
+        NSString *secret = [step[@"Secret"] isKindOfClass:[NSString class]] ? step[@"Secret"] : @"";
+        NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+        NSError *error = nil;
+        if (!ZXSendDingTalk(url, secret, text, &error)) {
+            showAlertBox(@"钉钉机器人", error.localizedDescription ?: @"推送失败。", 2);
+            return;
+        }
+    } else if ([kind isEqualToString:kFlowWeCom]) {
+        NSString *url = [step[@"URL"] isKindOfClass:[NSString class]] ? step[@"URL"] : @"";
+        NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+        NSError *error = nil;
+        if (!ZXSendWeCom(url, text, &error)) {
+            showAlertBox(@"企业微信机器人", error.localizedDescription ?: @"推送失败。", 2);
             return;
         }
     } else if ([kind isEqualToString:kFlowPaste]) {

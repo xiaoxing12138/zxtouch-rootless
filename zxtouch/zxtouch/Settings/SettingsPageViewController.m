@@ -1257,8 +1257,37 @@ static void ZXFetchLatestVersion(BOOL useCache, void (^completion)(NSString *ver
 
 @implementation ZXUpdateCheckViewController {
     UILabel  *_latestLabel;
+    UIButton *_checkButton;
     UIButton *_updateButton;
     NSString *_currentVersion;
+}
+
+- (void)handleCheckUpdateTap:(UIButton *)sender {
+    (void)sender;
+    [self checkForUpdate];
+}
+
+- (void)checkForUpdate {
+    _latestLabel.textColor = [UIColor secondaryLabelColor];
+    _latestLabel.text = @"最新版本：检测中…";
+    _updateButton.hidden = YES;
+
+    __weak typeof(self) weakSelf = self;
+    ZXFetchLatestVersion(NO, ^(NSString *version, NSError *error) {
+        ZXUpdateCheckViewController *s = weakSelf;
+        if (!s) return;
+        if (version.length == 0) {
+            s->_latestLabel.text = @"最新版本：获取失败（请检查网络后重试）";
+            return;
+        }
+        if (ZXVersionIsNewer(version, s->_currentVersion)) {
+            s->_latestLabel.text = [NSString stringWithFormat:@"最新版本：v%@", version];
+            s->_latestLabel.textColor = [UIColor systemRedColor];
+            s->_updateButton.hidden = NO;
+        } else {
+            s->_latestLabel.text = [NSString stringWithFormat:@"最新版本：v%@（已是最新）", version];
+        }
+    });
 }
 
 - (void)viewDidLoad {
@@ -1285,8 +1314,29 @@ static void ZXFetchLatestVersion(BOOL useCache, void (^completion)(NSString *ver
     [self addText:[NSString stringWithFormat:@"当前版本：v%@", _currentVersion]
              font:[UIFont systemFontOfSize:14] color:[UIColor secondaryLabelColor]
              card:versionCard y:&cy width:w wrap:NO];
-    _latestLabel = [self addText:@"最新版本：检测中…" font:[UIFont systemFontOfSize:14]
-                           color:[UIColor secondaryLabelColor] card:versionCard y:&cy width:w wrap:NO];
+
+    // 版本行：左侧「最新版本：…」，右侧常显的「检测更新」按钮
+    CGFloat versionRowH = 30.0f;
+    UIView *versionRow = [[UIView alloc] initWithFrame:CGRectMake(14, cy, w - 28, versionRowH)];
+    _latestLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, MAX(versionRow.frame.size.width - 88.0f, 60.0f), versionRowH)];
+    _latestLabel.text = @"最新版本：检测中…";
+    _latestLabel.font = [UIFont systemFontOfSize:14];
+    _latestLabel.textColor = [UIColor secondaryLabelColor];
+    _latestLabel.adjustsFontSizeToFitWidth = YES;
+    _latestLabel.minimumScaleFactor = 0.7;
+    [versionRow addSubview:_latestLabel];
+
+    _checkButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _checkButton.frame = CGRectMake(versionRow.frame.size.width - 84.0f, (versionRowH - 28.0f) / 2.0f, 84.0f, 28.0f);
+    _checkButton.backgroundColor = [[UIColor systemBlueColor] colorWithAlphaComponent:0.12];
+    _checkButton.layer.cornerRadius = 8;
+    _checkButton.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    [_checkButton setTitle:@"检测更新" forState:UIControlStateNormal];
+    [_checkButton addTarget:self action:@selector(handleCheckUpdateTap:) forControlEvents:UIControlEventTouchUpInside];
+    [versionRow addSubview:_checkButton];
+    [versionCard addSubview:versionRow];
+    cy += versionRowH + 4.0f;
+
     [self addText:@"如有新版本，请加入 QQ 交流群获取最新版本文件。"
              font:[UIFont systemFontOfSize:13] color:[UIColor secondaryLabelColor]
              card:versionCard y:&cy width:w wrap:YES];
@@ -1314,22 +1364,7 @@ static void ZXFetchLatestVersion(BOOL useCache, void (^completion)(NSString *ver
 
     scroll.contentSize = CGSizeMake(w + margin * 2, y + 20);
 
-    __weak typeof(self) weakSelf = self;
-    ZXFetchLatestVersion(YES, ^(NSString *version, NSError *error) {
-        ZXUpdateCheckViewController *s = weakSelf;
-        if (!s) return;
-        if (version.length == 0) {
-            s->_latestLabel.text = @"最新版本：获取失败（请检查网络后重进本页）";
-            return;
-        }
-        if (ZXVersionIsNewer(version, s->_currentVersion)) {
-            s->_latestLabel.text = [NSString stringWithFormat:@"最新版本：v%@", version];
-            s->_latestLabel.textColor = [UIColor systemRedColor];
-            s->_updateButton.hidden = NO;
-        } else {
-            s->_latestLabel.text = [NSString stringWithFormat:@"最新版本：v%@（已是最新）", version];
-        }
-    });
+    [self checkForUpdate];
 }
 
 @end

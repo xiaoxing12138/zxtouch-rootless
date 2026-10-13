@@ -19,22 +19,25 @@ NSString * const kFlowColor = @"color";
 NSString * const kFlowFindColor = @"findColor";
 NSString * const kFlowImage = @"image";
 NSString * const kFlowOCR = @"ocr";
-NSString * const kFlowOpenApp = @"openApp";
-NSString * const kFlowHome = @"home";
-NSString * const kFlowKillApp = @"killApp";
+NSString * const kFlowAppSwitch = @"appSwitch";
+NSString * const kFlowWiFi = @"wifi";
+NSString * const kFlowScreenshot = @"screenshot";
 NSString * const kFlowPaste = @"paste";
 NSString * const kFlowRing = @"ring";
 NSString * const kFlowVolume = @"volume";
 NSString * const kFlowStopAll = @"stopAll";
 NSString * const kFlowCall = @"call";
 NSString * const kFlowSMS = @"sms";
+NSString * const kFlowDingTalk = @"dingtalk";
+NSString * const kFlowWeCom = @"wecom";
 NSString * const kFlowWeChat = @"wechat";
 
-// 分类固定顺序：触摸 → 判断条件 → 流程 → App 与输入 → 提醒
+// 分类固定顺序：触摸 → 判断条件 → 流程 → App 与输入 → 设备 → 提醒
 static NSString * const kCatTouch = @"触摸";
 static NSString * const kCatCondition = @"判断条件";
 static NSString * const kCatFlow = @"流程";
 static NSString * const kCatApp = @"App 与输入";
+static NSString * const kCatDevice = @"设备";
 static NSString * const kCatRemind = @"提醒";
 
 // 点击的默认值：改这里，生成器与弹窗默认值一起跟着变
@@ -192,25 +195,30 @@ static NSString *fwSimValue(id value)
             [FlowFieldSpec key:@"Languages" title:@"识别语言（zh-Hans 中文 / en-US 英文）" integer:NO def:@"zh-Hans,en-US"],
         ];
 
-        // 打开 App：Bundle 从「已安装 App 列表」里选，不手打
-        FlowStepType *openApp = [self type:kFlowOpenApp title:@"打开App" symbol:@"app.badge.fill" condition:NO];
-        openApp.category = kCatApp;
-        FlowFieldSpec *openAppBundle = [FlowFieldSpec key:@"Bundle" title:@"目标 App" integer:NO def:@""];
-        openAppBundle.pickerKind = @"app";
-        openApp.fields = @[ openAppBundle ];
+        // 开关 App：一个步骤同时管「打开」和「关闭」，用哪个由「方式」决定
+        FlowStepType *appSwitch = [self type:kFlowAppSwitch title:@"开关app" symbol:@"arrow.triangle.2.circlepath" condition:NO];
+        appSwitch.category = kCatApp;
+        appSwitch.hint = @"「关闭」会把该 App 的后台进程直接杀掉（等同于上滑清后台），并不是简单切走。";
+        FlowFieldSpec *appSwitchMode = [FlowFieldSpec key:@"Mode" title:@"方式" integer:NO def:@"open"];
+        appSwitchMode.choiceTitles = @[ @"打开", @"关闭" ];
+        appSwitchMode.choiceValues = @[ @"open", @"close" ];
+        FlowFieldSpec *appSwitchBundle = [FlowFieldSpec key:@"Bundle" title:@"目标 App" integer:NO def:@""];
+        appSwitchBundle.pickerKind = @"app";
+        appSwitch.fields = @[ appSwitchMode, appSwitchBundle ];
 
-        // 返回主屏幕：无参数
-        FlowStepType *home = [self type:kFlowHome title:@"返回主屏幕" symbol:@"house.fill" condition:NO];
-        home.category = kCatApp;
-        home.fields = @[];
+        // 开关 WiFi：方式为「打开 / 关闭」
+        FlowStepType *wifi = [self type:kFlowWiFi title:@"开关WiFi" symbol:@"wifi" condition:NO];
+        wifi.category = kCatDevice;
+        FlowFieldSpec *wifiMode = [FlowFieldSpec key:@"Mode" title:@"方式" integer:NO def:@"on"];
+        wifiMode.choiceTitles = @[ @"打开", @"关闭" ];
+        wifiMode.choiceValues = @[ @"on", @"off" ];
+        wifi.fields = @[ wifiMode ];
 
-        // 关闭 App（杀后台）
-        FlowStepType *killApp = [self type:kFlowKillApp title:@"关闭App" symbol:@"xmark.app.fill" condition:NO];
-        killApp.category = kCatApp;
-        killApp.hint = @"「关闭App」会把该 App 的后台进程直接杀掉（等同于上滑清后台），并不是简单切走。";
-        FlowFieldSpec *killAppBundle = [FlowFieldSpec key:@"Bundle" title:@"目标 App" integer:NO def:@""];
-        killAppBundle.pickerKind = @"app";
-        killApp.fields = @[ killAppBundle ];
+        // 截屏保存：后台截图直接写进相册，不弹系统截图预览
+        FlowStepType *screenshot = [self type:kFlowScreenshot title:@"截屏保存" symbol:@"camera.fill" condition:NO];
+        screenshot.category = kCatDevice;
+        screenshot.hint = @"「截屏保存」在后台截当前屏幕并存进相册，不会弹出系统截图预览。";
+        screenshot.fields = @[];
 
         // 粘贴：填了文字就输入文字，没填就用剪贴板
         FlowStepType *paste = [self type:kFlowPaste title:@"粘贴" symbol:@"doc.on.clipboard" condition:NO];
@@ -261,6 +269,25 @@ static NSString *fwSimValue(id value)
             flowSimFieldSpec(),
         ];
 
+        // 钉钉机器人：webhook 地址 + 加签密钥（可空）+ 推送内容
+        FlowStepType *dingtalk = [self type:kFlowDingTalk title:@"钉钉机器人" symbol:@"paperplane.fill" condition:NO];
+        dingtalk.category = kCatRemind;
+        dingtalk.hint = @"「钉钉机器人」按群机器人的 webhook 推送一条文本。加了加签安全设置就把密钥一起填上，没有就留空。";
+        dingtalk.fields = @[
+            [FlowFieldSpec key:@"URL" title:@"webhook 地址" integer:NO def:@""],
+            [FlowFieldSpec key:@"Secret" title:@"加签密钥（没有就留空）" integer:NO def:@""],
+            [FlowFieldSpec key:@"Text" title:@"推送内容" integer:NO def:@""],
+        ];
+
+        // 企业微信机器人：webhook 地址 + 推送内容
+        FlowStepType *wecom = [self type:kFlowWeCom title:@"企业微信机器人" symbol:@"paperplane.fill" condition:NO];
+        wecom.category = kCatRemind;
+        wecom.hint = @"「企业微信机器人」按群机器人的 webhook 地址推送一条文本。";
+        wecom.fields = @[
+            [FlowFieldSpec key:@"URL" title:@"webhook 地址" integer:NO def:@""],
+            [FlowFieldSpec key:@"Text" title:@"推送内容" integer:NO def:@""],
+        ];
+
         // 发微信：占位步骤，暂不执行，先放在这里
         FlowStepType *wechat = [self type:kFlowWeChat title:@"发微信" symbol:@"bubble.left.and.bubble.right.fill" condition:NO];
         wechat.category = kCatRemind;
@@ -268,15 +295,15 @@ static NSString *fwSimValue(id value)
         wechat.fields = @[];
 
         types = @[tap, swipe, wait, toast, color, findColor, image, ocr,
-                  stopAll, openApp, home, killApp, paste, volume,
-                  ring, call, sms, wechat];
+                  stopAll, appSwitch, wifi, screenshot, paste, volume,
+                  ring, call, sms, dingtalk, wecom, wechat];
     });
     return types;
 }
 
 + (NSArray<NSString *> *)categoryTitles
 {
-    return @[ kCatTouch, kCatCondition, kCatFlow, kCatApp, kCatRemind ];
+    return @[ kCatTouch, kCatCondition, kCatFlow, kCatApp, kCatDevice, kCatRemind ];
 }
 
 + (FlowStepType *)type:(NSString *)kind title:(NSString *)title symbol:(NSString *)symbol condition:(BOOL)condition
@@ -402,16 +429,20 @@ static NSString *fwSimValue(id value)
                 [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]],
                 word, text.length ? text : @"（没填）"];
     }
-    if ([kind isEqualToString:kFlowOpenApp]) {
+    if ([kind isEqualToString:kFlowAppSwitch]) {
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"open";
         NSString *bundle = [step[@"Bundle"] isKindOfClass:[NSString class]] ? step[@"Bundle"] : @"";
-        return [NSString stringWithFormat:@"打开 App %@", bundle.length ? bundle : @"（未选择）"];
+        return [NSString stringWithFormat:@"%@ App %@%@",
+                [mode isEqualToString:@"close"] ? @"关闭" : @"打开",
+                bundle.length ? bundle : @"（未选择）",
+                [mode isEqualToString:@"close"] ? @"（会杀死进程）" : @""];
     }
-    if ([kind isEqualToString:kFlowHome]) {
-        return @"返回主屏幕";
+    if ([kind isEqualToString:kFlowWiFi]) {
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"on";
+        return [mode isEqualToString:@"off"] ? @"关闭 WiFi" : @"打开 WiFi";
     }
-    if ([kind isEqualToString:kFlowKillApp]) {
-        NSString *bundle = [step[@"Bundle"] isKindOfClass:[NSString class]] ? step[@"Bundle"] : @"";
-        return [NSString stringWithFormat:@"关闭 App %@（会杀死进程）", bundle.length ? bundle : @"（未选择）"];
+    if ([kind isEqualToString:kFlowScreenshot]) {
+        return @"截屏并保存到相册";
     }
     if ([kind isEqualToString:kFlowPaste]) {
         NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
@@ -444,6 +475,12 @@ static NSString *fwSimValue(id value)
         NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
         return [NSString stringWithFormat:@"发短信给 %@（%@）「%@」", number.length ? number : @"（没填号码）",
                 fwSimTitle(step[@"SIM"]), text.length ? text : @"（空）"];
+    }
+    if ([kind isEqualToString:kFlowDingTalk]) {
+        return @"推送钉钉机器人";
+    }
+    if ([kind isEqualToString:kFlowWeCom]) {
+        return @"推送企业微信机器人";
     }
     if ([kind isEqualToString:kFlowWeChat]) {
         return @"发微信（占位，暂不执行）";
@@ -761,6 +798,7 @@ static NSString *fwSimValue(id value)
     [out appendString:@"# 方向换算由引擎内部完成，脚本不用管。\n"];
     [out appendString:@"\n"];
     [out appendString:@"import time\n\n"];
+    [out appendString:@"import base64\nimport hashlib\nimport hmac\nimport json\nimport urllib.parse\nimport urllib.request\n\n"];
     [out appendString:@"from zxtouch.client import zxtouch\n"];
     [out appendString:@"from zxtouch.touchtypes import TOUCH_DOWN, TOUCH_MOVE, TOUCH_UP\n"];
     [out appendString:@"from zxtouch.toasttypes import TOAST_MESSAGE\n\n"];
@@ -842,6 +880,43 @@ static NSString *fwSimValue(id value)
      "    if not ok:\n"
      "        return \"\"\n"
      "    return \"\".join(str(项.get(\"text\", \"\")) for 项 in 结果)\n"
+     "\n"
+     "\n"
+     "def 发送钉钉(webhook, 加签密钥=\"\", 内容=\"\"):\n"
+     "    \"\"\"给钉钉群机器人推一条文本；加了加签安全设置就把密钥填上，没有就留空。\"\"\"\n"
+     "    地址 = str(webhook).strip()\n"
+     "    if not 地址:\n"
+     "        return False\n"
+     "    密钥 = str(加签密钥).strip()\n"
+     "    if 密钥:\n"
+     "        时间戳 = str(int(time.time() * 1000))\n"
+     "        待签 = \"{}\\n{}\".format(时间戳, 密钥).encode(\"utf-8\")\n"
+     "        签名 = urllib.parse.quote_plus(base64.b64encode(hmac.new(密钥.encode(\"utf-8\"), 待签, hashlib.sha256).digest()))\n"
+     "        连接符 = \"&\" if \"?\" in 地址 else \"?\"\n"
+     "        地址 = \"{}{}timestamp={}&sign={}\".format(地址, 连接符, 时间戳, 签名)\n"
+     "    报文 = json.dumps({\"msgtype\": \"text\", \"text\": {\"content\": str(内容)}}).encode(\"utf-8\")\n"
+     "    请求 = urllib.request.Request(地址, data=报文, headers={\"Content-Type\": \"application/json\"})\n"
+     "    try:\n"
+     "        with urllib.request.urlopen(请求, timeout=10) as 响应:\n"
+     "            响应.read()\n"
+     "        return True\n"
+     "    except Exception:\n"
+     "        return False\n"
+     "\n"
+     "\n"
+     "def 发送企业微信(webhook, 内容=\"\"):\n"
+     "    \"\"\"给企业微信群机器人推一条文本；webhook 就是带 key 的完整地址。\"\"\"\n"
+     "    地址 = str(webhook).strip()\n"
+     "    if not 地址:\n"
+     "        return False\n"
+     "    报文 = json.dumps({\"msgtype\": \"text\", \"text\": {\"content\": str(内容)}}).encode(\"utf-8\")\n"
+     "    请求 = urllib.request.Request(地址, data=报文, headers={\"Content-Type\": \"application/json\"})\n"
+     "    try:\n"
+     "        with urllib.request.urlopen(请求, timeout=10) as 响应:\n"
+     "            响应.read()\n"
+     "        return True\n"
+     "    except Exception:\n"
+     "        return False\n"
      "\n"
      "\n"];
 
@@ -966,16 +1041,26 @@ static NSString *fwSimValue(id value)
         NSString *text = [NSString stringWithFormat:@"%@", step[@"Text"] ?: @""];
         text = [text stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
         line = [NSString stringWithFormat:@"设备.show_toast(TOAST_MESSAGE, \"%@\", %@)", text, [self textForValue:step[@"Seconds"]]];
-    } else if ([kind isEqualToString:kFlowOpenApp]) {
+    } else if ([kind isEqualToString:kFlowAppSwitch]) {
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"open";
         NSString *bundle = [NSString stringWithFormat:@"%@", step[@"Bundle"] ?: @""];
         bundle = [bundle stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
-        line = [NSString stringWithFormat:@"设备.switch_to_app(\"%@\")", bundle];
-    } else if ([kind isEqualToString:kFlowHome]) {
-        line = @"设备.go_home()";
-    } else if ([kind isEqualToString:kFlowKillApp]) {
-        NSString *bundle = [NSString stringWithFormat:@"%@", step[@"Bundle"] ?: @""];
-        bundle = [bundle stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
-        line = [NSString stringWithFormat:@"设备.kill_app(\"%@\")", bundle];
+        if ([mode isEqualToString:@"close"]) {
+            line = [NSString stringWithFormat:@"设备.kill_app(\"%@\")", bundle];
+        } else {
+            line = [NSString stringWithFormat:@"设备.switch_to_app(\"%@\")", bundle];
+        }
+    } else if ([kind isEqualToString:kFlowWiFi]) {
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"on";
+        line = [NSString stringWithFormat:@"设备.set_wifi(%@)", [mode isEqualToString:@"off"] ? @"False" : @"True"];
+    } else if ([kind isEqualToString:kFlowScreenshot]) {
+        line = @"设备.save_screenshot()";
+    } else if ([kind isEqualToString:kFlowDingTalk]) {
+        line = [NSString stringWithFormat:@"发送钉钉(\"%@\", \"%@\", \"%@\")",
+                [self singleLineText:step[@"URL"]], [self singleLineText:step[@"Secret"]], [self singleLineText:step[@"Text"]]];
+    } else if ([kind isEqualToString:kFlowWeCom]) {
+        line = [NSString stringWithFormat:@"发送企业微信(\"%@\", \"%@\")",
+                [self singleLineText:step[@"URL"]], [self singleLineText:step[@"Text"]]];
     } else if ([kind isEqualToString:kFlowPaste]) {
         NSString *text = [NSString stringWithFormat:@"%@", step[@"Text"] ?: @""];
         if (text.length == 0) {
@@ -1024,6 +1109,16 @@ static NSString *fwSimValue(id value)
 {
     FlowStepType *type = [self typeForKind:kind];
     return type.title ?: @"步骤";
+}
+
+// 塞进生成代码的双引号字符串里的文本：换行和引号都换成安全字符，免得把 python 代码拆行
++ (NSString *)singleLineText:(id)value
+{
+    NSString *text = [NSString stringWithFormat:@"%@", value ?: @""];
+    text = [text stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+    text = [text stringByReplacingOccurrencesOfString:@"\r" withString:@" "];
+    text = [text stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+    return text;
 }
 
 /// 颜色统一成大写十六进制、去掉 # 号：引擎与「是色」都按 6 位十六进制解析

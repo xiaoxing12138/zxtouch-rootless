@@ -1183,6 +1183,30 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             notifyClient((UInt8*)[(ok ? @"0\r\n" : [NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"发送短信失败"]) UTF8String], writeStreamRef);
         }
     }
+    else if (taskType == TASK_SET_WIFI)
+    {
+        @autoreleasepool {
+            NSString *data = eventData ? [NSString stringWithUTF8String:(const char *)eventData] : @"";
+            NSString *mode = [[data stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
+            BOOL enabled = [mode isEqualToString:@"1"] || [mode isEqualToString:@"on"] || [mode isEqualToString:@"true"];
+            NSError *err = nil;
+            BOOL ok = ZXSetWiFi(enabled, &err);
+            notifyClient((UInt8*)[(ok ? @"0\r\n" : [NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"开关 WiFi 失败"]) UTF8String], writeStreamRef);
+        }
+    }
+    else if (taskType == TASK_SAVE_SCREENSHOT)
+    {
+        @autoreleasepool {
+            NSString *path = nil;
+            NSError *err = nil;
+            BOOL ok = ZXSaveScreenshot(&path, &err);
+            if (ok) {
+                notifyClient((UInt8*)[[NSString stringWithFormat:@"0;;%@\r\n", path ?: @""] UTF8String], writeStreamRef);
+            } else {
+                notifyClient((UInt8*)[[NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"截屏失败"] UTF8String], writeStreamRef);
+            }
+        }
+    }
     else if (taskType == TASK_UPDATE_CACHE)
     {
         @autoreleasepool{

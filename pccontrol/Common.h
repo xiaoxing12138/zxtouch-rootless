@@ -67,6 +67,14 @@ BOOL ZXStopAllScripts(NSError **error);
 BOOL ZXMakeCall(NSString *number, NSString *sim, NSError **error);
 /// 发送短信；sim 取 @"default" / @"1" / @"2"
 BOOL ZXSendSMS(NSString *number, NSString *text, NSString *sim, NSError **error);
+/// 开关 WiFi
+BOOL ZXSetWiFi(BOOL enabled, NSError **error);
+/// 后台截屏存进相册，成功时把文件路径写进 pathOut
+BOOL ZXSaveScreenshot(NSString **pathOut, NSError **error);
+/// 钉钉群机器人推送；secret 填了才按加签方式签名
+BOOL ZXSendDingTalk(NSString *webhook, NSString *secret, NSString *text, NSError **error);
+/// 企业微信群机器人推送
+BOOL ZXSendWeCom(NSString *webhook, NSString *text, NSError **error);
 
 /// 已安装 App（用户可见的），每项 @{ @"bundle": bundleIdentifier, @"name": displayName, @"system": @(是否系统自带) }
 NSArray<NSDictionary *> *ZXInstalledApplications(void);

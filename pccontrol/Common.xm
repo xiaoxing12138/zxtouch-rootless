@@ -1,7 +1,10 @@
 #include "Common.h"
 #include "Config.h"
 #include "Play.h"
+#include "Screen.h"
 #import <AVFoundation/AVFoundation.h>
+#import <CommonCrypto/CommonDigest.h>
+#import <CommonCrypto/CommonHMAC.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <sys/utsname.h>
@@ -819,47 +822,41 @@ static NSArray<NSString *> *ZXUserRingtoneFolders(void)
     return @[ @"/var/mobile/Media/iTunes_Control/Ringtones" ];
 }
 
-// 爱思助手 / iTunes 导入的 m4r，文件名常被改成乱码（如 ENMK.m4r），真名在 ©nam 原子里的 data 段
+// 爱思助手 / iTunes 导入的 m4r，文件名常被改成乱码（如 ENMK.m4r），真名在 moov 里的 ©nam 原子
+// 不按原子树逐层走：直接全文件扫 0xA9 'n' 'a' 'm' 签名，后面必须紧跟 data 子原子才算命中
 static NSString *ZXRingtoneEmbeddedName(NSString *path)
 {
     NSData *data = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
     if (data.length < 32) return nil;
     const uint8_t *bytes = (const uint8_t *)data.bytes;
     NSUInteger total = data.length;
-    const char namAtom[4] = { (char)0xA9, 'n', 'a', 'm' };
 
-    for (NSUInteger i = 0; i + 8 <= total; ) {
-        uint32_t len = ((uint32_t)bytes[i] << 24) | ((uint32_t)bytes[i + 1] << 16) |
-                       ((uint32_t)bytes[i + 2] << 8) | bytes[i + 3];
-        if (memcmp(bytes + i + 4, namAtom, 4) != 0) {
-            if (len < 8) break;
-            i += len;
-            continue;
-        }
-        NSUInteger atomEnd = (len == 0) ? total : MIN(i + (NSUInteger)len, total);
-        NSUInteger p = i + 8;
-        if (p + 8 > atomEnd) break;
+    for (NSUInteger i = 0; i + 28 <= total; i++) {
+        if (bytes[i] != 0xA9 || bytes[i + 1] != 'n' || bytes[i + 2] != 'a' || bytes[i + 3] != 'm') continue;
+        if (memcmp(bytes + i + 8, "data", 4) != 0) continue;
 
-        uint32_t inner = ((uint32_t)bytes[p] << 24) | ((uint32_t)bytes[p + 1] << 16) |
-                         ((uint32_t)bytes[p + 2] << 8) | bytes[p + 3];
-        NSUInteger textStart = p + 16;   // data 原子头：size + 'data' + flags + locale
-        NSUInteger textEnd = (inner == 0) ? atomEnd : MIN(p + (NSUInteger)inner, atomEnd);
-        if (memcmp(bytes + p + 4, "data", 4) != 0) {
-            textStart = p + 8;
-            textEnd = atomEnd;
-        }
-        if (textStart >= textEnd) break;
+        uint32_t dataSize = ((uint32_t)bytes[i + 4] << 24) | ((uint32_t)bytes[i + 5] << 16) |
+                            ((uint32_t)bytes[i + 6] << 8) | bytes[i + 7];
+        if (dataSize < 16) continue;
+
+        NSUInteger textStart = i + 20;   // data 原子头：size + 'data' + flags + locale
+        NSUInteger textEnd = textStart + (NSUInteger)dataSize - 16;
+        if (textEnd > total) textEnd = total;
+        if (textStart >= textEnd) continue;
+
+        NSUInteger len = textEnd - textStart;
+        while (len > 0 && bytes[textStart + len - 1] == 0) len--;
+        if (len == 0) continue;
 
         NSString *name = [[NSString alloc] initWithBytes:bytes + textStart
-                                                  length:textEnd - textStart
+                                                  length:len
                                                 encoding:NSUTF8StringEncoding];
         if (name.length == 0) {
             name = [[NSString alloc] initWithBytes:bytes + textStart
-                                            length:textEnd - textStart
+                                            length:len
                                           encoding:NSUTF16StringEncoding];
         }
         if (name.length > 0) return name;
-        break;
     }
     return nil;
 }
@@ -1213,4 +1210,257 @@ BOOL ZXSendSMS(NSString *number, NSString *text, NSString *sim, NSError **error)
     BOOL opened = ZXOpenURLScheme([NSString stringWithFormat:@"sms:%@&body=%@", dialable, encoded]);
     if (!opened && error) *error = ZXActionError(@"当前系统不支持直接发短信。");
     return opened;
+}
+
+BOOL ZXSetWiFi(BOOL enabled, NSError **error)
+{
+    // 老系统的 SBWiFiManager 在新系统上已消失，先走 MobileWiFi 的 C 接口（Activator 用的就是它），
+    // 两个都不成再报错。客户端只建一次并常驻，免得开关状态被回收
+    static dispatch_once_t once;
+    static void *wifiClient = NULL;
+    static Boolean (*wifiSetPower)(void *, Boolean) = NULL;
+
+    dispatch_once(&once, ^{
+        void *handle = dlopen("/System/Library/PrivateFrameworks/MobileWiFi.framework/MobileWiFi", RTLD_LAZY);
+        if (!handle) return;
+        void *(*createClient)(CFAllocatorRef, int) = (void *(*)(CFAllocatorRef, int))dlsym(handle, "WiFiManagerClientCreate");
+        wifiSetPower = (Boolean (*)(void *, Boolean))dlsym(handle, "WiFiManagerClientSetPower");
+        if (!createClient || !wifiSetPower) {
+            wifiSetPower = NULL;
+            return;
+        }
+        wifiClient = createClient(NULL, 0);
+    });
+
+    if (wifiClient && wifiSetPower && wifiSetPower(wifiClient, enabled ? 1 : 0)) return YES;
+
+    __block BOOL done = NO;
+    ZXRunOnMainSync(^{
+        @try {
+            Class managerClass = objc_getClass("SBWiFiManager");
+            if (!managerClass) return;
+            if (![managerClass respondsToSelector:@selector(sharedInstance)]) return;
+            id manager = [(id)managerClass sharedInstance];
+            if ([manager respondsToSelector:@selector(setWiFiEnabled:)]) {
+                [manager setWiFiEnabled:enabled];
+                done = YES;
+            }
+        } @catch (NSException *exception) {
+            NSLog(@"com.zjx.springboard: ZXSetWiFi failed: %@", exception.reason);
+        }
+    });
+
+    if (done) return YES;
+    if (error) *error = ZXActionError(@"当前系统不支持直接开关 WiFi。");
+    return NO;
+}
+
+static NSString *ZXNextScreenshotPath(void)
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *folder = @"/var/mobile/Media/DCIM/100APPLE";
+    if (![fm createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil]) return nil;
+
+    NSInteger index = 1;
+    NSCharacterSet *notDigits = [[NSCharacterSet decimalDigitCharacterSet] invertedSet];
+    for (NSString *file in [fm contentsOfDirectoryAtPath:folder error:nil]) {
+        NSString *stem = [[file stringByDeletingPathExtension] uppercaseString];
+        if (![stem hasPrefix:@"IMG"]) continue;
+        NSInteger value = [[stem stringByTrimmingCharactersInSet:notDigits] integerValue];
+        if (value >= index) index = value + 1;
+    }
+    for (NSInteger i = index; i < index + 1000; i++) {
+        NSString *candidate = [folder stringByAppendingPathComponent:[NSString stringWithFormat:@"IMG_%04ld.JPG", (long)i]];
+        if (![fm fileExistsAtPath:candidate]) return candidate;
+    }
+    return nil;
+}
+
+BOOL ZXSaveScreenshot(NSString **pathOut, NSError **error)
+{
+    CGImageRef shot = [Screen createScreenShotCGImageRef];
+    if (!shot) {
+        if (error) *error = ZXActionError(@"截图失败。");
+        return NO;
+    }
+
+    // 自绘的帧是竖屏物理像素，按当前方向转正后再存，否则横屏存出来是躺着的
+    UIImage *image = nil;
+    @try {
+        UIImageOrientation orientation = UIImageOrientationUp;
+        int screenOrientation = [Screen getScreenOrientation];
+        if (screenOrientation == 4) orientation = UIImageOrientationRight;
+        else if (screenOrientation == 3) orientation = UIImageOrientationLeft;
+        else if (screenOrientation == 2) orientation = UIImageOrientationDown;
+
+        CGFloat scale = [Screen getScale];
+        image = [UIImage imageWithCGImage:shot scale:scale orientation:orientation];
+        if (image && orientation != UIImageOrientationUp) {
+            CGSize orientedSize = CGSizeMake(CGImageGetWidth(shot) / scale, CGImageGetHeight(shot) / scale);
+            if (orientation == UIImageOrientationLeft || orientation == UIImageOrientationRight) {
+                orientedSize = CGSizeMake(orientedSize.height, orientedSize.width);
+            }
+            UIGraphicsBeginImageContextWithOptions(orientedSize, YES, scale);
+            [image drawInRect:CGRectMake(0, 0, orientedSize.width, orientedSize.height)];
+            UIImage *oriented = UIGraphicsGetImageFromCurrentImageContext();
+            UIGraphicsEndImageContext();
+            if (oriented) image = oriented;
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"com.zjx.springboard: ZXSaveScreenshot orient failed: %@", exception.reason);
+    }
+    CGImageRelease(shot);
+
+    NSData *jpeg = image ? UIImageJPEGRepresentation(image, 0.85) : nil;
+    if (jpeg.length == 0) {
+        if (error) *error = ZXActionError(@"将截图编码为 JPEG 失败。");
+        return NO;
+    }
+
+    NSString *path = ZXNextScreenshotPath();
+    if (path.length == 0) {
+        if (error) *error = ZXActionError(@"找不到可写入的相册目录。");
+        return NO;
+    }
+
+    NSError *writeError = nil;
+    if (![jpeg writeToFile:path options:NSDataWritingAtomic error:&writeError]) {
+        if (error) *error = ZXActionError([NSString stringWithFormat:@"保存截图失败：%@",
+                                           writeError.localizedDescription ?: path]);
+        return NO;
+    }
+    if (pathOut) *pathOut = path;
+    return YES;
+}
+
+static NSCharacterSet *ZXRobotURLSafeSet(void)
+{
+    static NSCharacterSet *set = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        set = [NSCharacterSet characterSetWithCharactersInString:
+               @"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_.~"];
+    });
+    return set;
+}
+
+static NSString *ZXTrimmedText(id value)
+{
+    NSString *text = [value isKindOfClass:[NSString class]] ? value : @"";
+    return [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+static BOOL ZXPostJSON(NSString *urlString, NSDictionary *payload, NSError **error)
+{
+    NSURL *url = [NSURL URLWithString:urlString ?: @""];
+    if (url.scheme.length == 0 || url.host.length == 0) {
+        if (error) *error = ZXActionError(@"机器人地址不正确。");
+        return NO;
+    }
+
+    NSData *body = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+    if (!body) {
+        if (error) *error = ZXActionError(@"推送内容无法编码。");
+        return NO;
+    }
+
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    request.HTTPBody = body;
+    request.timeoutInterval = 10.0;
+    [request setValue:@"application/json; charset=utf-8" forHTTPHeaderField:@"Content-Type"];
+
+    __block NSInteger status = 0;
+    __block NSData *received = nil;
+    __block NSError *netError = nil;
+    dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+
+    // 这里会阻塞当前线程，调用方（流程单步 / socket 任务）都在后台线程，别改到主线程上跑
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request
+                                                                completionHandler:^(NSData *data, NSURLResponse *response, NSError *err) {
+        status = [(NSHTTPURLResponse *)response statusCode];
+        received = data;
+        netError = err;
+        dispatch_semaphore_signal(sema);
+    }];
+    [task resume];
+
+    if (dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC)) != 0) {
+        [task cancel];
+        if (error) *error = ZXActionError(@"推送超时，请检查网络。");
+        return NO;
+    }
+
+    if (netError) {
+        if (error) *error = ZXActionError([NSString stringWithFormat:@"推送失败：%@", netError.localizedDescription ?: @"网络错误"]);
+        return NO;
+    }
+    if (status < 200 || status >= 300) {
+        if (error) *error = ZXActionError([NSString stringWithFormat:@"推送失败：服务器返回 %ld。", (long)status]);
+        return NO;
+    }
+
+    // 钉钉和企业微信都用 errcode 报成败
+    id json = received.length ? [NSJSONSerialization JSONObjectWithData:received options:0 error:nil] : nil;
+    if ([json isKindOfClass:[NSDictionary class]]) {
+        NSNumber *code = ((NSDictionary *)json)[@"errcode"];
+        if (code && code.integerValue != 0) {
+            id message = ((NSDictionary *)json)[@"errmsg"];
+            if (error) *error = ZXActionError([NSString stringWithFormat:@"推送失败：%@",
+                                               [message isKindOfClass:[NSString class]] ? message : @"机器人返回错误"]);
+            return NO;
+        }
+    }
+    return YES;
+}
+
+BOOL ZXSendDingTalk(NSString *webhook, NSString *secret, NSString *text, NSError **error)
+{
+    NSString *url = ZXTrimmedText(webhook);
+    if (url.length == 0) {
+        if (error) *error = ZXActionError(@"还没有填写钉钉机器人的 webhook 地址。");
+        return NO;
+    }
+    if (ZXTrimmedText(text).length == 0) {
+        if (error) *error = ZXActionError(@"推送内容不能为空。");
+        return NO;
+    }
+
+    NSString *signSecret = ZXTrimmedText(secret);
+    if (signSecret.length > 0) {
+        long long timestamp = (long long)([[NSDate date] timeIntervalSince1970] * 1000.0);
+        NSString *stringToSign = [NSString stringWithFormat:@"%lld\n%@", timestamp, signSecret];
+        NSData *key = [signSecret dataUsingEncoding:NSUTF8StringEncoding];
+        NSData *source = [stringToSign dataUsingEncoding:NSUTF8StringEncoding];
+        unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+        CCHmac(kCCHmacAlgSHA256, key.bytes, key.length, source.bytes, source.length, digest);
+        NSData *mac = [NSData dataWithBytes:digest length:CC_SHA256_DIGEST_LENGTH];
+        NSString *sign = [[mac base64EncodedStringWithOptions:0]
+                          stringByAddingPercentEncodingWithAllowedCharacters:ZXRobotURLSafeSet()];
+        if (sign.length == 0) {
+            if (error) *error = ZXActionError(@"加签计算失败。");
+            return NO;
+        }
+        url = [NSString stringWithFormat:@"%@%@timestamp=%lld&sign=%@",
+               url, [url containsString:@"?"] ? @"&" : @"?", timestamp, sign];
+    }
+
+    NSDictionary *payload = @{ @"msgtype": @"text", @"text": @{ @"content": text ?: @"" } };
+    return ZXPostJSON(url, payload, error);
+}
+
+BOOL ZXSendWeCom(NSString *webhook, NSString *text, NSError **error)
+{
+    NSString *url = ZXTrimmedText(webhook);
+    if (url.length == 0) {
+        if (error) *error = ZXActionError(@"还没有填写企业微信机器人的 webhook 地址。");
+        return NO;
+    }
+    if (ZXTrimmedText(text).length == 0) {
+        if (error) *error = ZXActionError(@"推送内容不能为空。");
+        return NO;
+    }
+
+    NSDictionary *payload = @{ @"msgtype": @"text", @"text": @{ @"content": text ?: @"" } };
+    return ZXPostJSON(url, payload, error);
 }

@@ -28,15 +28,17 @@ extern NSString * const kFlowColor;      // 识色（条件）
 extern NSString * const kFlowFindColor;  // 找色（条件）
 extern NSString * const kFlowImage;      // 识图（条件）
 extern NSString * const kFlowOCR;        // 识字（条件）
-extern NSString * const kFlowOpenApp;    // 打开 App
-extern NSString * const kFlowHome;       // 返回主屏幕
-extern NSString * const kFlowKillApp;    // 关闭 App（杀后台）
+extern NSString * const kFlowAppSwitch;  // 开关 App（打开 / 关闭）
+extern NSString * const kFlowWiFi;       // 开关 WiFi
+extern NSString * const kFlowScreenshot; // 截屏保存到相册
 extern NSString * const kFlowPaste;      // 粘贴
 extern NSString * const kFlowRing;       // 响铃
 extern NSString * const kFlowVolume;     // 调整设备音量
 extern NSString * const kFlowStopAll;    // 停止所有脚本
 extern NSString * const kFlowCall;       // 打电话
 extern NSString * const kFlowSMS;        // 发短信
+extern NSString * const kFlowDingTalk;   // 钉钉机器人推送
+extern NSString * const kFlowWeCom;      // 企业微信机器人推送
 extern NSString * const kFlowWeChat;     // 发微信（占位）
 
 /// 在弹窗里追加的「从屏幕取…」动作

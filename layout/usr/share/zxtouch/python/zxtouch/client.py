@@ -208,6 +208,25 @@ class zxtouch:
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_SEND_SMS, number, text, sim))
         return self._recv_response()
 
+    def set_wifi(self, enabled):
+        """Turn Wi-Fi on or off
+
+        :param enabled: True to turn Wi-Fi on, False to turn it off
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_SET_WIFI, "1" if enabled else "0"))
+        return self._recv_response()
+
+    def save_screenshot(self):
+        """Take a screenshot in the background and save it into the photo library
+
+        No system screenshot preview is shown.
+
+        :return: Result tuple: (success?, error_message/file path)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_SAVE_SCREENSHOT))
+        return self._recv_response()
+
     def show_alert_box(self, title, content, duration):
         """Show alert box on device
 
