@@ -147,6 +147,14 @@ UIColor *ZXColorFromHex(NSString *hex);
 */
 void ZXShowMiniMenuNearView(UIView *anchor, NSArray<NSDictionary *> *items);
 
+/*
+ 触摸注入闸门：脚本客户端发触摸是 fire-and-forget（不等响应），按住/间隔填 0 时会以最高速率
+ 把这台设备能塞下的消息全灌进 socket。脚本被停掉后这些消息还堆在管道里，逐条执行完就是
+ 「脚本都停了屏幕还在点」。停脚本时打开闸门，让积压消息直接丢掉，积压排空后自动关闭。
+*/
+void ZXDropPendingTouchInjections(void);
+BOOL ZXShouldDropTouchInjection(void);
+
 static inline void ZXSafeMainAsync(dispatch_block_t block)
 {
     dispatch_async(dispatch_get_main_queue(), ^{

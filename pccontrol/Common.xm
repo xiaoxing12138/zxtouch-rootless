@@ -1470,3 +1470,33 @@ BOOL ZXSendWeCom(NSString *webhook, NSString *text, NSError **error)
     NSDictionary *payload = @{ @"msgtype": @"text", @"text": @{ @"content": text ?: @"" } };
     return ZXPostJSON(url, payload, error);
 }
+
+// 闸门只有一个时间戳：打开时定一个窗口，只要还有被丢弃的触摸在流进来就把窗口往后顺延，
+// 直到积压排空（出现一段安静期）或撞上硬上限。不用定时器，避免积压时堆出成千上万个 block。
+static volatile double zxTouchDropDeadline = 0;
+static volatile double zxTouchDropHardStop = 0;
+
+#define ZX_TOUCH_DROP_QUIET   0.6
+#define ZX_TOUCH_DROP_MAX     3.0
+
+void ZXDropPendingTouchInjections(void)
+{
+    double now = CFAbsoluteTimeGetCurrent();
+    zxTouchDropDeadline = now + ZX_TOUCH_DROP_QUIET;
+    zxTouchDropHardStop = now + ZX_TOUCH_DROP_MAX;
+}
+
+BOOL ZXShouldDropTouchInjection(void)
+{
+    if (zxTouchDropDeadline <= 0) return NO;
+
+    double now = CFAbsoluteTimeGetCurrent();
+    if (now >= zxTouchDropDeadline || now >= zxTouchDropHardStop) {
+        zxTouchDropDeadline = 0;
+        zxTouchDropHardStop = 0;
+        return NO;
+    }
+
+    zxTouchDropDeadline = MIN(now + ZX_TOUCH_DROP_QUIET, zxTouchDropHardStop);
+    return YES;
+}

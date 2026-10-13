@@ -408,7 +408,7 @@ static NSString *sfPathForInoToken(NSString *token)
 @interface ScriptFloat (SFInternal)
 + (instancetype)shared;
 - (void)noteTouchAtWindowPoint:(CGPoint)point injected:(BOOL)injected event:(UIEvent *)event;
-- (BOOL)hitTestScreenPoint:(CGPoint)point;
+- (BOOL)hitTestScreenPoint:(CGPoint)point fromWindow:(UIWindow *)fromWindow;
 @end
 
 @interface SFBallWindow : FMPassthroughWindow
@@ -745,13 +745,20 @@ static ScriptFloat *_sfShared = nil;
     ZXRecordSetExclusionRects(@"scriptFloat", rects);
 }
 
-- (BOOL)hitTestScreenPoint:(CGPoint)point
+- (BOOL)hitTestScreenPoint:(CGPoint)point fromWindow:(UIWindow *)fromWindow
 {
+    if (!_window) {
+        return NO;
+    }
+    // 传进来的点是调用方窗口的坐标：选项面板的窗口和悬浮球窗口不一定是同一个 scene
+    // （SpringBoard 多 scene 的机型）或同一个 frame，直接拿两边坐标比大小会把别的点误判成
+    // 「压在这颗球上」，那一击就被放行穿到下层 App。先换算到悬浮球窗口自己的坐标系再比。
+    CGPoint local = fromWindow ? [_window convertPoint:point fromWindow:fromWindow] : point;
     for (SFBallView *ball in _balls.allValues) {
         if (!ball.superview || ball.hidden || ball.alpha < 0.01f || ball.frame.size.width <= 0) {
             continue;
         }
-        if (CGRectContainsPoint(ball.frame, point)) {
+        if (CGRectContainsPoint(ball.frame, local)) {
             return YES;
         }
     }
@@ -1042,11 +1049,11 @@ static ScriptFloat *_sfShared = nil;
 
 @end
 
-BOOL ZXScriptFloatHitTestScreenPoint(CGPoint point)
+BOOL ZXScriptFloatHitTestWindowPoint(CGPoint point, UIWindow *fromWindow)
 {
     __block BOOL hit = NO;
     sfRunOnMain(^{
-        hit = [[ScriptFloat shared] hitTestScreenPoint:point];
+        hit = [[ScriptFloat shared] hitTestScreenPoint:point fromWindow:fromWindow];
     });
     return hit;
 }

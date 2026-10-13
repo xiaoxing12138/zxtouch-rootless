@@ -41,7 +41,7 @@
 
 @implementation FNBackdropView
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    if (ZXScriptFloatHitTestScreenPoint(point)) {
+    if (ZXScriptFloatHitTestWindowPoint(point, self.window)) {
         return nil;
     }
     return [super hitTest:point withEvent:event];
@@ -1471,29 +1471,23 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
             }];
         }
 
-        // 步数在最左边（占文件夹箭头那格），然后才是图标和文件名
+        // 步数/PY 在最左边（占文件夹箭头那格），然后才是图标和文件名。
+        // 「N步」和「PY」共用同一套模板：同尺寸药丸、同字号、水平垂直都居中，只有颜色不同
         NSInteger stepCount = fnFlowStepCount(path);
         CGFloat countX = indent + 6.0f;
         CGFloat countW = 34.0f;
-        if (stepCount >= 0) {
-            UILabel *count = [[UILabel alloc] initWithFrame:CGRectMake(countX, 0, countW, FN_ROW_H)];
-            count.text = [NSString stringWithFormat:@"%ld步", (long)stepCount];
-            count.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightSemibold];
-            count.textColor = fnStepCountColor(stepCount);
-            count.adjustsFontSizeToFitWidth = YES;
-            count.minimumScaleFactor = 0.8;
-            [row.content addSubview:count];
-        } else {
-            UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(countX, (FN_ROW_H - 16) / 2.0f, countW, 16)];
-            badge.text = @"PY";
-            badge.font = [UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold];
-            badge.textColor = [UIColor systemBlueColor];
-            badge.textAlignment = NSTextAlignmentCenter;
-            badge.backgroundColor = [[UIColor systemBlueColor] colorWithAlphaComponent:0.14f];
-            badge.layer.cornerRadius = 4;
-            badge.clipsToBounds = YES;
-            [row.content addSubview:badge];
-        }
+        UIColor *badgeColor = (stepCount >= 0) ? fnStepCountColor(stepCount) : [UIColor systemBlueColor];
+        UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(countX, (FN_ROW_H - 16) / 2.0f, countW, 16)];
+        badge.text = (stepCount >= 0) ? [NSString stringWithFormat:@"%ld步", (long)stepCount] : @"PY";
+        badge.font = [UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold];
+        badge.textColor = badgeColor;
+        badge.textAlignment = NSTextAlignmentCenter;
+        badge.adjustsFontSizeToFitWidth = YES;
+        badge.minimumScaleFactor = 0.7;
+        badge.backgroundColor = [badgeColor colorWithAlphaComponent:0.14f];
+        badge.layer.cornerRadius = 4;
+        badge.clipsToBounds = YES;
+        [row.content addSubview:badge];
 
         UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(countX + countW + 2.0f,
                                                                           (FN_ROW_H - 16) / 2.0f, 16, 16)];

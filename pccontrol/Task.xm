@@ -64,6 +64,11 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
     //for touching
     if (taskType == TASK_PERFORM_TOUCH)
     {
+        // 脚本刚被停掉时，管道里还堆着一堆已经发出去、来不及执行的触摸，直接丢掉
+        if (ZXShouldDropTouchInjection())
+        {
+            return;
+        }
         @autoreleasepool{
             performTouchFromRawData(eventData);
         }

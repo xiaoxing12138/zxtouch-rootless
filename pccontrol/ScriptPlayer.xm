@@ -692,6 +692,8 @@ static BOOL ZXForceDaemon(void)
     }
     else
     {
+        // python 脚本自己跑完了也一样：最后一轮发出去的触摸还在管道里，丢掉，别让屏幕接着点
+        if (currentScriptType == 2) ZXDropPendingTouchInjections();
         playHasStoppedCallBack();
         [self clear];
     }
@@ -739,6 +741,9 @@ static BOOL ZXForceDaemon(void)
     {
         scriptStopRequested = 1;
         scriptStopByUser = 1;
+        // 打开丢弃闸门：管道/派发队列里还堆着一批已发出但没执行的触摸，此时仍旧逐条执行
+        // 就是「脚本已停，屏幕还在点」
+        ZXDropPendingTouchInjections();
         pid_t processGroup = pythonProcessGroup;
         if (scriptPauseRequested && processGroup > 0) {
             kill(-processGroup, SIGCONT);

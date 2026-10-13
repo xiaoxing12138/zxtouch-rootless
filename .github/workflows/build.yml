@@ -1,6 +1,6 @@
 name: Build ZXTouch Package
 
-run-name: v3.1.14
+run-name: v3.1.15
 
 on:
   push:
@@ -210,23 +210,37 @@ jobs:
           path: final/
           if-no-files-found: error
 
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: final/*.deb
-          generate_release_notes: true
-          append_body: true
-          body: |
-            ## 小新Lap 3.1.14
+      - name: Publish Release with the two debs
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r '.version' version.json)
+          echo "VERSION=$VERSION"
+          TAG="v${VERSION}"
+          RL="final/小新Lap_${VERSION}（无根rootless）.deb"
+          RF="final/小新Lap_${VERSION}（有根）.deb"
 
-            | File | 用途 | 越狱 | iOS |
-            |------|------|------|-----|
-            | `小新Lap_3.1.14（无根rootless）.deb` | 无根越狱一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
-            | `小新Lap_3.1.14（有根）.deb` | 有根越狱一键安装（含 App + 触摸引擎） | palera1n (rootful), checkra1n | 15.0 - 16.x |
+          cat > release-notes.md <<EOF
+          ## 小新Lap ${VERSION}
 
-            ### Installation
-            1. Download the `.deb` for your jailbreak
-            2. Install via Filza or SSH: `dpkg -i <file>.deb && killall SpringBoard`
+          | File | 用途 | 越狱 | iOS |
+          |------|------|------|-----|
+          | \`小新Lap_${VERSION}（无根rootless）.deb\` | 无根越狱一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
+          | \`小新Lap_${VERSION}（有根）.deb\` | 有根越狱一键安装（含 App + 触摸引擎） | palera1n (rootful), checkra1n | 15.0 - 16.x |
 
-            > Python 3 from Procursus is required for `.py` scripts.
+          ### 安装
+          1. 下载对应自己越狱方式的 \`.deb\`
+          2. 用 Filza 打开安装，或 SSH 执行 \`dpkg -i <file>.deb && killall SpringBoard\`
+
+          > \`.py\` 脚本需要 Procursus 源的 Python 3。
+          EOF
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md
+          fi
+          gh release upload "$TAG" "$RL" "$RF" --clobber
+          gh release view "$TAG" --json assets --jq '.assets[].name'
