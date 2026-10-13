@@ -6,6 +6,7 @@
 #import "FlowWindow.h"
 #import "FunctionWindow.h"    // 同一张面板：编辑器不再自己开窗口
 #import "FloatingMenu.h"      // 单步调试时临时藏掉控制圆点
+#import "ScriptFloat.h"      // 脚本悬浮球配置
 #import "FlowScript.h"
 #import "PickOverlay.h"
 #import "AlertBox.h"
@@ -2036,6 +2037,54 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                                                 persist();
                                             }];
             y = [strongSelf subAddRow:endRow y:y];
+        }
+
+        // ---- 脚本悬浮球：每个脚本一个，点一下启动 / 再点一下停止 ----
+        y += 6;
+        y = [strongSelf subAddSection:@"脚本悬浮球（点一下启动 / 再点一下停止）" width:w y:y];
+        {
+            NSString *ballPath = strongSelf->_bundlePath;
+            NSDictionary *ballConfig = [ScriptFloat ballConfigForScriptPath:ballPath];
+            BOOL ballOn = [ballConfig[@"enabled"] boolValue];
+            BOOL ballLocked = [ballConfig[@"locked"] boolValue];
+            NSInteger ballIcon = ballConfig[@"icon"] ? [ballConfig[@"icon"] integerValue] : 1;
+
+            UIView *ballToggle = [strongSelf makeActionRow:(ballOn ? @"关闭悬浮球" : @"开启悬浮球")
+                                                    detail:(ballOn ? @"已开启" : @"未开启")
+                                                     color:ZXPalette(ZXPalAccent) primary:ballOn width:w
+                                                    action:^{
+                [ScriptFloat setBallEnabled:!ballOn forScriptPath:ballPath];
+                [weakSelf showSettings];
+            }];
+            y = [strongSelf subAddRow:ballToggle y:y];
+
+            if (ballOn) {
+                UIView *ballLock = [strongSelf makeActionRow:(ballLocked ? @"解锁位置" : @"锁定位置")
+                                                      detail:(ballLocked ? @"已锁定" : @"可拖动")
+                                                       color:ZXPalette(ZXPalAccent) primary:ballLocked width:w
+                                                      action:^{
+                    [ScriptFloat setBallLocked:!ballLocked forScriptPath:ballPath];
+                    [weakSelf showSettings];
+                }];
+                y = [strongSelf subAddRow:ballLock y:y];
+
+                UIView *ballIconRow = [strongSelf makeChoiceRow:@"图标"
+                                                         titles:@[ @"脚本首字", @"App 图标" ]
+                                                       selected:(ballIcon == 2 ? 1 : 0) width:w
+                                                       onChange:^(NSInteger idx) {
+                    [ScriptFloat setBallIconMode:(idx == 1 ? 2 : 1) forScriptPath:ballPath];
+                    [weakSelf showSettings];
+                }];
+                y = [strongSelf subAddRow:ballIconRow y:y];
+
+                UIView *ballRemove = [strongSelf makeActionRow:@"移除这个悬浮球" detail:nil
+                                                         color:ZXPalette(ZXPalDanger) primary:NO width:w
+                                                        action:^{
+                    [ScriptFloat removeBallForScriptPath:ballPath];
+                    [weakSelf showSettings];
+                }];
+                y = [strongSelf subAddRow:ballRemove y:y];
+            }
         }
 
         // ---- 新建步骤默认值：改的是「以后新建的步骤」，已有步骤一律不动 ----

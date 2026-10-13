@@ -3,6 +3,7 @@
 #include "Screen.h"
 #include "AlertBox.h"
 #include "Task.h"
+#include "ScriptFloat.h"
 
 #define TOUCH_SENDER_ID_PLIST_FILE_NAME @"senderid.plist"
 
@@ -214,6 +215,9 @@ void performTouchFromRawData(UInt8 *eventData)
     IOHIDEventSetIntegerValue(parent, 0xb0007, 0x23);
     IOHIDEventSetIntegerValue(parent, 0xb0008, 0x1);
     IOHIDEventSetIntegerValue(parent, 0xb0009, 0x1);
+
+    IOHIDEventSetIntegerValue(parent, ZX_SCRIPT_INJECT_FIELD, ZX_SCRIPT_INJECT_VALUE);
+    ZXScriptInjectionNote((uint64_t)IOHIDEventGetTimeStamp(parent));
 
     postIOHIDEvent(parent);
     CFRelease(parent);

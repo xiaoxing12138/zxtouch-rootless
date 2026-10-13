@@ -39,6 +39,7 @@
 #include "NetSpeedIndicator.h"
 #include "TouchCoordinateIndicator.h"
 #include "FloatingMenu.h"
+#include "ScriptFloat.h"
 #include "Schedule.h"
 #include <roothide.h>
 
@@ -418,6 +419,7 @@ Boolean init()
     [NetSpeedIndicator reloadConfig];
     [TouchCoordinateIndicator reloadConfig];
     [FloatingMenu reloadConfig];
+    [ScriptFloat reloadConfig];
     ZXScheduleInit();
 
     return true;
