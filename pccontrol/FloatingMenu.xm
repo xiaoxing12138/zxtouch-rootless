@@ -37,9 +37,9 @@
  *     杜绝"显示一秒后消失"。
  */
 
-// 圆点尺寸改为可配置（设置页滑块 32..80pt），默认 48pt。
+// 圆点尺寸改为可配置（设置页滑块 32..80pt），默认 42pt。
 // 吸附时圆点中心距屏幕边缘恒等于半径 → 永远「完全贴边全显示」。
-#define kFMDotDefaultSize 48.0f
+#define kFMDotDefaultSize 42.0f
 #define kFMDotMinSize     32.0f
 #define kFMDotMaxSize     80.0f
 #define kFMMenuLabelGap   2.0f    // 圆形按钮到下方标签的固定间距
@@ -48,19 +48,19 @@
 // 菜单外观可配置项（设置页「菜单外观」分组）的默认值与范围
 // 注意：按钮尺寸/间距此前在 buildWindow 与 applyGeometry 各写一份且不一致，
 // 现在统一由这几个 ivar 驱动，两处必须使用同一组值。
-#define kFMMenuBtnSizeDefault   36.0f
+#define kFMMenuBtnSizeDefault   39.0f
 #define kFMMenuBtnSizeMin       32.0f
 #define kFMMenuBtnSizeMax       72.0f
-#define kFMMenuBtnGapDefault    8.0f
+#define kFMMenuBtnGapDefault    3.0f
 #define kFMMenuBtnGapMin        0.0f
 #define kFMMenuBtnGapMax        24.0f
-#define kFMMenuLabelFontDefault 12.0f
+#define kFMMenuLabelFontDefault 14.0f
 #define kFMMenuLabelFontMin     9.0f
 #define kFMMenuLabelFontMax     18.0f
-#define kFMMenuIconInsetDefault 5.0f
+#define kFMMenuIconInsetDefault 4.0f
 #define kFMMenuIconInsetMin     0.0f
 #define kFMMenuIconInsetMax     10.0f
-#define kFMMenuPanelGapDefault  8.0f
+#define kFMMenuPanelGapDefault  3.0f
 #define kFMMenuPanelGapMin      0.0f
 #define kFMMenuPanelGapMax      40.0f
 
@@ -88,10 +88,10 @@
 #define kFMCfgEdgeDelay    @"floating_menu_auto_edge_delay"    // 收起后延迟多少秒收边 0..7
 
 // 自动收边：菜单收起（或失去焦点）后延迟多久收边，以及圆点可见比例范围
-#define kFMAutoEdgeDelayDefault   4.0f
+#define kFMAutoEdgeDelayDefault   0.6f
 #define kFMAutoEdgeDelayMin       0.0f
 #define kFMAutoEdgeDelayMax       7.0f
-#define kFMAutoEdgeVisibleDefault 0.6f
+#define kFMAutoEdgeVisibleDefault 0.54f
 #define kFMAutoEdgeVisibleMin     0.1f
 #define kFMAutoEdgeVisibleMax     1.0f
 
@@ -129,7 +129,7 @@ typedef NS_ENUM(NSInteger, FMScriptPlayState) {
 #define kFMDotIconModeCustom  2
 
 // 菜单按钮/标签背景底色的不透明度默认值、可调范围
-#define kFMMenuDefaultBgAlpha 0.92f
+#define kFMMenuDefaultBgAlpha 0.52f
 #define kFMMenuMinBgAlpha     0.0f
 #define kFMMenuMaxBgAlpha     1.0f
 #define kFMZXTouchBID     @"com.zjx.zxtouch"
@@ -1678,7 +1678,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             BOOL hasEdge = NO;
             int edge = 1;
             BOOL hasRatio = NO;
-            CGFloat ratio = 0.5f;
+            CGFloat ratio = 0.596f;
             CGFloat dotSize = kFMDotDefaultSize;
             CGFloat menuBgAlpha = kFMMenuDefaultBgAlpha;
             CGFloat menuBtnSize = kFMMenuBtnSizeDefault;
@@ -1797,7 +1797,7 @@ static void fmPersistKeys(NSDictionary *pairs)
             }
 
             self->_edge = (edge == 0) ? 0 : 1;
-            self->_yRatio = MIN(MAX(hasRatio ? ratio : 0.5f, 0.02f), 0.98f);
+            self->_yRatio = MIN(MAX(hasRatio ? ratio : 0.596f, 0.02f), 0.98f);
             self->_dotSize = MIN(MAX(dotSize, kFMDotMinSize), kFMDotMaxSize);
             self->_menuBgAlpha = MIN(MAX(menuBgAlpha, kFMMenuMinBgAlpha), kFMMenuMaxBgAlpha);
             self->_menuBtnSize = MIN(MAX(menuBtnSize, kFMMenuBtnSizeMin), kFMMenuBtnSizeMax);

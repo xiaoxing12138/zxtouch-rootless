@@ -29,7 +29,7 @@ static NSString *kCfgPanelBgAlpha = @"floating_menu_panel_bg_alpha";     // 0..1
 static NSString *kCfgPanelBgImageAlpha = @"floating_menu_panel_bg_image_alpha"; // 0..1，作用在背景图片本身
 static NSString *kCfgPanelBgImage = @"floating_menu_panel_bg_image";     // 文件名，空 = 不用图
 static NSString * const kPanelBgCustomFile = @"fm_panel_bg_custom.png";
-static const float kPanelBgAlphaDefault = 1.0f;
+static const float kPanelBgAlphaDefault = 0.9f;
 
 // 圆点图标来源（与 tweak 端 kFMDotIconMode* 保持一致）：只有 App 图标 / 自定义图片
 static const NSInteger kDotIconModeApp    = 1;
@@ -46,10 +46,10 @@ static NSString *FMDotIconDir(void)
 // 圆点大小范围（与 tweak 端 kFMDotMinSize / kFMDotMaxSize 保持一致）
 static const float kDotSizeMin     = 32.0f;
 static const float kDotSizeMax     = 80.0f;
-static const float kDotSizeDefault = 48.0f;
+static const float kDotSizeDefault = 42.0f;
 
 // 菜单黑底透明度（与 tweak 端 kFMMenuDefaultBgAlpha 保持一致）
-static const float kMenuBgAlphaDefault = 0.92f;
+static const float kMenuBgAlphaDefault = 0.52f;
 
 typedef NS_ENUM(NSInteger, FMSection) {
     FMSectionSwitch         = 0,  // 开关
@@ -152,11 +152,11 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         specs = @[
-            @{@"key": @"floating_menu_menu_size",       @"title": @"按钮大小",      @"min": @32.0f, @"max": @72.0f, @"default": @36.0f},
-            @{@"key": @"floating_menu_menu_gap",        @"title": @"按钮间距",      @"min": @0.0f,  @"max": @24.0f, @"default": @8.0f},
-            @{@"key": @"floating_menu_label_font_size", @"title": @"标签字号",      @"min": @9.0f,  @"max": @18.0f, @"default": @12.0f},
-            @{@"key": @"floating_menu_icon_inset",      @"title": @"图标圆内留白",  @"min": @0.0f,  @"max": @10.0f, @"default": @5.0f},
-            @{@"key": @"floating_menu_panel_gap",       @"title": @"圆点到菜单间距", @"min": @0.0f,  @"max": @40.0f, @"default": @8.0f}
+            @{@"key": @"floating_menu_menu_size",       @"title": @"按钮大小",      @"min": @32.0f, @"max": @72.0f, @"default": @39.0f},
+            @{@"key": @"floating_menu_menu_gap",        @"title": @"按钮间距",      @"min": @0.0f,  @"max": @24.0f, @"default": @3.0f},
+            @{@"key": @"floating_menu_label_font_size", @"title": @"标签字号",      @"min": @9.0f,  @"max": @18.0f, @"default": @14.0f},
+            @{@"key": @"floating_menu_icon_inset",      @"title": @"图标圆内留白",  @"min": @0.0f,  @"max": @10.0f, @"default": @4.0f},
+            @{@"key": @"floating_menu_panel_gap",       @"title": @"圆点到菜单间距", @"min": @0.0f,  @"max": @40.0f, @"default": @3.0f}
         ];
     });
     return specs;
@@ -225,6 +225,11 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
 // 配置里没写过这个键 = 用户没动过开关 → 跟随 tweak 端默认（开启）
 - (BOOL)menuEnabled {
     NSNumber *value = _config[kCfgEnabled];
+    return [value isKindOfClass:[NSNumber class]] ? [value boolValue] : YES;
+}
+
+- (BOOL)autoEdgeEnabled {
+    NSNumber *value = _config[kCfgAutoEdge];
     return [value isKindOfClass:[NSNumber class]] ? [value boolValue] : YES;
 }
 
@@ -777,7 +782,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     switch (section) {
         case FMSectionSwitch:     return 1;  // 开关
         case FMSectionPosition:   return 2;  // 吸附边 + 纵向位置
-        case FMSectionAutoEdge:   return [_config[kCfgAutoEdge] boolValue] ? 3 : 1;  // 开关（+ 延迟 + 显示比例）
+        case FMSectionAutoEdge:   return [self autoEdgeEnabled] ? 3 : 1;  // 开关（+ 延迟 + 显示比例）
         case FMSectionAppearance: return 2;  // 圆点大小 + 菜单黑底透明度
         case FMSectionDotIcon:    return ([self dotIconMode] == kDotIconModeCustom) ? 2 : 1;
         case FMSectionColors:     return (NSInteger)FMColorSpecs().count;
@@ -826,7 +831,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         cell.textLabel.text = @"吸附边";
 
         UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:@[@"左侧", @"右侧"]];
-        seg.selectedSegmentIndex = [_config[kCfgEdge] intValue];
+        seg.selectedSegmentIndex = [_config[kCfgEdge] isKindOfClass:[NSNumber class]] ? [_config[kCfgEdge] intValue] : 1;
         seg.frame = CGRectMake(cell.contentView.bounds.size.width - 130, 6, 120, 32);
         seg.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
         [seg addTarget:self action:@selector(edgeSegmentChanged:) forControlEvents:UIControlEventValueChanged];
@@ -846,7 +851,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             [cell setTitleText:@"菜单收起后自动收边"];
             [cell.switchBtn removeTarget:nil action:NULL forControlEvents:UIControlEventValueChanged];
             [cell.switchBtn addTarget:self action:@selector(autoEdgeSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-            [cell.switchBtn setOn:[_config[kCfgAutoEdge] boolValue]];
+            [cell.switchBtn setOn:[self autoEdgeEnabled]];
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
             return cell;
         }
@@ -857,8 +862,8 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             [cell.slideBar addTarget:self action:@selector(autoEdgeDelayValueChanged:) forControlEvents:UIControlEventValueChanged];
             [cell.slideBar addTarget:self action:@selector(sliderTouchUp:)
                     forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
-            float delay = _config[kCfgEdgeDelay] ? [_config[kCfgEdgeDelay] floatValue] : 4.0f;
-            if (delay < 0.0f || delay > 7.0f) delay = 4.0f;
+            float delay = _config[kCfgEdgeDelay] ? [_config[kCfgEdgeDelay] floatValue] : 0.6f;
+            if (delay < 0.0f || delay > 7.0f) delay = 0.6f;
             cell.title.text = @"收起后延迟";
             cell.slideBar.minimumValue = 0.0f;
             cell.slideBar.maximumValue = 7.0f;
@@ -873,8 +878,8 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         [cell.slideBar addTarget:self action:@selector(edgeVisibleValueChanged:) forControlEvents:UIControlEventValueChanged];
         [cell.slideBar addTarget:self action:@selector(sliderTouchUp:)
                 forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
-        float visible = _config[kCfgEdgeVisible] ? [_config[kCfgEdgeVisible] floatValue] : 0.6f;
-        if (visible < 0.1f || visible > 1.0f) visible = 0.6f;
+        float visible = _config[kCfgEdgeVisible] ? [_config[kCfgEdgeVisible] floatValue] : 0.54f;
+        if (visible < 0.1f || visible > 1.0f) visible = 0.54f;
         cell.title.text = @"贴边后显示比例";
         cell.slideBar.minimumValue = 0.1f;
         cell.slideBar.maximumValue = 1.0f;
@@ -1025,7 +1030,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         cell.slideBar.value = alpha;
         cell.value.text = [NSString stringWithFormat:@"%.2f", alpha];
     } else {
-        float ratio = [_config[kCfgYRatio] floatValue];
+        float ratio = _config[kCfgYRatio] ? [_config[kCfgYRatio] floatValue] : 0.596f;
         cell.title.text = @"纵向位置";
         cell.slideBar.minimumValue = 0.0f;
         cell.slideBar.maximumValue = 1.0f;

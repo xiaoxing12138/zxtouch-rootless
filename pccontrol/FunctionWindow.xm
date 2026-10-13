@@ -575,9 +575,9 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     NSString *imageName = [config[@"floating_menu_panel_bg_image"] isKindOfClass:[NSString class]]
                         ? config[@"floating_menu_panel_bg_image"] : @"";
     BOOL hasAlpha = [config[@"floating_menu_panel_bg_alpha"] isKindOfClass:[NSNumber class]];
-    CGFloat alpha = hasAlpha ? [config[@"floating_menu_panel_bg_alpha"] doubleValue] : -1;
+    CGFloat alpha = hasAlpha ? [config[@"floating_menu_panel_bg_alpha"] doubleValue] : 0.9;
     if (alpha > 1) alpha = 1;
-    if (alpha < 0 && hasAlpha) alpha = 0;
+    if (alpha < 0) alpha = 0;
 
     BOOL hasImageAlpha = [config[@"floating_menu_panel_bg_image_alpha"] isKindOfClass:[NSNumber class]];
     CGFloat imageAlpha = hasImageAlpha ? [config[@"floating_menu_panel_bg_image_alpha"] doubleValue] : -1;
@@ -586,7 +586,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 
     UIColor *color = ZXColorFromHex(hex);
     if (!color) color = [UIColor systemBackgroundColor];
-    if (hasAlpha) color = [color colorWithAlphaComponent:alpha];
+    color = [color colorWithAlphaComponent:alpha];
 
     imageName = [imageName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     UIImage *image = nil;
@@ -617,7 +617,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     [_cardView insertSubview:_functionBgView atIndex:0];
 
     _cardView.backgroundColor = [UIColor clearColor];
-    if (hasAlpha && alpha > 0 && ZXColorFromHex(hex)) {
+    if (alpha > 0 && ZXColorFromHex(hex)) {
         _functionBgTint = [[UIView alloc] initWithFrame:_cardView.bounds];
         _functionBgTint.backgroundColor = [ZXColorFromHex(hex) colorWithAlphaComponent:alpha];
         _functionBgTint.userInteractionEnabled = NO;
