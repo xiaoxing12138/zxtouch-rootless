@@ -7,6 +7,7 @@
 #import "Process.h"
 #import "FunctionWindow.h"
 #import "ScriptFunctions.h"      // ZXLastFunctionScriptPath / ZXFirstScriptPathWithFunctions
+#import "Record.h"
 #import <QuartzCore/QuartzCore.h>
 #import <CoreImage/CoreImage.h>
 #include <roothide.h>
@@ -116,9 +117,10 @@
 //   已暂停 → 启动 / 停止 / 返回（圆点同时变灰并叠加「已暂停」）
 // 具体表见 menuTableForState:，点击按 role 派发
 typedef NS_ENUM(NSInteger, FMScriptPlayState) {
-    FMScriptPlayStateIdle    = 0,  // 未运行
-    FMScriptPlayStateRunning = 1,  // 运行中
-    FMScriptPlayStatePaused  = 2   // 已暂停
+    FMScriptPlayStateIdle      = 0,  // 未运行
+    FMScriptPlayStateRunning   = 1,  // 运行中
+    FMScriptPlayStatePaused    = 2,  // 已暂停
+    FMScriptPlayStateRecording = 3
 };
 
 // 圆点图标来源（只有两种：App 图标 / 自定义图片）
@@ -914,7 +916,9 @@ static void fmPersistKeys(NSDictionary *pairs)
 + (void)refreshScriptPlayState
 {
     FMScriptPlayState state = FMScriptPlayStateIdle;
-    if (isScriptPlaying()) {
+    if (isRecordingStart()) {
+        state = FMScriptPlayStateRecording;
+    } else if (isScriptPlaying()) {
         state = isScriptPaused() ? FMScriptPlayStatePaused : FMScriptPlayStateRunning;
     }
     [[self shared] applyScriptPlayState:state];
@@ -937,6 +941,9 @@ static void fmPersistKeys(NSDictionary *pairs)
     NSDictionary *func   = @{ @"role": @"function", @"symbol": @"checklist",  @"title": @"功能" };
     NSDictionary *back   = @{ @"role": @"back",     @"symbol": @"arrow.uturn.backward.circle.fill", @"title": @"返回" };
 
+    NSDictionary *stopRec = @{ @"role": @"stopRecord", @"symbol": @"stop.fill", @"title": @"停止" };
+
+    if (state == FMScriptPlayStateRecording) return @[ stopRec ];
     if (state == FMScriptPlayStateRunning) return @[ pause, stop, back ];
     if (state == FMScriptPlayStatePaused)  return @[ play,  stop, back ];
     return @[ play, func, back ];
@@ -1317,6 +1324,8 @@ static void fmPersistKeys(NSDictionary *pairs)
         [self actionFunction];
     } else if ([role isEqualToString:@"stop"]) {
         [self actionStop];
+    } else if ([role isEqualToString:@"stopRecord"]) {
+        [self actionStopRecord];
     } else if ([role isEqualToString:@"back"]) {
         [self actionBack];
     }
@@ -1383,6 +1392,13 @@ static void fmPersistKeys(NSDictionary *pairs)
     NSError *err = nil;
     stopScriptPlaying(&err);
     fmToast(@"已停止", 3);
+}
+
+- (void)actionStopRecord
+{
+    [self collapseMenu];
+    stopRecording();
+    fmToast(@"录制已停止", 3);
 }
 
 - (void)actionBack

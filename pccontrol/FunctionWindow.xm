@@ -253,6 +253,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 {
     UIWindow        *_window;
     UIView          *_cardView;
+    UIView          *_backdrop;
     UIScrollView    *_functionScrollView;
     UIButton        *_functionScriptBtn;
     UIButton        *_closeBtn;
@@ -350,6 +351,13 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 
     _window.rootViewController = [[FNRootViewController alloc] init];
     UIView *root = _window.rootViewController.view;
+
+    _backdrop = [[UIView alloc] initWithFrame:root.bounds];
+    _backdrop.backgroundColor = [UIColor clearColor];
+    _backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_backdrop addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                            action:@selector(handleBackdropTap:)]];
+    [root addSubview:_backdrop];
 
     // 居中卡片（frame 由 layoutCard 计算，autoresizing 保证旋转后仍居中）
     _cardView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, FN_CARD_W, 200)];
@@ -1799,6 +1807,10 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 
 - (void)flowHostSetCardHidden:(BOOL)hidden {
     _cardView.hidden = hidden;
+}
+
+- (void)handleBackdropTap:(UITapGestureRecognizer *)g {
+    [self hide];
 }
 
 #pragma mark - 运行

@@ -859,7 +859,7 @@ static NSString *ZXPythonErrnoName(int e) {
                              sReply.length > 0 ? @"✅ 通了" : @"⚠️ 已连上但无回复",
                              sReply.length > 0 ? sReply : @"(空)"];
                         } else {
-                            [report appendString:@"  真实握手  ❌ 不通（没有进程在监听）\n"];
+                            [report appendString:@"  真实握手  ❌ 不通\n"];
                         }
                         NSString *dpExit = daemon[@"python_spawn_exit"];
                         NSString *dpErr = daemon[@"python_spawn_error"];
@@ -873,7 +873,7 @@ static NSString *ZXPythonErrnoName(int e) {
                         }
                         [report appendString:[daemon[@"probe_exists"] boolValue]
                             ? @"  launchd probe  已生成\n"
-                            : @"  launchd probe  未生成（postinst 方式拉起不写此文件，不代表进程没跑）\n"];
+                            : @"  launchd probe  未生成\n"];
                     }
                 }
             }

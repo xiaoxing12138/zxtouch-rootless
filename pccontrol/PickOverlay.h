@@ -41,6 +41,13 @@ extern NSString * const kPickTemplate;
 + (void)dismiss;
 + (BOOL)isShown;
 
++ (void)beginFollowWithMode:(FlowPickMode)mode
+                 completion:(void (^)(NSDictionary *result))completion
+                     cancel:(void (^)(void))cancel;
++ (void)updateFollowAtWindowPoint:(CGPoint)point;
++ (void)finishFollow;
++ (void)cancelFollow;
+
 @end
 
 #endif

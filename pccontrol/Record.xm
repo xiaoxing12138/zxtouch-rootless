@@ -6,6 +6,9 @@
 #include "Screen.h"
 #include "Window.h"
 #include "SocketServer.h"
+#include "FloatingMenu.h"
+#include "FunctionWindow.h"
+#include "FlowScript.h"
 
 CFRunLoopRef recordRunLoop = NULL;
 static Boolean isRecording = false;
@@ -98,6 +101,8 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
 
         isRecording = true;
 
+        ZXSafeMainAsync(^{ [FloatingMenu refreshScriptPlayState]; });
+
         scriptRecordingFileHandle = [NSFileHandle fileHandleForWritingAtPath:rawFilePath];
 
         // get time stamp
@@ -137,6 +142,16 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
         recordRunLoop = NULL;
         isRecording = false;
         NSLog(@"com.zjx.springboard: recording stopped and torn down.");
+
+        ZXSafeMainAsync(^{
+            [FloatingMenu refreshScriptPlayState];
+            NSError *convertError = nil;
+            if ([FlowScript convertRecordingBundleToFlow:scriptDirectory error:&convertError]) {
+                [[FunctionWindow shared] openFlowBundle:scriptDirectory];
+            } else {
+                showAlertBox(@"错误", convertError.localizedDescription ?: @"录制脚本转换失败。", 999);
+            }
+        });
     });
 }
 

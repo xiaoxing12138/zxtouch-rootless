@@ -485,6 +485,8 @@ static PickOverlay *_pkShared = nil;
     BOOL      _movingRect;      // 屏幕拖动中正在整体挪框
 
     CGPoint   _panelOrigin;
+    BOOL      _following;
+    CGPoint   _followPoint;
 }
 
 + (instancetype)shared {
@@ -510,6 +512,36 @@ static PickOverlay *_pkShared = nil;
 
 + (BOOL)isShown {
     return _pkShared && _pkShared->_window != nil;
+}
+
++ (void)beginFollowWithMode:(FlowPickMode)mode
+                 completion:(void (^)(NSDictionary *))completion
+                     cancel:(void (^)(void))cancel
+{
+    ZXSafeMainAsync(^{
+        [[self shared] beginFollowMode:mode completion:completion cancel:cancel];
+    });
+}
+
++ (void)updateFollowAtWindowPoint:(CGPoint)point
+{
+    ZXSafeMainAsync(^{
+        [[self shared] updateFollowPoint:point];
+    });
+}
+
++ (void)finishFollow
+{
+    ZXSafeMainAsync(^{
+        [[self shared] finishFollow];
+    });
+}
+
++ (void)cancelFollow
+{
+    ZXSafeMainAsync(^{
+        [[self shared] cancelFollow];
+    });
 }
 
 #pragma mark - 建窗
@@ -562,6 +594,114 @@ static PickOverlay *_pkShared = nil;
             [strongSelf layoutOverlay];
         });
     });
+}
+
+#pragma mark - 即时跟随
+
+- (void)beginFollowMode:(FlowPickMode)mode
+             completion:(void (^)(NSDictionary *))completion
+                 cancel:(void (^)(void))cancel
+{
+    [self teardown];
+
+    _mode = mode;
+    _completion = [completion copy];
+    _cancelHandler = [cancel copy];
+    _following = YES;
+    _followPoint = CGPointZero;
+
+    UIWindowScene *scene = [FloatingMenu preferredWindowScene];
+    if (scene) _window = [[FMPassthroughWindow alloc] initWithWindowScene:scene];
+    else _window = [[FMPassthroughWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    _window.windowLevel = UIWindowLevelAlert + 2;
+    _window.backgroundColor = [UIColor clearColor];
+    _window.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    _window.rootViewController = [[PKRootViewController alloc] init];
+    _root = (PKRootView *)_window.rootViewController.view;
+    _root.userInteractionEnabled = NO;
+
+    _canvas = [[PKCanvasView alloc] initWithFrame:_root.bounds];
+    _canvas.backgroundColor = [UIColor clearColor];
+    _canvas.mode = mode;
+    _canvas.userInteractionEnabled = NO;
+    [_root addSubview:_canvas];
+
+    _window.hidden = NO;
+
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        PickOverlay *s = weakSelf;
+        if (!s || !s->_window || !s->_following) return;
+        [s updateImageFrame];
+        s->_canvas.frame = s->_root.bounds;
+        s->_canvas.crosshair = s->_followPoint;
+    });
+}
+
+- (void)updateFollowPoint:(CGPoint)point
+{
+    if (!_window || !_following) return;
+    [self updateImageFrame];
+    _canvas.frame = _root.bounds;
+    _followPoint = [self clampViewPoint:[_root convertPoint:point fromView:nil]];
+    _canvas.crosshair = _followPoint;
+}
+
+- (void)finishFollow
+{
+    if (!_window || !_following) return;
+
+    void (^completion)(NSDictionary *) = _completion;
+    void (^cancel)(void) = _cancelHandler;
+    (void)cancel;
+
+    [self updateImageFrame];
+    CGPoint indicator = [self indicatorFromView:_followPoint];
+    CGPoint point = CGPointMake(llround(indicator.x), llround(indicator.y));
+
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    result[kPickStart] = [NSValue valueWithCGPoint:point];
+    result[kPickEnd] = [NSValue valueWithCGPoint:point];
+    result[kPickRect] = [NSValue valueWithCGRect:CGRectMake(point.x, point.y, 0, 0)];
+
+    if (_mode != FlowPickModeColor) {
+        [self teardown];
+        if (completion) completion(result);
+        return;
+    }
+
+    _following = NO;
+    _window.hidden = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.06 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        PickOverlay *s = weakSelf;
+        if (!s) return;
+        NSUInteger rgba = [s freshPixelAtIndicator:point];
+        result[kPickHex] = (rgba == NSNotFound) ? @"" : [NSString stringWithFormat:@"%06lX", (unsigned long)rgba];
+        [s teardown];
+        if (completion) completion(result);
+    });
+}
+
+- (void)cancelFollow
+{
+    if (!_window) return;
+    void (^cancel)(void) = _cancelHandler;
+    [self teardown];
+    if (cancel) cancel();
+}
+
+- (NSUInteger)freshPixelAtIndicator:(CGPoint)indicator
+{
+    [Screen invalidateFrame];
+    int stride = 0, w = 0, h = 0;
+    const UInt8 *pixels = [Screen framePixelsWithStride:&stride width:&w height:&h];
+    if (!pixels || stride <= 0 || w <= 0 || h <= 0) return NSNotFound;
+    CGPoint frame = ZXFramePointFromIndicatorPoint(indicator);
+    NSInteger x = (NSInteger)lround(frame.x), y = (NSInteger)lround(frame.y);
+    if (x < 0 || y < 0 || x >= (NSInteger)w || y >= (NSInteger)h) return NSNotFound;
+    const UInt8 *p = pixels + (size_t)y * (size_t)stride + (size_t)x * 4;
+    return ((NSUInteger)p[2] << 16) | ((NSUInteger)p[1] << 8) | p[0];
 }
 
 // 冻帧拿到之后才铺画面：底图 + 画布 + 触摸层 + 小面板
@@ -1468,6 +1608,8 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
     free(_pixels);
     _pixels = NULL;
     _pixelW = _pixelH = _pixelStride = 0;
+    _following = NO;
+    _followPoint = CGPointZero;
     _panelOrigin = CGPointZero;
     _dragCorner = -1;
     _movingRect = NO;

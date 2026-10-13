@@ -405,6 +405,9 @@ static FlowWindow *_fwShared = nil;
     NSString                    *_subTitle;
     CGFloat (^_subBuilder)(UIScrollView *content, CGFloat width);
     void (^_subExec)(void);
+
+    NSMutableDictionary         *_pickDragStep;
+    FlowStepType                *_pickDragType;
 }
 
 - (instancetype)init {
@@ -649,6 +652,32 @@ static FlowWindow *_fwShared = nil;
         [strongSelf->_host flowHostSetCardHidden:NO];
         strongSelf->_subDim.hidden = NO;
     }];
+}
+
+- (void)handlePickRowPan:(UIPanGestureRecognizer *)g {
+    NSMutableDictionary *step = _pickDragStep;
+    FlowStepType *type = _pickDragType;
+    if (!step || !type) return;
+
+    CGPoint point = [g locationInView:nil];
+    if (g.state == UIGestureRecognizerStateBegan) {
+        __weak typeof(self) weakSelf = self;
+        [PickOverlay beginFollowWithMode:type.pickMode completion:^(NSDictionary *result) {
+            FlowWindow *s = weakSelf;
+            if (!s) return;
+            [s applyPickResult:result toStep:step type:type];
+            [s autosave];
+            [s refresh];
+            [s dismissSubAnimated:YES];
+        } cancel:^{}];
+        [PickOverlay updateFollowAtWindowPoint:point];
+    } else if (g.state == UIGestureRecognizerStateChanged) {
+        [PickOverlay updateFollowAtWindowPoint:point];
+    } else if (g.state == UIGestureRecognizerStateEnded) {
+        [PickOverlay finishFollow];
+    } else if (g.state == UIGestureRecognizerStateCancelled) {
+        [PickOverlay cancelFollow];
+    }
 }
 
 - (void)applyPickResult:(NSDictionary *)result toStep:(NSMutableDictionary *)step type:(FlowStepType *)type {
@@ -1551,6 +1580,14 @@ static FlowWindow *_fwShared = nil;
                                               detail:[strongSelf pickDetailForStep:step type:type]
                                                color:ZXPalette(ZXPalAccent) primary:YES symbol:@"scope" width:w
                                               action:^{ [strongSelf beginPickingForStep:step type:type]; }];
+            if (type.pickMode == FlowPickModePoint || type.pickMode == FlowPickModeColor) {
+                strongSelf->_pickDragStep = step;
+                strongSelf->_pickDragType = type;
+                UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:strongSelf
+                                                                                     action:@selector(handlePickRowPan:)];
+                [pick addGestureRecognizer:pan];
+                [content.panGestureRecognizer requireGestureRecognizerToFail:pan];
+            }
             y = [strongSelf subAddRow:pick y:y];
         }
 

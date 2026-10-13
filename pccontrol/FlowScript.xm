@@ -320,6 +320,149 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
     return [self writeGeneratedScriptForFlow:flow toBundle:bundlePath error:error];
 }
 
+#pragma mark - 录制转可视化
+
++ (NSMutableDictionary *)recordedWaitStep:(double)seconds
+{
+    NSMutableDictionary *step = [self newStepOfKind:kFlowWait];
+    step[@"Seconds"] = @(round(seconds * 100.0) / 100.0);
+    return step;
+}
+
++ (void)appendRecordedGestureTo:(NSMutableArray *)steps
+                           from:(CGPoint)start
+                             to:(CGPoint)end
+                    maxDistance:(double)maxDistance
+                       duration:(double)duration
+{
+    if (maxDistance <= 12.0) {
+        NSMutableDictionary *step = [self newStepOfKind:kFlowTap];
+        step[@"X"] = @((NSInteger)llround(start.x));
+        step[@"Y"] = @((NSInteger)llround(start.y));
+        [steps addObject:step];
+        return;
+    }
+    NSMutableDictionary *step = [self newStepOfKind:kFlowSwipe];
+    step[@"X1"] = @((NSInteger)llround(start.x));
+    step[@"Y1"] = @((NSInteger)llround(start.y));
+    step[@"X2"] = @((NSInteger)llround(end.x));
+    step[@"Y2"] = @((NSInteger)llround(end.y));
+    step[@"Duration"] = @(round(MAX(duration, 0.1) * 100.0) / 100.0);
+    [steps addObject:step];
+}
+
++ (NSMutableDictionary *)flowFromRecordingRawText:(NSString *)rawText
+{
+    NSMutableArray *steps = [NSMutableArray array];
+
+    double pending = 0.0;
+    double clock = 0.0;
+    BOOL active = NO;
+    double downTime = 0.0;
+    CGPoint startPoint = CGPointZero;
+    CGPoint lastPoint = CGPointZero;
+    double maxDistance = 0.0;
+
+    NSArray<NSString *> *lines = [rawText componentsSeparatedByString:@"\n"];
+    for (NSString *raw in lines) {
+        NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (line.length < 3) continue;
+
+        if ([line hasPrefix:@"18"]) {
+            pending = [[line substringFromIndex:2] doubleValue] / 1000000.0;
+            if (pending < 0) pending = 0.0;
+            continue;
+        }
+        if (![line hasPrefix:@"10"]) continue;
+
+        NSString *payload = [line substringFromIndex:2];
+        if (payload.length < 14) continue;
+        int touchType = [[payload substringWithRange:NSMakeRange(1, 1)] intValue];
+        CGFloat x = [[payload substringWithRange:NSMakeRange(4, 5)] doubleValue] / 10.0;
+        CGFloat y = [[payload substringWithRange:NSMakeRange(9, 5)] doubleValue] / 10.0;
+
+        double gap = pending;
+        clock += pending;
+        pending = 0.0;
+
+        if (touchType == 1) {
+            if (active) {
+                [self appendRecordedGestureTo:steps from:startPoint to:lastPoint
+                                  maxDistance:maxDistance duration:(clock - downTime)];
+            } else if (steps.count > 0 && gap >= 0.1) {
+                [steps addObject:[self recordedWaitStep:gap]];
+            }
+            active = YES;
+            downTime = clock;
+            startPoint = CGPointMake(x, y);
+            lastPoint = startPoint;
+            maxDistance = 0.0;
+        } else if (touchType == 2) {
+            if (!active) {
+                active = YES;
+                downTime = clock;
+                startPoint = CGPointMake(x, y);
+                maxDistance = 0.0;
+            }
+            lastPoint = CGPointMake(x, y);
+            maxDistance = MAX(maxDistance, hypot(lastPoint.x - startPoint.x, lastPoint.y - startPoint.y));
+        } else if (touchType == 0) {
+            if (!active) continue;
+            lastPoint = CGPointMake(x, y);
+            maxDistance = MAX(maxDistance, hypot(lastPoint.x - startPoint.x, lastPoint.y - startPoint.y));
+            [self appendRecordedGestureTo:steps from:startPoint to:lastPoint
+                              maxDistance:maxDistance duration:(clock - downTime)];
+            active = NO;
+        }
+    }
+
+    if (active) {
+        [self appendRecordedGestureTo:steps from:startPoint to:lastPoint
+                          maxDistance:maxDistance duration:(clock - downTime)];
+    }
+
+    NSMutableDictionary *flow = [self emptyFlow];
+    flow[@"Steps"] = steps;
+    return flow;
+}
+
++ (BOOL)convertRecordingBundleToFlow:(NSString *)bundlePath error:(NSError **)error
+{
+    NSFileManager *manager = [NSFileManager defaultManager];
+    if (![manager fileExistsAtPath:bundlePath]) {
+        if (error) *error = [self error:@"脚本目录不存在。"];
+        return NO;
+    }
+
+    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:
+                          [bundlePath stringByAppendingPathComponent:@"info.plist"]];
+    NSString *entry = [info[@"Entry"] isKindOfClass:[NSString class]] ? info[@"Entry"] : nil;
+    NSString *rawPath = entry.length ? [bundlePath stringByAppendingPathComponent:entry] : nil;
+    if (rawPath == nil || ![manager fileExistsAtPath:rawPath]) {
+        rawPath = nil;
+        for (NSString *name in [manager contentsOfDirectoryAtPath:bundlePath error:nil]) {
+            if ([[name pathExtension].lowercaseString isEqualToString:@"raw"]) {
+                rawPath = [bundlePath stringByAppendingPathComponent:name];
+                break;
+            }
+        }
+    }
+    if (rawPath == nil) {
+        if (error) *error = [self error:@"找不到录制文件。"];
+        return NO;
+    }
+
+    NSString *rawText = [NSString stringWithContentsOfFile:rawPath encoding:NSUTF8StringEncoding error:NULL];
+    if (rawText.length == 0) {
+        if (error) *error = [self error:@"录制文件是空的。"];
+        return NO;
+    }
+
+    NSMutableDictionary *flow = [self flowFromRecordingRawText:rawText];
+    if (![self saveFlow:flow toBundle:bundlePath error:error]) return NO;
+    return [self writeGeneratedScriptForFlow:flow toBundle:bundlePath error:error];
+}
+
 + (NSMutableDictionary *)loadFlowFromBundle:(NSString *)bundlePath
 {
     NSString *path = [bundlePath stringByAppendingPathComponent:kFlowFileName];

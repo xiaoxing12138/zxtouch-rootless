@@ -102,6 +102,9 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 /// 生成出来大概长什么样（保存前的预览）
 + (NSString *)pythonSourceForFlow:(NSDictionary *)flow;
 
++ (BOOL)convertRecordingBundleToFlow:(NSString *)bundlePath error:(NSError **)error;
++ (NSMutableDictionary *)flowFromRecordingRawText:(NSString *)rawText;
+
 @end
 
 NS_ASSUME_NONNULL_END
