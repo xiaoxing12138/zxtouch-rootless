@@ -202,10 +202,18 @@ typedef NS_ENUM(NSInteger, FMScriptPlayState) {
     if (self.hidden || self.alpha < 0.01f || !self.userInteractionEnabled) {
         return nil;
     }
-    if ((self.allowsKeyWindow || self.swallowTouches) && ZXScriptFloatHitTestWindowPoint(point, self)) {
+    // 只有面板类窗口才吞掉空白点击；圆点 / 脚本悬浮球这类窗口必须放行，
+    // 否则 super 会返回窗口自身（UIView 语义），整屏点击都被这个透明窗口吃掉
+    if (!(self.allowsKeyWindow || self.swallowTouches)) {
+        UIView *hit = [super hitTest:point withEvent:event];
+        return (hit && hit != self) ? hit : nil;
+    }
+    // 面板展开中：压在脚本悬浮球上的那一点仍然放行，否则悬浮球拖不动
+    if (ZXScriptFloatHitTestWindowPoint(point, self)) {
         return nil;
     }
-    return [super hitTest:point withEvent:event];
+    UIView *hit = [super hitTest:point withEvent:event];
+    return hit ? hit : self;
 }
 
 // 面板里要能输入文字：输入框所在的 window 必须是 key window，系统键盘才会出来（Apple QA1813）。

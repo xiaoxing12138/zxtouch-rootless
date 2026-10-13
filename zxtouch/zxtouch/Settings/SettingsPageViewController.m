@@ -681,12 +681,166 @@ static NSString *ZXPythonErrnoName(int e) {
     }
 }
 
+static BOOL ZXExitZero(id value) {
+    if ([value isKindOfClass:[NSNumber class]]) return [value integerValue] == 0;
+    if ([value isKindOfClass:[NSString class]]) return [value isEqualToString:@"0"];
+    return NO;
+}
+
+static NSString *ZXExitText(id value) {
+    if (value == nil) return @"?";
+    return [NSString stringWithFormat:@"%@", value];
+}
+
+#pragma mark - Python 依赖检测结果浮窗（加宽 / 居左 / 结论置顶 / 不显示长路径）
+
+@interface ZXPythonCheckPanel : UIViewController
+@property (nonatomic, copy) NSString *fullReport;
+- (void)setVerdict:(NSString *)verdict usable:(BOOL)usable;
+- (void)setBodyText:(NSString *)body;
+@end
+
+@implementation ZXPythonCheckPanel
+{
+    UIView *_card;
+    UILabel *_titleLabel;
+    UILabel *_verdictLabel;
+    UIScrollView *_scroll;
+    UILabel *_bodyLabel;
+    UIButton *_copyButton;
+    UIButton *_closeButton;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        self.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        self.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+    }
+    return self;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.5];
+
+    _card = [[UIView alloc] initWithFrame:CGRectZero];
+    _card.backgroundColor = [UIColor colorWithRed:0.10 green:0.11 blue:0.14 alpha:1.0];
+    _card.layer.cornerRadius = 14.0;
+    _card.layer.masksToBounds = YES;
+    [self.view addSubview:_card];
+
+    _titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    _titleLabel.text = @"Python 依赖检测";
+    _titleLabel.font = [UIFont boldSystemFontOfSize:18];
+    _titleLabel.textColor = [UIColor whiteColor];
+    _titleLabel.textAlignment = NSTextAlignmentLeft;
+    [_card addSubview:_titleLabel];
+
+    _verdictLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    _verdictLabel.text = @"正在检测…";
+    _verdictLabel.font = [UIFont boldSystemFontOfSize:17];
+    _verdictLabel.textColor = [UIColor colorWithRed:1.0 green:0.78 blue:0.25 alpha:1.0];
+    _verdictLabel.numberOfLines = 0;
+    _verdictLabel.textAlignment = NSTextAlignmentLeft;
+    [_card addSubview:_verdictLabel];
+
+    _scroll = [[UIScrollView alloc] initWithFrame:CGRectZero];
+    _scroll.showsVerticalScrollIndicator = YES;
+    _scroll.alwaysBounceVertical = YES;
+    [_card addSubview:_scroll];
+
+    _bodyLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    _bodyLabel.text = @"正在连接 SpringBoard 进程，请稍候…";
+    _bodyLabel.font = [UIFont fontWithName:@"Menlo" size:12.5] ?: [UIFont systemFontOfSize:12.5];
+    _bodyLabel.textColor = [UIColor colorWithWhite:0.93 alpha:1.0];
+    _bodyLabel.numberOfLines = 0;
+    _bodyLabel.textAlignment = NSTextAlignmentLeft;
+    [_scroll addSubview:_bodyLabel];
+
+    _copyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_copyButton setTitle:@"复制完整结果" forState:UIControlStateNormal];
+    [_copyButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    _copyButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    _copyButton.backgroundColor = [UIColor colorWithRed:0.10 green:0.52 blue:0.82 alpha:1.0];
+    _copyButton.layer.cornerRadius = 9.0;
+    _copyButton.layer.masksToBounds = YES;
+    [_copyButton addTarget:self action:@selector(copyTapped) forControlEvents:UIControlEventTouchUpInside];
+    [_card addSubview:_copyButton];
+
+    _closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_closeButton setTitle:@"关闭" forState:UIControlStateNormal];
+    [_closeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    _closeButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    _closeButton.backgroundColor = [UIColor colorWithWhite:0.24 alpha:1.0];
+    _closeButton.layer.cornerRadius = 9.0;
+    _closeButton.layer.masksToBounds = YES;
+    [_closeButton addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
+    [_card addSubview:_closeButton];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    CGSize vs = self.view.bounds.size;
+    CGFloat cardW = MIN(vs.width - 28.0, 680.0);
+    CGFloat cardH = MIN(vs.height - 56.0, 900.0);
+    _card.frame = CGRectMake((vs.width - cardW) / 2.0, (vs.height - cardH) / 2.0, cardW, cardH);
+
+    CGFloat pad = 20.0;
+    CGFloat w = cardW - pad * 2.0;
+    CGFloat cy = pad;
+
+    _titleLabel.frame = CGRectMake(pad, cy, w, 24.0);
+    cy += 30.0;
+
+    CGSize verdictSize = [_verdictLabel sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)];
+    _verdictLabel.frame = CGRectMake(pad, cy, w, ceil(verdictSize.height));
+    cy += ceil(verdictSize.height) + 12.0;
+
+    CGFloat btnH = 40.0;
+    CGFloat btnBottom = cardH - pad - btnH;
+    _closeButton.frame = CGRectMake(pad + w - 100.0, btnBottom, 100.0, btnH);
+    _copyButton.frame = CGRectMake(pad + w - 100.0 - 10.0 - 150.0, btnBottom, 150.0, btnH);
+
+    CGFloat scrollH = MAX(btnBottom - 12.0 - cy, 60.0);
+    _scroll.frame = CGRectMake(pad, cy, w, scrollH);
+    CGSize bodySize = [_bodyLabel sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)];
+    _bodyLabel.frame = CGRectMake(0.0, 0.0, w, ceil(bodySize.height));
+    _scroll.contentSize = CGSizeMake(w, ceil(bodySize.height) + 2.0);
+}
+
+- (void)setVerdict:(NSString *)verdict usable:(BOOL)usable {
+    _verdictLabel.text = verdict;
+    _verdictLabel.textColor = usable
+        ? [UIColor colorWithRed:0.20 green:0.85 blue:0.40 alpha:1.0]
+        : [UIColor colorWithRed:1.0 green:0.32 blue:0.28 alpha:1.0];
+    [_verdictLabel setNeedsLayout];
+    [self.view setNeedsLayout];
+}
+
+- (void)setBodyText:(NSString *)body {
+    _bodyLabel.text = body;
+    [_bodyLabel setNeedsLayout];
+    [self.view setNeedsLayout];
+}
+
+- (void)copyTapped {
+    NSString *text = _fullReport.length > 0 ? _fullReport : _bodyLabel.text;
+    [UIPasteboard generalPasteboard].string = text ?: @"";
+    [_copyButton setTitle:@"已复制 ✓" forState:UIControlStateNormal];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self->_copyButton setTitle:@"复制完整结果" forState:UIControlStateNormal];
+    });
+}
+
+- (void)closeTapped {
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+@end
+
 - (void)handlePythonCheckTap:(TableViewCellWithEntry*)cell {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Python 依赖检测"
-        message:@"正在检测，请稍候..."
-        preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
+    ZXPythonCheckPanel *panel = [[ZXPythonCheckPanel alloc] init];
+    [self presentViewController:panel animated:YES completion:nil];
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         Socket *socket = [[Socket alloc] init];
@@ -698,29 +852,28 @@ static NSString *ZXPythonErrnoName(int e) {
         NSString *raw = ok ? [socket recvUntilCRLF] : nil;
         if (ok) [socket close];
 
-        // 格式化诊断结果
         dispatch_async(dispatch_get_main_queue(), ^{
-            NSMutableString *report = [NSMutableString string];
-
-            // App 版本号（从小新Lap App 自身的 bundle 拿，不是 SpringBoard 的）
             NSString *appVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
             if (appVersion.length == 0) appVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"";
 
-            // 设备基础信息（SettingsPageViewController 跑在小新Lap App 进程里，能拿到 UIDevice）
-            UIDevice *dev = [UIDevice currentDevice];
-            NSString *deviceName = dev.model ?: @"";
-            NSString *osVersion = dev.systemVersion ?: @"";
+            // full：复制给用户的完整结果（含全部路径细节）
+            NSMutableString *full = [NSMutableString string];
+            // panelText：浮窗正文（只放能判断可用性的结论，不放长路径）
+            NSMutableString *panelText = [NSMutableString string];
+            NSString *verdictText = @"正在检测…";
+            BOOL usable = NO;
 
-            [report appendFormat:@"时间：%@\n", [NSDate date]];
-            [report appendFormat:@"App：小新Lap v%@\n", appVersion.length ? appVersion : @"?"];
-            [report appendFormat:@"设备：%@  iOS %@\n", deviceName, osVersion];
-            [report appendFormat:@"进程 uid=501（SpringBoard）\n"];
-            [report appendString:@"\n"];
+            [full appendFormat:@"时间：%@\n", [NSDate date]];
+            [full appendFormat:@"App：小新Lap v%@\n\n", appVersion.length ? appVersion : @"?"];
 
             if (!ok) {
-                [report appendString:@"无法连接 SpringBoard 进程（Socket 失败）。"];
+                verdictText = @"❌ 检测失败：连不上 SpringBoard";
+                [panelText setString:@"无法连接 SpringBoard 进程（Socket 失败）。\n请确认连点器已安装并已重启桌面。"];
+                [full appendString:@"无法连接 SpringBoard 进程（Socket 失败）。"];
             } else if (raw.length == 0) {
-                [report appendString:@"未收到 tweak 返回结果。"];
+                verdictText = @"❌ 检测失败：tweak 无返回";
+                [panelText setString:@"未收到 tweak 返回结果。\n请确认连点器 tweak 已在 SpringBoard 中生效。"];
+                [full appendString:@"未收到 tweak 返回结果。"];
             } else {
                 NSString *jsonStr = raw;
                 if ([jsonStr hasSuffix:@"\r\n"]) jsonStr = [jsonStr substringToIndex:jsonStr.length - 2];
@@ -729,42 +882,133 @@ static NSString *ZXPythonErrnoName(int e) {
                 NSDictionary *dict = [NSJSONSerialization JSONObjectWithData:data ?: [NSData data] options:0 error:&jerr];
 
                 if (jerr || ![dict isKindOfClass:[NSDictionary class]]) {
-                    [report appendFormat:@"返回数据解析失败：%@\n\n原始数据：\n%@", jerr.localizedDescription ?: @"类型错误", raw];
+                    verdictText = @"❌ 检测失败：数据解析错误";
+                    [panelText setString:[NSString stringWithFormat:@"返回数据解析失败：%@", jerr.localizedDescription ?: @"类型错误"]];
+                    [full appendFormat:@"返回数据解析失败：%@\n\n原始数据：\n%@", jerr.localizedDescription ?: @"类型错误", raw];
                 } else {
-                    NSString *found = dict[@"found_path"] ?: @"";
-                    if (found.length > 0) {
-                        [report appendFormat:@"找到：%@\n", found];
-                        NSString *ver = dict[@"version"];
-                        if (ver.length > 0) [report appendFormat:@"版本：%@\n", ver];
+                    NSDictionary *dev = [dict[@"device_info"] isKindOfClass:[NSDictionary class]] ? dict[@"device_info"] : nil;
+                    NSDictionary *bat = [dict[@"battery"] isKindOfClass:[NSDictionary class]] ? dict[@"battery"] : nil;
+                    NSDictionary *jb  = [dict[@"jailbreak"] isKindOfClass:[NSDictionary class]] ? dict[@"jailbreak"] : nil;
+                    NSDictionary *inst = [dict[@"install"] isKindOfClass:[NSDictionary class]] ? dict[@"install"] : nil;
+                    NSDictionary *prA = [dict[@"spawn_probe_A_shell"] isKindOfClass:[NSDictionary class]] ? dict[@"spawn_probe_A_shell"] : nil;
+                    NSDictionary *prB = [dict[@"spawn_probe_B_direct"] isKindOfClass:[NSDictionary class]] ? dict[@"spawn_probe_B_direct"] : nil;
+                    NSDictionary *daemon = [dict[@"daemon_probe"] isKindOfClass:[NSDictionary class]] ? dict[@"daemon_probe"] : nil;
+
+                    NSString *daemonExit = [daemon[@"python_spawn_exit"] isKindOfClass:[NSString class]] ? daemon[@"python_spawn_exit"] : @"";
+                    BOOL springboardOK = ZXExitZero(prA[@"exit"]) || ZXExitZero(prB[@"exit"]);
+                    BOOL daemonOK = [daemonExit isEqualToString:@"0"];
+                    usable = springboardOK || daemonOK;
+                    verdictText = usable ? @"✅ 本机可用连点器" : @"❌ 本机暂不可用连点器";
+
+                    double ramGB = [dev[@"ram_bytes"] doubleValue] / 1073741824.0;
+                    double batHealth = [bat[@"health_percent"] doubleValue];
+                    double batCurrent = [bat[@"current_percent"] doubleValue];
+                    NSArray *jbTools = [jb[@"tools"] isKindOfClass:[NSArray class]] ? jb[@"tools"] : @[];
+                    NSArray *jbMarkers = [jb[@"bootstrap_markers"] isKindOfClass:[NSArray class]] ? jb[@"bootstrap_markers"] : @[];
+
+                    // ---------- 浮窗正文 ----------
+                    [panelText appendString:@"【设备】\n"];
+                    [panelText appendFormat:@"机型：%@\n", dev[@"marketing"] ?: @"?"];
+                    [panelText appendFormat:@"标识：%@\n", dev[@"machine"] ?: @"?"];
+                    [panelText appendFormat:@"系统：iOS %@\n", dev[@"system"] ?: @"?"];
+                    [panelText appendFormat:@"内存：%.1f GB（%@ 核）\n", ramGB, dev[@"cores"] ?: @"?"];
+                    [panelText appendFormat:@"屏幕：%@ × %@ pt\n",
+                     [NSString stringWithFormat:@"%.0f", [dev[@"screen_points_w"] doubleValue]],
+                     [NSString stringWithFormat:@"%.0f", [dev[@"screen_points_h"] doubleValue]]];
+                    if (inst[@"dylib_time"]) [panelText appendFormat:@"连点器安装：%@\n", inst[@"dylib_time"]];
+                    if ([bat[@"available"] boolValue] || batCurrent >= 0) {
+                        [panelText appendString:@"电池："];
+                        if ([bat[@"available"] boolValue]) {
+                            [panelText appendFormat:@"健康 %.0f%%、循环 %@ 次", batHealth, bat[@"cycle_count"] ?: @"?"];
+                            if (batCurrent >= 0) [panelText appendFormat:@"、当前 %.0f%%", batCurrent];
+                        } else if (batCurrent >= 0) {
+                            [panelText appendFormat:@"当前 %.0f%%", batCurrent];
+                        }
+                        if ([bat[@"charging"] boolValue]) [panelText appendString:@"、充电中"];
+                        [panelText appendString:@"\n"];
+                    }
+
+                    [panelText appendString:@"\n【越狱】\n"];
+                    [panelText appendFormat:@"类型：%@\n", jb[@"type"] ?: @"?"];
+                    if (jbTools.count > 0) [panelText appendFormat:@"越狱工具：%@\n", [jbTools componentsJoinedByString:@"、"]];
+                    if (jbMarkers.count > 0) [panelText appendFormat:@"Bootstrap：%@\n", [jbMarkers componentsJoinedByString:@"、"]];
+
+                    [panelText appendString:@"\n【运行环境】\n"];
+                    [panelText appendFormat:@"SpringBoard 直跑 Python：%@\n", springboardOK ? @"✅ 可用" : @"❌ 不可用"];
+                    [panelText appendFormat:@"守护进程 zxrunner：%@\n",
+                     daemon ? ([daemon[@"socket_connect_ok"] boolValue] ? @"✅ 已连接" : @"❌ 未连接") : @"❌ 无数据"];
+                    [panelText appendFormat:@"守护进程代跑 Python：%@\n",
+                     daemonOK ? @"✅ 成功" : (daemonExit.length > 0 ? [NSString stringWithFormat:@"❌ exit=%@", daemonExit] : @"❌ 无结果")];
+
+                    // ---------- 完整结果（剪贴板）----------
+                    [full appendString:@"【结论】\n"];
+                    [full appendFormat:@"  %@（SpringBoard 直跑=%@，守护进程代跑=%@）\n",
+                     usable ? @"本机可用连点器" : @"本机暂不可用连点器",
+                     springboardOK ? @"可用" : @"不可用",
+                     daemonOK ? @"成功" : @"失败"];
+                    [full appendString:@"\n【设备信息】\n"];
+                    [full appendFormat:@"  机型：%@ （%@）\n", dev[@"marketing"] ?: @"?", dev[@"machine"] ?: @"?"];
+                    [full appendFormat:@"  设备名：%@\n", dev[@"name"] ?: @"?"];
+                    [full appendFormat:@"  系统：iOS %@  核心数：%@\n", dev[@"system"] ?: @"?", dev[@"cores"] ?: @"?"];
+                    [full appendFormat:@"  内存：%.1f GB\n", ramGB];
+                    [full appendFormat:@"  屏幕：%.0f × %.0f pt（%.0f × %.0f px，@%.0fx）\n",
+                     [dev[@"screen_points_w"] doubleValue], [dev[@"screen_points_h"] doubleValue],
+                     [dev[@"screen_pixels_w"] doubleValue], [dev[@"screen_pixels_h"] doubleValue],
+                     [dev[@"screen_scale"] doubleValue]];
+                    if (inst[@"dylib_time"]) [full appendFormat:@"  连点器安装（tweak）：%@\n", inst[@"dylib_time"]];
+                    if (inst[@"dylib_path"]) [full appendFormat:@"  tweak 路径：%@\n", inst[@"dylib_path"]];
+                    if (inst[@"app_time"]) [full appendFormat:@"  App 安装：%@\n", inst[@"app_time"]];
+                    if (inst[@"app_path"]) [full appendFormat:@"  App 路径：%@\n", inst[@"app_path"]];
+
+                    [full appendString:@"\n【电池】\n"];
+                    if ([bat[@"available"] boolValue]) {
+                        [full appendFormat:@"  健康度：%.1f%%（满容量 %@ / 设计容量 %@）\n",
+                         batHealth, bat[@"max_capacity"] ?: @"?", bat[@"design_capacity"] ?: @"?"];
+                        [full appendFormat:@"  循环次数：%@\n", bat[@"cycle_count"] ?: @"?"];
                     } else {
-                        [report appendString:@"全部候选不可用（access / posix_spawn 均 EPERM）\n"];
+                        [full appendString:@"  无法读取循环次数 / 容量（IOKit 不可用）\n"];
+                    }
+                    [full appendFormat:@"  当前电量：%@%@\n",
+                     batCurrent >= 0 ? [NSString stringWithFormat:@"%.0f%%", batCurrent] : @"未知",
+                     [bat[@"charging"] boolValue] ? @"（充电中）" : @""];
+
+                    [full appendString:@"\n【越狱】\n"];
+                    [full appendFormat:@"  类型：%@\n", jb[@"type"] ?: @"?"];
+                    [full appendFormat:@"  jbroot 前缀：%@\n", jb[@"jbroot_prefix"] ?: @""];
+                    [full appendFormat:@"  /var/jb → %@\n", jb[@"varjb_target"] ?: @""];
+                    if (jbMarkers.count > 0) [full appendFormat:@"  bootstrap 标记：%@\n", [jbMarkers componentsJoinedByString:@"、"]];
+                    if (jbTools.count > 0) [full appendFormat:@"  越狱工具：%@\n", [jbTools componentsJoinedByString:@"、"]];
+
+                    NSString *found = dict[@"found_path"] ?: @"";
+                    [full appendString:@"\n【Python】\n"];
+                    if (found.length > 0) {
+                        [full appendFormat:@"  首选路径：%@\n", found];
+                        NSString *ver = dict[@"version"];
+                        if (ver.length > 0) [full appendFormat:@"  版本：%@\n", ver];
+                    } else {
+                        [full appendString:@"  全部候选不可用（access / posix_spawn 均 EPERM）\n"];
                     }
 
-                    // 执行链路探针
-                    NSDictionary *prA = dict[@"spawn_probe_A_shell"];
-                    NSDictionary *prB = dict[@"spawn_probe_B_direct"];
                     if (prA || prB) {
-                        [report appendString:@"\n执行链路对比（SpringBoard 进程内）：\n"];
-                        [report appendFormat:@"  A  shell间接  sh -c '<python> --version' → exit=%@\n     输出：%@\n", prA[@"exit"] ?: @"?", [prA[@"output"] length] ? prA[@"output"] : @"(无)"];
-                        [report appendFormat:@"  B  直接exec   posix_spawn(python)     → exit=%@\n     输出：%@\n", prB[@"exit"] ?: @"?", [prB[@"output"] length] ? prB[@"output"] : @"(无)"];
+                        [full appendString:@"\n执行链路对比（SpringBoard 进程内）：\n"];
+                        [full appendFormat:@"  A  shell间接  sh -c '<python> --version' → exit=%@\n     输出：%@\n", ZXExitText(prA[@"exit"]), [prA[@"output"] length] ? prA[@"output"] : @"(无)"];
+                        [full appendFormat:@"  B  直接exec   posix_spawn(python)     → exit=%@\n     输出：%@\n", ZXExitText(prB[@"exit"]), [prB[@"output"] length] ? prB[@"output"] : @"(无)"];
                     }
 
-                    // 环境信息
                     NSString *jbPrefix = dict[@"jbroot_prefix"];
                     NSString *varjb = dict[@"varjb_target"];
                     NSString *tweakPath = dict[@"tweak_path"];
                     if (jbPrefix.length || varjb.length || tweakPath.length) {
-                        [report appendString:@"\n越狱目录：\n"];
-                        if (jbPrefix.length) [report appendFormat:@"  tweak 安装位置：%@\n", jbPrefix];
-                        if (varjb.length) [report appendFormat:@"  /var/jb → %@\n", varjb];
-                        if (tweakPath.length) [report appendFormat:@"  pccontrol.dylib：%@\n", tweakPath];
+                        [full appendString:@"\n越狱目录：\n"];
+                        if (jbPrefix.length) [full appendFormat:@"  tweak 安装位置：%@\n", jbPrefix];
+                        if (varjb.length) [full appendFormat:@"  /var/jb → %@\n", varjb];
+                        if (tweakPath.length) [full appendFormat:@"  pccontrol.dylib：%@\n", tweakPath];
                     }
 
-                    // 各候选路径
                     NSArray *cands = dict[@"candidates"];
                     NSArray *probes = [dict[@"probes"] isKindOfClass:[NSArray class]] ? dict[@"probes"] : @[];
                     if ([cands isKindOfClass:[NSArray class]]) {
-                        [report appendString:@"\n候选路径：\n"];
+                        [full appendString:@"\n候选路径：\n"];
                         for (NSDictionary *c in cands) {
                             NSString *p = c[@"path"];
                             BOOL ex = [c[@"exists"] boolValue];
@@ -779,31 +1023,29 @@ static NSString *ZXPythonErrnoName(int e) {
                                 NSNumber *en = c[@"exec_errno"];
                                 [line appendFormat:@"  ❌ access=EPERM errno=%@(%@)", en ?: @0, ZXPythonErrnoName(en.intValue)];
                             }
-                            [report appendFormat:@"%@\n", line];
+                            [full appendFormat:@"%@\n", line];
                             for (NSDictionary *pr in probes) {
                                 if ([pr isKindOfClass:[NSDictionary class]] && [pr[@"path"] isEqualToString:p]) {
                                     NSString *out = pr[@"output"];
-                                    [report appendFormat:@"      试跑 exit=%@ 输出：%@\n", pr[@"exit"], out.length ? out : @"(无输出)"];
+                                    [full appendFormat:@"      试跑 exit=%@ 输出：%@\n", ZXExitText(pr[@"exit"]), out.length ? out : @"(无输出)"];
                                     break;
                                 }
                             }
                         }
                     }
 
-                    // dpkg
                     NSDictionary *dq = dict[@"dpkg_query"];
                     if ([dq isKindOfClass:[NSDictionary class]] && dq.count > 0) {
-                        [report appendString:@"\ndpkg python3 包记录：\n"];
+                        [full appendString:@"\ndpkg python3 包记录：\n"];
                         for (NSString *k in dq) {
                             NSString *out = dq[k];
-                            [report appendFormat:@"  [%@]\n    %@\n", k, out.length ? out : @"(无)"];
+                            [full appendFormat:@"  [%@]\n    %@\n", k, out.length ? out : @"(无)"];
                         }
                     }
 
-                    // 沙盒范围探针
                     NSArray *scope = [dict[@"sandbox_scope_probe"] isKindOfClass:[NSArray class]] ? dict[@"sandbox_scope_probe"] : nil;
                     if (scope.count > 0) {
-                        [report appendString:@"\nSpringBoard 沙盒 exec 范围：\n"];
+                        [full appendString:@"\nSpringBoard 沙盒 exec 范围：\n"];
                         for (NSDictionary *s in scope) {
                             if (![s isKindOfClass:[NSDictionary class]]) continue;
                             NSString *sp = s[@"path"] ?: @"";
@@ -811,37 +1053,34 @@ static NSString *ZXPythonErrnoName(int e) {
                             BOOL acc2 = [s[@"access_X_OK"] boolValue];
                             NSString *spawn = s[@"posix_spawn"] ?: @"";
                             if (!ex2) {
-                                [report appendFormat:@"  ❌ %@  不存在\n", sp];
+                                [full appendFormat:@"  ❌ %@  不存在\n", sp];
                             } else if (acc2) {
-                                [report appendFormat:@"  ✅ %@  access=0  %@\n", sp, spawn];
+                                [full appendFormat:@"  ✅ %@  access=0  %@\n", sp, spawn];
                             } else {
                                 NSNumber *en2 = s[@"access_errno"];
-                                [report appendFormat:@"  ❌ %@  access=EPERM errno=%@  %@\n", sp, en2 ?: @0, spawn];
+                                [full appendFormat:@"  ❌ %@  access=EPERM errno=%@  %@\n", sp, en2 ?: @0, spawn];
                             }
                         }
                     }
 
-                    // 模块路径
                     NSArray *mods = dict[@"module_paths_found"];
                     if (mods.count > 0) {
-                        [report appendString:@"\nzxtouch 模块路径：\n"];
-                        for (NSString *m in mods) [report appendFormat:@"  %@\n", m];
+                        [full appendString:@"\nzxtouch 模块路径：\n"];
+                        for (NSString *m in mods) [full appendFormat:@"  %@\n", m];
                     }
 
                     NSDictionary *imp = dict[@"module_import"];
                     if ([imp isKindOfClass:[NSDictionary class]]) {
-                        [report appendFormat:@"\nzxtouch import 实测：exit=%@\n  输出：%@\n",
-                         imp[@"exit"] ?: @"?", [imp[@"output"] length] ? imp[@"output"] : @"(无)"];
+                        [full appendFormat:@"\nzxtouch import 实测：exit=%@\n  输出：%@\n",
+                         ZXExitText(imp[@"exit"]), [imp[@"output"] length] ? imp[@"output"] : @"(无)"];
                     }
 
-                    // 守护进程（zxrunner）
-                    NSDictionary *daemon = dict[@"daemon_probe"];
-                    if ([daemon isKindOfClass:[NSDictionary class]]) {
-                        [report appendString:@"\n守护进程 zxrunner：\n"];
-                        [report appendFormat:@"  plist  %@  %@\n",
+                    if (daemon) {
+                        [full appendString:@"\n守护进程 zxrunner：\n"];
+                        [full appendFormat:@"  plist  %@  %@\n",
                          daemon[@"plist_path"] ?: @"?",
                          [daemon[@"plist_exists"] boolValue] ? @"存在" : @"不存在"];
-                        [report appendFormat:@"  二进制  %@  exists=%@  access(X_OK)=%@%@\n",
+                        [full appendFormat:@"  二进制  %@  exists=%@  access(X_OK)=%@%@\n",
                          daemon[@"bin_path"] ?: @"?",
                          [daemon[@"bin_exists"] boolValue] ? @"Y" : @"N",
                          [daemon[@"bin_access_X_OK"] boolValue] ? @"Y" : @"N",
@@ -851,7 +1090,7 @@ static NSString *ZXPythonErrnoName(int e) {
                         BOOL sExists = [daemon[@"socket_exists"] boolValue];
                         BOOL sConn = [daemon[@"socket_connect_ok"] boolValue];
                         NSString *sReply = daemon[@"socket_ping_reply"];
-                        [report appendFormat:@"  socket  %@  存在=%@  连接=%@%@\n",
+                        [full appendFormat:@"  socket  %@  存在=%@  连接=%@%@\n",
                          daemon[@"socket_path"] ?: @"?",
                          sExists ? @"Y" : @"N",
                          sConn ? @"Y" : @"N",
@@ -859,37 +1098,34 @@ static NSString *ZXPythonErrnoName(int e) {
                                         daemon[@"socket_connect_errno"] ?: @0,
                                         ZXPythonErrnoName([daemon[@"socket_connect_errno"] intValue])]];
                         if (sConn) {
-                            [report appendFormat:@"  真实握手  %@  ping 回复：%@\n",
+                            [full appendFormat:@"  真实握手  %@  ping 回复：%@\n",
                              sReply.length > 0 ? @"✅ 通了" : @"⚠️ 已连上但无回复",
                              sReply.length > 0 ? sReply : @"(空)"];
                         } else {
-                            [report appendString:@"  真实握手  ❌ 不通\n"];
+                            [full appendString:@"  真实握手  ❌ 不通\n"];
                         }
-                        NSString *dpExit = daemon[@"python_spawn_exit"];
                         NSString *dpErr = daemon[@"python_spawn_error"];
-                        if ([dpExit isKindOfClass:[NSString class]] && dpExit.length > 0) {
+                        if (daemonExit.length > 0) {
                             NSString *dpOut = daemon[@"python_spawn_output"];
-                            [report appendFormat:@"  守护进程代跑  %@ --version → exit=%@\n     输出：%@\n",
-                             daemon[@"python_spawn_path"] ?: @"?", dpExit,
+                            [full appendFormat:@"  守护进程代跑  %@ --version → exit=%@\n     输出：%@\n",
+                             daemon[@"python_spawn_path"] ?: @"?", daemonExit,
                              [dpOut length] ? dpOut : @"(无输出)"];
                         } else if ([dpErr isKindOfClass:[NSString class]] && dpErr.length > 0) {
-                            [report appendFormat:@"  守护进程代跑 python  ❌ %@\n", dpErr];
+                            [full appendFormat:@"  守护进程代跑 python  ❌ %@\n", dpErr];
                         }
-                        [report appendString:[daemon[@"probe_exists"] boolValue]
+                        [full appendString:[daemon[@"probe_exists"] boolValue]
                             ? @"  launchd probe  已生成\n"
                             : @"  launchd probe  未生成\n"];
                     }
                 }
             }
 
-            // 复制到剪贴板
-            [UIPasteboard generalPasteboard].string = report;
+            [full appendString:@"\n（完整检测数据已复制到剪贴板，可再点「复制完整结果」重试）"];
+            [panelText appendString:@"\n完整数据（含全部路径）已复制到剪贴板。"];
 
-            // 直接在已弹出的 alert 上就地更新内容。
-            // 不能再 present 第二个 alert —— 上一个还没消失时系统会静默丢弃，
-            // 表现为一直停在“正在检测，请稍候...”。
-            NSString *body = [report stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]];
-            alert.message = [body stringByAppendingString:@"\n\n（以上内容已自动复制到剪贴板）"];
+            panel.fullReport = full;
+            [panel setVerdict:verdictText usable:usable];
+            [panel setBodyText:panelText];
         });
     });
 }

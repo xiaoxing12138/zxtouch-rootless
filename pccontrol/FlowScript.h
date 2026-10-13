@@ -102,6 +102,8 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 + (NSString *)summaryForStep:(NSDictionary *)step;
 /// 列表里那一行的小字（条件的成立/不成立动作数）；不需要就返回 nil
 + (nullable NSString *)detailForStep:(NSDictionary *)step;
+/// 粘贴步骤实际生效的方式：老脚本没有 Mode 键时，按「有文字=自定义文字，无文字=剪贴板」推断
++ (NSString *)pasteModeForStep:(NSDictionary *)step;
 
 + (NSMutableDictionary *)emptyFlow;
 + (nullable NSMutableDictionary *)loadFlowFromBundle:(NSString *)bundlePath;

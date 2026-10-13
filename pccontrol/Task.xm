@@ -1065,6 +1065,16 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 root[@"daemon_probe"] = daemonInfo;
             }
 
+            // ---- 设备 / 电池 / 越狱 / 安装信息：让这份报告本身就能判断这台设备能否用连点器 ----
+            @try {
+                root[@"device_info"] = ZXDeviceSummary();
+                root[@"battery"] = ZXBatterySummary();
+                root[@"jailbreak"] = ZXJailbreakSummary();
+                root[@"install"] = ZXInstallSummary();
+            } @catch (NSException *exception) {
+                root[@"env_info_error"] = exception.reason ?: @"采集失败";
+            }
+
             NSError *jsonErr = nil;
             NSData *jsonData = [NSJSONSerialization dataWithJSONObject:root options:NSJSONWritingPrettyPrinted error:&jsonErr];
             NSString *json = jsonData ? [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding] : @"-1;;JSON 序列化失败";

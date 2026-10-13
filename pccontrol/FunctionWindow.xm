@@ -249,6 +249,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 - (void)savePanelState;
 - (void)handleResizePan:(UIPanGestureRecognizer *)pan;
 - (void)handleBackdropTap;
+- (void)handleWindowTap:(UITapGestureRecognizer *)g;
 @end
 
 @implementation FunctionWindow
@@ -351,6 +352,14 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     _window.windowLevel = UIWindowLevelAlert + 1;
     _window.backgroundColor = [UIColor clearColor];
     _window.overrideUserInterfaceStyle = (UIUserInterfaceStyle)_appearanceMode;
+
+    // 兜底：窗口自己认一个「点空白」手势。遮罩按钮在某些场景下没接到触摸时，
+    // 仍然能靠它关掉面板（否则那一击会被窗口吞掉、面板关不上）
+    UITapGestureRecognizer *winTap = [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                            action:@selector(handleWindowTap:)];
+    winTap.cancelsTouchesInView = NO;   // 卡内按钮 / 输入框的触摸不能被它取消
+    winTap.delaysTouchesBegan = NO;
+    [_window addGestureRecognizer:winTap];
 
     _window.rootViewController = [[FNRootViewController alloc] init];
     UIView *root = _window.rootViewController.view;
@@ -727,10 +736,13 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 }
 
 // 面板根视图上除了遮罩和卡片，还挂着东西 = 子浮窗（流程编辑器）开着
+// 只认真正显示的视图：残留的 hidden 视图不能挡住「点面板外关闭」
 - (BOOL)hasOverlaySubview {
     UIView *root = _window.rootViewController.view;
     for (UIView *v in root.subviews) {
-        if (v != _backdrop && v != _cardView) return YES;
+        if (v == _backdrop || v == _cardView) continue;
+        if (v.hidden || v.alpha < 0.01f) continue;
+        return YES;
     }
     return NO;
 }
@@ -1853,6 +1865,14 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 }
 
 - (void)handleBackdropTap {
+    if ([self hasOverlaySubview]) return;
+    [self hide];
+}
+
+// 窗口级兜底：只要这一击落在卡片外就关面板（遮罩按钮没接到触摸时也生效）
+- (void)handleWindowTap:(UITapGestureRecognizer *)g {
+    if (!_shown || !_window || !_cardView) return;
+    if ([_cardView pointInside:[g locationInView:_cardView] withEvent:nil]) return;
     if ([self hasOverlaySubview]) return;
     [self hide];
 }

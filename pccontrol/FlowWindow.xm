@@ -164,7 +164,10 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
         @{ @"title": @"目标", @"keys": @[ @"Bundle" ] },
     ];
     if ([kind isEqualToString:kFlowWiFi]) return @[ @{ @"title": @"方式", @"keys": @[ @"Mode" ] } ];
-    if ([kind isEqualToString:kFlowPaste]) return @[ @{ @"title": @"内容", @"keys": @[ @"Text" ] } ];
+    if ([kind isEqualToString:kFlowPaste]) return @[
+        @{ @"title": @"方式", @"keys": @[ @"Mode" ] },
+        @{ @"title": @"自定义文字", @"keys": @[ @"Text" ] },
+    ];
     if ([kind isEqualToString:kFlowRing]) return @[
         @{ @"title": @"铃声", @"keys": @[ @"Sound" ] },
         @{ @"title": @"时长", @"keys": @[ @"Seconds" ] },
@@ -2190,9 +2193,11 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             return;
         }
     } else if ([kind isEqualToString:kFlowPaste]) {
+        NSString *mode = [FlowScript pasteModeForStep:step];
         NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
         NSMutableData *keep = nil;
-        NSString *payload = text.length > 0 ? [NSString stringWithFormat:@"1;;%@", text] : @"5";
+        NSString *payload = ([mode isEqualToString:@"text"] && text.length > 0)
+                          ? [NSString stringWithFormat:@"1;;%@", text] : @"5";
         UInt8 *raw = fwRawBuffer(payload, &keep);
         NSError *error = nil;
         inputTextFromRawData(raw, &error);

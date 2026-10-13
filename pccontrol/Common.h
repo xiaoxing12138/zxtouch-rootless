@@ -81,6 +81,15 @@ NSArray<NSDictionary *> *ZXInstalledApplications(void);
 /// 全部铃声（用户导入的 + 系统自带的），每项 @{ @"name": 显示名, @"path": 绝对路径, @"user": @(是否用户导入) }
 NSArray<NSDictionary *> *ZXRingtoneItems(void);
 
+/// 设备基础信息：machine / marketing / model / name / system / ram_bytes / cores / screen_points_* / screen_pixels_* / screen_scale
+NSDictionary *ZXDeviceSummary(void);
+/// 电池：available / cycle_count / design_capacity / max_capacity / health_percent / current_percent / charging
+NSDictionary *ZXBatterySummary(void);
+/// 越狱情况：type（rootless/rootful）/ varjb_target / jbroot_prefix / bootstrap_markers / tools
+NSDictionary *ZXJailbreakSummary(void);
+/// 安装信息：dylib_time（tweak）/ app_time（zxtouch.app）/ app_path
+NSDictionary *ZXInstallSummary(void);
+
 /*
  Main-queue UI guard.
 

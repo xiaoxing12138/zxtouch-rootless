@@ -10,6 +10,8 @@
 #import <objc/message.h>
 #import <sys/utsname.h>
 #import <sys/wait.h>
+#import <sys/stat.h>
+#import <IOKit/IOKitLib.h>
 #include <dlfcn.h>
 #include <spawn.h>
 #include <errno.h>
@@ -817,6 +819,261 @@ NSArray<NSDictionary *> *ZXInstalledApplications(void)
     return [result sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
         return [a[@"name"] localizedCaseInsensitiveCompare:b[@"name"]];
     }];
+}
+
+static NSString *ZXMarketingNameForMachine(NSString *machine)
+{
+    static NSDictionary<NSString *, NSString *> *table = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        table = @{
+            @"iPad1,1": @"iPad（第1代）",
+            @"iPad2,1": @"iPad 2", @"iPad2,2": @"iPad 2", @"iPad2,3": @"iPad 2", @"iPad2,4": @"iPad 2",
+            @"iPad2,5": @"iPad mini", @"iPad2,6": @"iPad mini", @"iPad2,7": @"iPad mini",
+            @"iPad3,1": @"iPad（第3代）", @"iPad3,2": @"iPad（第3代）", @"iPad3,3": @"iPad（第3代）",
+            @"iPad3,4": @"iPad（第4代）", @"iPad3,5": @"iPad（第4代）", @"iPad3,6": @"iPad（第4代）",
+            @"iPad4,1": @"iPad Air", @"iPad4,2": @"iPad Air", @"iPad4,3": @"iPad Air",
+            @"iPad4,4": @"iPad mini 2", @"iPad4,5": @"iPad mini 2", @"iPad4,6": @"iPad mini 2",
+            @"iPad4,7": @"iPad mini 3", @"iPad4,8": @"iPad mini 3", @"iPad4,9": @"iPad mini 3",
+            @"iPad5,1": @"iPad mini 4", @"iPad5,2": @"iPad mini 4",
+            @"iPad5,3": @"iPad Air 2", @"iPad5,4": @"iPad Air 2",
+            @"iPad6,3": @"iPad Pro（9.7 英寸）", @"iPad6,4": @"iPad Pro（9.7 英寸）",
+            @"iPad6,7": @"iPad Pro（12.9 英寸）", @"iPad6,8": @"iPad Pro（12.9 英寸）",
+            @"iPad6,11": @"iPad（第5代）", @"iPad6,12": @"iPad（第5代）",
+            @"iPad7,1": @"iPad Pro（12.9 英寸，第2代）", @"iPad7,2": @"iPad Pro（12.9 英寸，第2代）",
+            @"iPad7,3": @"iPad Pro（10.5 英寸）", @"iPad7,4": @"iPad Pro（10.5 英寸）",
+            @"iPad7,5": @"iPad（第6代）", @"iPad7,6": @"iPad（第6代）",
+            @"iPad7,11": @"iPad（第7代）", @"iPad7,12": @"iPad（第7代）",
+            @"iPad8,1": @"iPad Pro（11 英寸）", @"iPad8,2": @"iPad Pro（11 英寸）",
+            @"iPad8,3": @"iPad Pro（11 英寸）", @"iPad8,4": @"iPad Pro（11 英寸）",
+            @"iPad8,5": @"iPad Pro（12.9 英寸，第3代）", @"iPad8,6": @"iPad Pro（12.9 英寸，第3代）",
+            @"iPad8,7": @"iPad Pro（12.9 英寸，第3代）", @"iPad8,8": @"iPad Pro（12.9 英寸，第3代）",
+            @"iPad8,9": @"iPad Pro（11 英寸，第2代）", @"iPad8,10": @"iPad Pro（11 英寸，第2代）",
+            @"iPad8,11": @"iPad Pro（12.9 英寸，第4代）", @"iPad8,12": @"iPad Pro（12.9 英寸，第4代）",
+            @"iPad11,1": @"iPad mini（第5代）", @"iPad11,2": @"iPad mini（第5代）",
+            @"iPad11,3": @"iPad Air（第3代）", @"iPad11,4": @"iPad Air（第3代）",
+            @"iPad11,6": @"iPad（第8代）", @"iPad11,7": @"iPad（第8代）",
+            @"iPad12,1": @"iPad（第9代）", @"iPad12,2": @"iPad（第9代）",
+            @"iPad13,1": @"iPad Air（第4代）", @"iPad13,2": @"iPad Air（第4代）",
+            @"iPad13,4": @"iPad Pro（11 英寸，第3代）", @"iPad13,5": @"iPad Pro（11 英寸，第3代）",
+            @"iPad13,6": @"iPad Pro（11 英寸，第3代）", @"iPad13,7": @"iPad Pro（11 英寸，第3代）",
+            @"iPad13,8": @"iPad Pro（12.9 英寸，第5代）", @"iPad13,9": @"iPad Pro（12.9 英寸，第5代）",
+            @"iPad13,10": @"iPad Pro（12.9 英寸，第5代）", @"iPad13,11": @"iPad Pro（12.9 英寸，第5代）",
+            @"iPad13,16": @"iPad Air（第5代）", @"iPad13,17": @"iPad Air（第5代）",
+            @"iPad13,18": @"iPad（第10代）", @"iPad13,19": @"iPad（第10代）",
+            @"iPad14,1": @"iPad mini（第6代）", @"iPad14,2": @"iPad mini（第6代）",
+            @"iPad14,3": @"iPad Pro（11 英寸，第4代）", @"iPad14,4": @"iPad Pro（11 英寸，第4代）",
+            @"iPad14,5": @"iPad Pro（12.9 英寸，第6代）", @"iPad14,6": @"iPad Pro（12.9 英寸，第6代）",
+            @"iPad14,8": @"iPad Air 11 英寸（M2）", @"iPad14,9": @"iPad Air 11 英寸（M2）",
+            @"iPad14,10": @"iPad Air 13 英寸（M2）", @"iPad14,11": @"iPad Air 13 英寸（M2）",
+            @"iPad16,1": @"iPad mini（A17 Pro）", @"iPad16,2": @"iPad mini（A17 Pro）",
+            @"iPad16,3": @"iPad Pro 11 英寸（M4）", @"iPad16,4": @"iPad Pro 11 英寸（M4）",
+            @"iPad16,5": @"iPad Pro 13 英寸（M4）", @"iPad16,6": @"iPad Pro 13 英寸（M4）",
+
+            @"iPhone1,1": @"iPhone", @"iPhone1,2": @"iPhone 3G", @"iPhone2,1": @"iPhone 3GS",
+            @"iPhone3,1": @"iPhone 4", @"iPhone3,2": @"iPhone 4", @"iPhone3,3": @"iPhone 4",
+            @"iPhone4,1": @"iPhone 4S",
+            @"iPhone5,1": @"iPhone 5", @"iPhone5,2": @"iPhone 5",
+            @"iPhone5,3": @"iPhone 5c", @"iPhone5,4": @"iPhone 5c",
+            @"iPhone6,1": @"iPhone 5s", @"iPhone6,2": @"iPhone 5s",
+            @"iPhone7,1": @"iPhone 6 Plus", @"iPhone7,2": @"iPhone 6",
+            @"iPhone8,1": @"iPhone 6s", @"iPhone8,2": @"iPhone 6s Plus", @"iPhone8,4": @"iPhone SE（第1代）",
+            @"iPhone9,1": @"iPhone 7", @"iPhone9,2": @"iPhone 7 Plus", @"iPhone9,3": @"iPhone 7", @"iPhone9,4": @"iPhone 7 Plus",
+            @"iPhone10,1": @"iPhone 8", @"iPhone10,2": @"iPhone 8 Plus", @"iPhone10,3": @"iPhone X",
+            @"iPhone10,4": @"iPhone 8", @"iPhone10,5": @"iPhone 8 Plus", @"iPhone10,6": @"iPhone X",
+            @"iPhone11,2": @"iPhone XS", @"iPhone11,4": @"iPhone XS Max", @"iPhone11,6": @"iPhone XS Max", @"iPhone11,8": @"iPhone XR",
+            @"iPhone12,1": @"iPhone 11", @"iPhone12,3": @"iPhone 11 Pro", @"iPhone12,5": @"iPhone 11 Pro Max", @"iPhone12,8": @"iPhone SE（第2代）",
+            @"iPhone13,1": @"iPhone 12 mini", @"iPhone13,2": @"iPhone 12", @"iPhone13,3": @"iPhone 12 Pro", @"iPhone13,4": @"iPhone 12 Pro Max",
+            @"iPhone14,2": @"iPhone 13 Pro", @"iPhone14,3": @"iPhone 13 Pro Max", @"iPhone14,4": @"iPhone 13 mini",
+            @"iPhone14,5": @"iPhone 13", @"iPhone14,6": @"iPhone SE（第3代）",
+            @"iPhone14,7": @"iPhone 14", @"iPhone14,8": @"iPhone 14 Plus",
+            @"iPhone15,2": @"iPhone 14 Pro", @"iPhone15,3": @"iPhone 14 Pro Max",
+            @"iPhone15,4": @"iPhone 15", @"iPhone15,5": @"iPhone 15 Plus",
+            @"iPhone16,1": @"iPhone 15 Pro", @"iPhone16,2": @"iPhone 15 Pro Max",
+            @"iPhone17,1": @"iPhone 16 Pro", @"iPhone17,2": @"iPhone 16 Pro Max",
+            @"iPhone17,3": @"iPhone 16", @"iPhone17,4": @"iPhone 16 Plus", @"iPhone17,5": @"iPhone 16e",
+        };
+    });
+    NSString *name = machine.length > 0 ? table[machine] : nil;
+    if (name.length > 0) return name;
+    return machine.length > 0 ? machine : @"未知";
+}
+
+NSDictionary *ZXDeviceSummary(void)
+{
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    struct utsname info;
+    NSString *machine = @"";
+    if (uname(&info) == 0) {
+        machine = [NSString stringWithCString:info.machine encoding:NSUTF8StringEncoding] ?: @"";
+    }
+    d[@"machine"] = machine;
+    d[@"marketing"] = ZXMarketingNameForMachine(machine);
+    d[@"model"] = [UIDevice currentDevice].model ?: @"";
+    d[@"name"] = [UIDevice currentDevice].name ?: @"";
+    d[@"system"] = [UIDevice currentDevice].systemVersion ?: @"";
+    d[@"ram_bytes"] = @([NSProcessInfo processInfo].physicalMemory);
+    d[@"cores"] = @([NSProcessInfo processInfo].activeProcessorCount);
+
+    __block CGSize size = CGSizeZero;
+    __block CGFloat scale = 1.0;
+    ZXRunOnMainSync(^{
+        UIScreen *screen = [UIScreen mainScreen];
+        size = screen.bounds.size;
+        scale = screen.scale;
+    });
+    d[@"screen_points_w"] = @(size.width);
+    d[@"screen_points_h"] = @(size.height);
+    d[@"screen_scale"] = @(scale);
+    d[@"screen_pixels_w"] = @(size.width * scale);
+    d[@"screen_pixels_h"] = @(size.height * scale);
+    return d;
+}
+
+NSDictionary *ZXBatterySummary(void)
+{
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    d[@"available"] = @NO;
+
+    io_service_t svc = IOServiceGetMatchingService(MACH_PORT_NULL, IOServiceMatching("AppleSmartBattery"));
+    if (svc) {
+        CFMutableDictionaryRef props = NULL;
+        if (IORegistryEntryCreateCFProperties(svc, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS && props) {
+            NSDictionary *p = (__bridge_transfer NSDictionary *)props;
+            d[@"available"] = @YES;
+            NSNumber *cycles = p[@"CycleCount"];
+            NSNumber *design = p[@"DesignCapacity"];
+            NSNumber *maxCap = p[@"NominalChargeCapacity"] ?: p[@"AppleRawMaxCapacity"] ?: p[@"MaxCapacity"];
+            if (cycles) d[@"cycle_count"] = cycles;
+            if (design) d[@"design_capacity"] = design;
+            if (maxCap) d[@"max_capacity"] = maxCap;
+            double designVal = [design doubleValue];
+            double maxVal = [maxCap doubleValue];
+            if (designVal > 0 && maxVal > 0) d[@"health_percent"] = @(maxVal / designVal * 100.0);
+        }
+        IOObjectRelease(svc);
+    }
+
+    UIDevice *dev = [UIDevice currentDevice];
+    [dev setBatteryMonitoringEnabled:YES];
+    double level = dev.batteryLevel;
+    d[@"current_percent"] = (level >= 0) ? @(level * 100.0) : @(-1);
+    d[@"charging"] = @(dev.batteryState == UIDeviceBatteryStateCharging || dev.batteryState == UIDeviceBatteryStateFull);
+    return d;
+}
+
+NSDictionary *ZXJailbreakSummary(void)
+{
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+
+    char buf[PATH_MAX];
+    ssize_t n = readlink("/var/jb", buf, sizeof(buf) - 1);
+    if (n > 0) {
+        d[@"varjb_target"] = [[NSString alloc] initWithBytes:buf length:(NSUInteger)n encoding:NSUTF8StringEncoding] ?: @"";
+    } else {
+        d[@"varjb_target"] = @"";
+    }
+
+    NSString *prefixProbe = jbroot(@"/__zx_probe__");
+    NSString *prefix = @"";
+    if ([prefixProbe hasSuffix:@"/__zx_probe__"]) {
+        prefix = [prefixProbe substringToIndex:prefixProbe.length - (NSUInteger)strlen("/__zx_probe__")];
+    }
+    d[@"jbroot_prefix"] = prefix ?: @"";
+    d[@"type"] = (prefix.length > 0) ? @"rootless（无根）" : @"rootful（有根）";
+
+    NSArray<NSString *> *markers = @[
+        @"/var/jb/.procursus_strapped",
+        @"/var/jb/.installed_palera1n",
+        @"/var/jb/.installed_odyssey",
+        @"/var/jb/.installed_dopamine",
+        @"/var/jb/.installed_unc0ver",
+        @"/var/jb/.installed_checkra1n",
+        @"/var/jb/basebin/jbctl",
+    ];
+    NSMutableArray<NSString *> *foundMarkers = [NSMutableArray array];
+    for (NSString *marker in markers) {
+        if ([[NSFileManager defaultManager] fileExistsAtPath:marker]) {
+            [foundMarkers addObject:marker.lastPathComponent];
+        }
+    }
+    d[@"bootstrap_markers"] = foundMarkers;
+
+    NSMutableArray<NSString *> *tools = [NSMutableArray array];
+    NSArray<NSDictionary *> *toolsMap = @[
+        @{ @"name": @"Sileo", @"parts": @[ @"Sileo.app", @"org.coolstar.SileoStore" ] },
+        @{ @"name": @"Zebra", @"parts": @[ @"Zebra.app", @"xyz.willy.Zebra" ] },
+        @{ @"name": @"Dopamine", @"parts": @[ @"Dopamine.app", @"com.opa334.Dopamine" ] },
+        @{ @"name": @"TrollStore", @"parts": @[ @"TrollStore.app", @"com.opa334.TrollStore" ] },
+        @{ @"name": @"palera1n", @"parts": @[ @"palera1n.app", @"com.palera1n.palera1n" ] },
+    ];
+    NSArray<NSString *> *appDirs = @[ jbroot(@"/Applications"), @"/Applications", @"/var/jb/Applications" ];
+    for (NSDictionary *entry in toolsMap) {
+        BOOL hit = NO;
+        for (NSString *part in entry[@"parts"]) {
+            if ([part hasSuffix:@".app"]) {
+                for (NSString *dir in appDirs) {
+                    NSString *full = [dir stringByAppendingPathComponent:part];
+                    if ([[NSFileManager defaultManager] fileExistsAtPath:full]) { hit = YES; break; }
+                }
+            } else if (objc_getClass("SBApplicationController")) {
+                Class ctrlClass = objc_getClass("SBApplicationController");
+                __block BOOL found = NO;
+                ZXRunOnMainSync(^{
+                    @try {
+                        id ctrl = [ctrlClass sharedInstance];
+                        if ([ctrl respondsToSelector:@selector(applicationWithBundleIdentifier:)]) {
+                            found = ([ctrl applicationWithBundleIdentifier:part] != nil);
+                        }
+                    } @catch (NSException *e) { }
+                });
+                if (found) { hit = YES; }
+            }
+            if (hit) break;
+        }
+        if (hit) [tools addObject:entry[@"name"]];
+    }
+    d[@"tools"] = tools;
+    return d;
+}
+
+static NSString *ZXFileBirthTimeString(NSString *path)
+{
+    struct stat st;
+    if (stat(path.UTF8String, &st) != 0) return @"";
+    time_t t = st.st_birthtimespec.tv_sec;
+    if (t <= 0) t = st.st_ctimespec.tv_sec;
+    if (t <= 0) return @"";
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)t];
+    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+    fmt.dateFormat = @"yyyy-MM-dd HH:mm";
+    return [fmt stringFromDate:date];
+}
+
+NSDictionary *ZXInstallSummary(void)
+{
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+
+    Dl_info dlInfo = {0};
+    if (dladdr((void *)ZXDeviceSummary, &dlInfo) && dlInfo.dli_fname) {
+        NSString *dylibPath = [NSString stringWithUTF8String:dlInfo.dli_fname] ?: @"";
+        d[@"dylib_path"] = dylibPath;
+        if (dylibPath.length > 0) d[@"dylib_time"] = ZXFileBirthTimeString(dylibPath);
+    }
+
+    NSArray<NSString *> *appCandidates = @[
+        jbroot(@"/Applications/zxtouch.app"),
+        @"/var/jb/Applications/zxtouch.app",
+        @"/Applications/zxtouch.app",
+    ];
+    for (NSString *appPath in appCandidates) {
+        if ([[NSFileManager defaultManager] fileExistsAtPath:appPath]) {
+            d[@"app_path"] = appPath;
+            d[@"app_time"] = ZXFileBirthTimeString(appPath);
+            break;
+        }
+    }
+    return d;
 }
 
 static NSArray<NSString *> *ZXRingtoneFolders(void)

@@ -4,9 +4,33 @@
 //
 
 #import "FlowScript.h"
+#import "Common.h"
 #import "Screen.h"
 
 #import <math.h>
+
+// 步骤标题里的 App：包名换成中文显示名（找不到就退回包名）。结果缓存 10 秒，避免每个步骤行都去枚举一遍
+static NSString *fwAppDisplayName(NSString *bundle)
+{
+    if (bundle.length == 0) return bundle;
+
+    static NSDictionary<NSString *, NSString *> *map = nil;
+    static NSTimeInterval loadedAt = 0;
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (map == nil || now - loadedAt > 10.0) {
+        NSMutableDictionary<NSString *, NSString *> *m = [NSMutableDictionary dictionary];
+        for (NSDictionary *app in ZXInstalledApplications()) {
+            NSString *b = app[@"bundle"];
+            NSString *n = app[@"name"];
+            if (b.length > 0 && n.length > 0) m[b] = n;
+        }
+        map = m;
+        loadedAt = now;
+    }
+
+    NSString *name = map[bundle];
+    return name.length > 0 ? name : bundle;
+}
 
 NSString * const kFlowFileName = @"flow.plist";
 NSString * const kFlowTemplateFolder = @"/var/mobile/Library/ZXTouch/tpl";
@@ -220,11 +244,15 @@ static NSString *fwSimValue(id value)
         screenshot.hint = @"「截屏保存」在后台截当前屏幕并存进相册，不会弹出系统截图预览。";
         screenshot.fields = @[];
 
-        // 粘贴：填了文字就输入文字，没填就用剪贴板
+        // 粘贴：从剪贴板粘贴，或输入自定义文字，由「方式」决定
         FlowStepType *paste = [self type:kFlowPaste title:@"粘贴" symbol:@"doc.on.clipboard" condition:NO];
         paste.category = kCatApp;
+        FlowFieldSpec *pasteMode = [FlowFieldSpec key:@"Mode" title:@"方式" integer:NO def:@"clipboard"];
+        pasteMode.choiceTitles = @[ @"剪贴板", @"自定义文字" ];
+        pasteMode.choiceValues = @[ @"clipboard", @"text" ];
         paste.fields = @[
-            [FlowFieldSpec key:@"Text" title:@"要输入的文字（留空 = 粘贴剪贴板）" integer:NO def:@""],
+            pasteMode,
+            [FlowFieldSpec key:@"Text" title:@"自定义文字" integer:NO def:@""],
         ];
 
         // 响铃：系统铃声 + 持续秒数
@@ -385,6 +413,14 @@ static NSString *fwSimValue(id value)
     return [NSString stringWithFormat:@"%@", value ?: @""];
 }
 
++ (NSString *)pasteModeForStep:(NSDictionary *)step
+{
+    NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"";
+    if (mode.length > 0) return mode;
+    NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+    return text.length > 0 ? @"text" : @"clipboard";
+}
+
 + (NSString *)summaryForStep:(NSDictionary *)step
 {
     NSString *kind = step[@"Kind"];
@@ -434,7 +470,7 @@ static NSString *fwSimValue(id value)
         NSString *bundle = [step[@"Bundle"] isKindOfClass:[NSString class]] ? step[@"Bundle"] : @"";
         return [NSString stringWithFormat:@"%@ App %@%@",
                 [mode isEqualToString:@"close"] ? @"关闭" : @"打开",
-                bundle.length ? bundle : @"（未选择）",
+                bundle.length ? fwAppDisplayName(bundle) : @"（未选择）",
                 [mode isEqualToString:@"close"] ? @"（会杀死进程）" : @""];
     }
     if ([kind isEqualToString:kFlowWiFi]) {
@@ -445,8 +481,12 @@ static NSString *fwSimValue(id value)
         return @"截屏并保存到相册";
     }
     if ([kind isEqualToString:kFlowPaste]) {
-        NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
-        return text.length ? [NSString stringWithFormat:@"输入「%@」", text] : @"粘贴剪贴板";
+        NSString *mode = [self pasteModeForStep:step];
+        if ([mode isEqualToString:@"text"]) {
+            NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+            return text.length ? [NSString stringWithFormat:@"输入「%@」", text] : @"输入（没填文字）";
+        }
+        return @"粘贴剪贴板内容";
     }
     if ([kind isEqualToString:kFlowRing]) {
         NSString *sound = [step[@"Sound"] isKindOfClass:[NSString class]] ? step[@"Sound"] : @"";
@@ -1062,12 +1102,13 @@ static NSString *fwSimValue(id value)
         line = [NSString stringWithFormat:@"发送企业微信(\"%@\", \"%@\")",
                 [self singleLineText:step[@"URL"]], [self singleLineText:step[@"Text"]]];
     } else if ([kind isEqualToString:kFlowPaste]) {
+        NSString *mode = [self pasteModeForStep:step];
         NSString *text = [NSString stringWithFormat:@"%@", step[@"Text"] ?: @""];
-        if (text.length == 0) {
-            line = @"设备.paste_from_clipboard()";
-        } else {
+        if ([mode isEqualToString:@"text"] && text.length > 0) {
             text = [text stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
             line = [NSString stringWithFormat:@"设备.insert_text(\"%@\")", text];
+        } else {
+            line = @"设备.paste_from_clipboard()";
         }
     } else if ([kind isEqualToString:kFlowRing]) {
         NSString *sound = [NSString stringWithFormat:@"%@", step[@"Sound"] ?: @""];
