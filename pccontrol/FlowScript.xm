@@ -19,6 +19,12 @@ NSString * const kFlowColor = @"color";
 NSString * const kFlowFindColor = @"findColor";
 NSString * const kFlowImage = @"image";
 NSString * const kFlowOCR = @"ocr";
+NSString * const kFlowOpenApp = @"openApp";
+NSString * const kFlowHome = @"home";
+NSString * const kFlowKillApp = @"killApp";
+NSString * const kFlowPaste = @"paste";
+NSString * const kFlowRing = @"ring";
+NSString * const kFlowVolume = @"volume";
 
 // 点击的默认值：改这里，生成器与弹窗默认值一起跟着变
 static const double kDefaultTapInterval = 0.02;
@@ -142,7 +148,49 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
             [FlowFieldSpec key:@"Languages" title:@"识别语言（zh-Hans 中文 / en-US 英文）" integer:NO def:@"zh-Hans,en-US"],
         ];
 
-        types = @[tap, swipe, wait, toast, color, findColor, image, ocr];
+        // 打开 App：Bundle 从「已安装 App 列表」里选，不手打
+        FlowStepType *openApp = [self type:kFlowOpenApp title:@"打开App" symbol:@"app.badge.fill" condition:NO];
+        FlowFieldSpec *openAppBundle = [FlowFieldSpec key:@"Bundle" title:@"目标 App" integer:NO def:@""];
+        openAppBundle.pickerKind = @"app";
+        openApp.fields = @[ openAppBundle ];
+
+        // 返回主屏幕：无参数
+        FlowStepType *home = [self type:kFlowHome title:@"返回主屏幕" symbol:@"house.fill" condition:NO];
+        home.fields = @[];
+
+        // 关闭 App（杀后台）
+        FlowStepType *killApp = [self type:kFlowKillApp title:@"关闭App" symbol:@"xmark.app.fill" condition:NO];
+        FlowFieldSpec *killAppBundle = [FlowFieldSpec key:@"Bundle" title:@"目标 App" integer:NO def:@""];
+        killAppBundle.pickerKind = @"app";
+        killApp.fields = @[ killAppBundle ];
+
+        // 粘贴：填了文字就输入文字，没填就用剪贴板
+        FlowStepType *paste = [self type:kFlowPaste title:@"粘贴" symbol:@"doc.on.clipboard" condition:NO];
+        paste.fields = @[
+            [FlowFieldSpec key:@"Text" title:@"要输入的文字（留空 = 粘贴剪贴板）" integer:NO def:@""],
+        ];
+
+        // 响铃：系统铃声 + 持续秒数
+        FlowStepType *ring = [self type:kFlowRing title:@"响铃" symbol:@"bell.fill" condition:NO];
+        FlowFieldSpec *ringSound = [FlowFieldSpec key:@"Sound" title:@"铃声" integer:NO def:@"Alarm.m4r"];
+        ringSound.pickerKind = @"ringtone";
+        ring.fields = @[
+            ringSound,
+            [FlowFieldSpec numKey:@"Seconds" title:@"响几秒" integer:NO def:@"3"],
+        ];
+
+        // 调整设备音量：百分比 / 调高 / 调低
+        FlowStepType *volume = [self type:kFlowVolume title:@"调整音量" symbol:@"speaker.wave.3.fill" condition:NO];
+        FlowFieldSpec *volumeMode = [FlowFieldSpec key:@"Mode" title:@"方式" integer:NO def:@"percent"];
+        volumeMode.choiceTitles = @[ @"百分比", @"调高", @"调低" ];
+        volumeMode.choiceValues = @[ @"percent", @"up", @"down" ];
+        volume.fields = @[
+            volumeMode,
+            [FlowFieldSpec key:@"Percent" title:@"目标音量（0-100，百分比时用）" integer:YES def:@"50"],
+            [FlowFieldSpec key:@"Steps" title:@"增减格数（1-16，调高/调低时用）" integer:YES def:@"2"],
+        ];
+
+        types = @[tap, swipe, wait, toast, color, findColor, image, ocr, openApp, home, killApp, paste, ring, volume];
     });
     return types;
 }
@@ -267,6 +315,35 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
                 [self textForValue:step[@"X1"]], [self textForValue:step[@"Y1"]],
                 [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]],
                 word, text.length ? text : @"（没填）"];
+    }
+    if ([kind isEqualToString:kFlowOpenApp]) {
+        NSString *bundle = [step[@"Bundle"] isKindOfClass:[NSString class]] ? step[@"Bundle"] : @"";
+        return [NSString stringWithFormat:@"打开 App %@", bundle.length ? bundle : @"（未选择）"];
+    }
+    if ([kind isEqualToString:kFlowHome]) {
+        return @"返回主屏幕";
+    }
+    if ([kind isEqualToString:kFlowKillApp]) {
+        NSString *bundle = [step[@"Bundle"] isKindOfClass:[NSString class]] ? step[@"Bundle"] : @"";
+        return [NSString stringWithFormat:@"关闭 App %@", bundle.length ? bundle : @"（未选择）"];
+    }
+    if ([kind isEqualToString:kFlowPaste]) {
+        NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+        return text.length ? [NSString stringWithFormat:@"输入「%@」", text] : @"粘贴剪贴板";
+    }
+    if ([kind isEqualToString:kFlowRing]) {
+        NSString *sound = [step[@"Sound"] isKindOfClass:[NSString class]] ? step[@"Sound"] : @"";
+        return [NSString stringWithFormat:@"响铃「%@」%@ 秒", sound.length ? sound : @"（未选择）", [self textForValue:step[@"Seconds"]]];
+    }
+    if ([kind isEqualToString:kFlowVolume]) {
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"percent";
+        if ([mode isEqualToString:@"up"]) {
+            return [NSString stringWithFormat:@"音量调高 %@ 格", [self textForValue:step[@"Steps"]]];
+        }
+        if ([mode isEqualToString:@"down"]) {
+            return [NSString stringWithFormat:@"音量调低 %@ 格", [self textForValue:step[@"Steps"]]];
+        }
+        return [NSString stringWithFormat:@"音量设为 %@%%", [self textForValue:step[@"Percent"]]];
     }
     return @"未知步骤";
 }
@@ -786,6 +863,38 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         NSString *text = [NSString stringWithFormat:@"%@", step[@"Text"] ?: @""];
         text = [text stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
         line = [NSString stringWithFormat:@"设备.show_toast(TOAST_MESSAGE, \"%@\", %@)", text, [self textForValue:step[@"Seconds"]]];
+    } else if ([kind isEqualToString:kFlowOpenApp]) {
+        NSString *bundle = [NSString stringWithFormat:@"%@", step[@"Bundle"] ?: @""];
+        bundle = [bundle stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+        line = [NSString stringWithFormat:@"设备.switch_to_app(\"%@\")", bundle];
+    } else if ([kind isEqualToString:kFlowHome]) {
+        line = @"设备.go_home()";
+    } else if ([kind isEqualToString:kFlowKillApp]) {
+        NSString *bundle = [NSString stringWithFormat:@"%@", step[@"Bundle"] ?: @""];
+        bundle = [bundle stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+        line = [NSString stringWithFormat:@"设备.kill_app(\"%@\")", bundle];
+    } else if ([kind isEqualToString:kFlowPaste]) {
+        NSString *text = [NSString stringWithFormat:@"%@", step[@"Text"] ?: @""];
+        if (text.length == 0) {
+            line = @"设备.paste_from_clipboard()";
+        } else {
+            text = [text stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+            line = [NSString stringWithFormat:@"设备.insert_text(\"%@\")", text];
+        }
+    } else if ([kind isEqualToString:kFlowRing]) {
+        NSString *sound = [NSString stringWithFormat:@"%@", step[@"Sound"] ?: @""];
+        if (sound.length == 0) sound = @"Alarm.m4r";
+        sound = [sound stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+        line = [NSString stringWithFormat:@"设备.play_ring(\"%@\", %@)", sound, [self textForValue:step[@"Seconds"]]];
+    } else if ([kind isEqualToString:kFlowVolume]) {
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"percent";
+        if ([mode isEqualToString:@"up"]) {
+            line = [NSString stringWithFormat:@"设备.change_volume(%@)", [self textForValue:step[@"Steps"]]];
+        } else if ([mode isEqualToString:@"down"]) {
+            line = [NSString stringWithFormat:@"设备.change_volume(-%@)", [self textForValue:step[@"Steps"]]];
+        } else {
+            line = [NSString stringWithFormat:@"设备.set_volume(%@)", [self textForValue:step[@"Percent"]]];
+        }
     } else {
         return;
     }

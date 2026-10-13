@@ -15,6 +15,7 @@
 @interface SpringBoard : UIApplication
 -(int)_frontMostAppOrientation;
 -(id)_accessibilityFrontMostApplication;
+- (void)_simulateHomeButtonPress;
 @end
 
 
@@ -24,6 +25,14 @@
 @property (nonatomic, retain, readonly) NSString *displayIdentifier NS_DEPRECATED_IOS(4_0, 8_0);
 @property (nonatomic, retain, readonly) NSString *bundleIdentifier NS_AVAILABLE_IOS(8_0); // Technically available in iOS 5 as well (https://github.com/MP0w/iOS-Headers/blob/master/iOS5.0/SpringBoard/SB.h#L143) and even iOS 4, but you probably don't want to use that (see: Camera/Photos).
 @property (nonatomic, retain, readonly) NSString *displayName;
+@property (nonatomic, readonly) pid_t pid;
+@end
+
+@interface SBApplicationController : NSObject
++ (instancetype)sharedInstance;
+- (SBApplication *)applicationWithBundleIdentifier:(NSString *)bundleIdentifier;
+- (SBApplication *)applicationWithPid:(NSInteger)pid;
+- (NSArray *)allApplications;
 @end
 
 int getRandomNumberInt(int min, int max);
@@ -41,6 +50,23 @@ int zxWaitTimeout(pid_t pid, double timeoutSec, int *status);
 int roundUp(int numToRound, int multiple);
 Boolean isIpad();
 NSString* getDeviceName();
+
+/*
+ 单步动作共用实现：Task.xm（socket 通道）与 FlowWindow.xm（面板单步执行）都走这里，
+ 免得同一套私有 API 写两遍。
+*/
+BOOL ZXGoHome(NSError **error);
+BOOL ZXKillApp(NSString *bundleIdentifier, NSError **error);
+BOOL ZXPlayRingtone(NSString *path, double seconds, NSError **error);
+/// mode：@"percent" 取 value 0-100 绝对值；@"delta" 取 value 增/减格数（1 格 = 1/16）
+BOOL ZXSetVolume(NSString *mode, double value, NSError **error);
+
+/// 已安装 App（用户可见的），每项 @{ @"bundle": bundleIdentifier, @"name": displayName }
+NSArray<NSDictionary *> *ZXInstalledApplications(void);
+/// 系统铃声目录（rootless/rootful 都试一遍）
+NSString *ZXRingtoneFolder(void);
+/// 目录下的铃声文件名（带扩展名，已排序）
+NSArray<NSString *> *ZXRingtoneNames(void);
 
 /*
  Main-queue UI guard.

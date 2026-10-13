@@ -45,6 +45,15 @@
 // 45：Python 依赖诊断，返回 JSON
 #define TASK_PYTHON_CHECK 45
 
+// 46：返回主屏幕（无载荷）
+#define TASK_GO_HOME 46
+// 47：关闭 App（杀后台）；载荷 = bundle id
+#define TASK_KILL_APP 47
+// 48：响铃；载荷 = 铃声路径或文件名;;持续秒数
+#define TASK_PLAY_RING 48
+// 49：调整音量；载荷 = percent|delta;;数值（percent 为 0-100，delta 为增减格数）
+#define TASK_SET_VOLUME 49
+
 #define TASK_UPDATE_CACHE 90
 
 #define TASK_TEST 99

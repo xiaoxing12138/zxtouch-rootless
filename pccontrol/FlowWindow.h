@@ -46,6 +46,9 @@
 /// 顶栏左键返回上一页（根页什么都不做）
 - (void)goBack;
 
+/// 面板内「bilibili:小新Lap」：弹交流方式与免责声明说明浮窗
+- (void)showAboutSheet;
+
 /// 收起编辑器自己弹出的覆盖层（子浮窗 / 行菜单）；面板整体收起时要调
 - (void)hideOverlays;
 

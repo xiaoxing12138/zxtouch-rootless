@@ -1107,6 +1107,49 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             }
         }
     }
+    else if (taskType == TASK_GO_HOME)
+    {
+        @autoreleasepool {
+            NSError *err = nil;
+            BOOL ok = ZXGoHome(&err);
+            notifyClient((UInt8*)[(ok ? @"0\r\n" : [NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"返回主屏幕失败"]) UTF8String], writeStreamRef);
+        }
+    }
+    else if (taskType == TASK_KILL_APP)
+    {
+        @autoreleasepool {
+            NSString *bundle = eventData ? [NSString stringWithUTF8String:(const char *)eventData] : @"";
+            bundle = [bundle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            NSError *err = nil;
+            BOOL ok = ZXKillApp(bundle, &err);
+            notifyClient((UInt8*)[(ok ? @"0\r\n" : [NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"关闭失败"]) UTF8String], writeStreamRef);
+        }
+    }
+    else if (taskType == TASK_PLAY_RING)
+    {
+        @autoreleasepool {
+            NSString *data = eventData ? [NSString stringWithUTF8String:(const char *)eventData] : @"";
+            NSArray *parts = [data componentsSeparatedByString:@";;"];
+            NSString *path = parts.count > 0 ? parts[0] : @"";
+            double seconds = parts.count > 1 ? [parts[1] doubleValue] : 0.0;
+            if (seconds <= 0) seconds = 1.0;
+            NSError *err = nil;
+            BOOL ok = ZXPlayRingtone(path, seconds, &err);
+            notifyClient((UInt8*)[(ok ? @"0\r\n" : [NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"响铃失败"]) UTF8String], writeStreamRef);
+        }
+    }
+    else if (taskType == TASK_SET_VOLUME)
+    {
+        @autoreleasepool {
+            NSString *data = eventData ? [NSString stringWithUTF8String:(const char *)eventData] : @"";
+            NSArray *parts = [data componentsSeparatedByString:@";;"];
+            NSString *mode = parts.count > 0 ? parts[0] : @"percent";
+            double value = parts.count > 1 ? [parts[1] doubleValue] : 50.0;
+            NSError *err = nil;
+            BOOL ok = ZXSetVolume(mode, value, &err);
+            notifyClient((UInt8*)[(ok ? @"0\r\n" : [NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"调整音量失败"]) UTF8String], writeStreamRef);
+        }
+    }
     else if (taskType == TASK_UPDATE_CACHE)
     {
         @autoreleasepool{

@@ -28,6 +28,12 @@ extern NSString * const kFlowColor;      // 识色（条件）
 extern NSString * const kFlowFindColor;  // 找色（条件）
 extern NSString * const kFlowImage;      // 识图（条件）
 extern NSString * const kFlowOCR;        // 识字（条件）
+extern NSString * const kFlowOpenApp;    // 打开 App
+extern NSString * const kFlowHome;       // 返回主屏幕
+extern NSString * const kFlowKillApp;    // 关闭 App（杀后台）
+extern NSString * const kFlowPaste;      // 粘贴
+extern NSString * const kFlowRing;       // 响铃
+extern NSString * const kFlowVolume;     // 调整设备音量
 
 /// 在弹窗里追加的「从屏幕取…」动作
 typedef NS_ENUM(NSInteger, FlowPickMode) {
@@ -49,6 +55,8 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 @property (nonatomic, copy, nullable) NSArray<NSString *> *choiceTitles;
 /// 与 choiceTitles 一一对应，存进 plist 的值；缺省时直接存 choiceTitles
 @property (nonatomic, copy, nullable) NSArray<NSString *> *choiceValues;
+/// 非空 = 这一行的值从「列表」里选，不是手打：@"app"（已安装 App）/ @"ringtone"（系统铃声）
+@property (nonatomic, copy, nullable) NSString *pickerKind;
 + (instancetype)key:(NSString *)key title:(NSString *)title integer:(BOOL)integer def:(NSString *)def;
 /// 同上，并标记为「数值字段」（小数也走 DecimalPad + 上下箭头步进器）
 + (instancetype)numKey:(NSString *)key title:(NSString *)title integer:(BOOL)integer def:(NSString *)def;

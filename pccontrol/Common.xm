@@ -1,5 +1,7 @@
 #include "Common.h"
 #include "Config.h"
+#import <AVFoundation/AVFoundation.h>
+#import <objc/runtime.h>
 #import <sys/utsname.h>
 #import <sys/wait.h>
 #include <dlfcn.h>
@@ -8,6 +10,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <signal.h>
 
 static const char *zxShellPath(void)
 {
@@ -681,4 +684,249 @@ void ZXShowMiniMenuNearView(UIView *anchor, NSArray<NSDictionary *> *items)
         menu.alpha = 1;
         menu.transform = CGAffineTransformIdentity;
     } completion:nil];
+}
+
+#pragma mark - 单步动作共用实现
+
+@interface AVSystemController : NSObject
++ (instancetype)sharedAVSystemController;
+- (BOOL)setVolumeTo:(float)volume forCategory:(NSString *)category;
+- (BOOL)getVolume:(float *)volume forCategory:(NSString *)category;
+@end
+
+static NSError *ZXActionError(NSString *message)
+{
+    return [NSError errorWithDomain:@"小新Lap" code:1
+                          userInfo:@{NSLocalizedDescriptionKey: message ?: @"执行失败"}];
+}
+
+static void ZXRunOnMainSync(dispatch_block_t block)
+{
+    if ([NSThread isMainThread]) block();
+    else dispatch_sync(dispatch_get_main_queue(), block);
+}
+
+BOOL ZXGoHome(NSError **error)
+{
+    Class sbClass = objc_getClass("SpringBoard");
+    if (!sbClass) {
+        if (error) *error = ZXActionError(@"当前系统不支持返回主屏幕。");
+        return NO;
+    }
+
+    __block BOOL done = NO;
+    ZXRunOnMainSync(^{
+        @try {
+            SpringBoard *sb = (SpringBoard *)[sbClass sharedApplication];
+            if ([sb respondsToSelector:@selector(_simulateHomeButtonPress)]) {
+                [sb _simulateHomeButtonPress];
+                done = YES;
+            }
+        } @catch (NSException *exception) {
+            NSLog(@"com.zjx.springboard: ZXGoHome failed: %@", exception.reason);
+        }
+    });
+
+    if (!done && error) *error = ZXActionError(@"返回主屏幕失败。");
+    return done;
+}
+
+BOOL ZXKillApp(NSString *bundleIdentifier, NSError **error)
+{
+    if (bundleIdentifier.length == 0) {
+        if (error) *error = ZXActionError(@"没有指定要关闭的 App。");
+        return NO;
+    }
+
+    Class ctrlClass = objc_getClass("SBApplicationController");
+    if (!ctrlClass) {
+        if (error) *error = ZXActionError(@"当前系统不支持关闭 App。");
+        return NO;
+    }
+
+    __block pid_t pid = 0;
+    ZXRunOnMainSync(^{
+        @try {
+            id ctrl = [ctrlClass sharedInstance];
+            SBApplication *app = nil;
+            if ([ctrl respondsToSelector:@selector(applicationWithBundleIdentifier:)]) {
+                app = [ctrl applicationWithBundleIdentifier:bundleIdentifier];
+            }
+            if (!app && [ctrl respondsToSelector:@selector(allApplications)]) {
+                for (SBApplication *candidate in [ctrl allApplications]) {
+                    if ([[candidate bundleIdentifier] isEqualToString:bundleIdentifier]) {
+                        app = candidate;
+                        break;
+                    }
+                }
+            }
+            pid = app.pid;
+        } @catch (NSException *exception) {
+            NSLog(@"com.zjx.springboard: ZXKillApp lookup failed: %@", exception.reason);
+        }
+    });
+
+    if (pid <= 0) {
+        if (error) *error = ZXActionError(@"这个 App 当前没在运行。");
+        return NO;
+    }
+    if (kill(pid, SIGKILL) != 0) {
+        if (error) *error = ZXActionError([NSString stringWithFormat:@"关闭失败（pid %d, errno %d）。", pid, errno]);
+        return NO;
+    }
+    return YES;
+}
+
+NSArray<NSDictionary *> *ZXInstalledApplications(void)
+{
+    NSMutableArray *result = [NSMutableArray array];
+    Class ctrlClass = objc_getClass("SBApplicationController");
+    if (!ctrlClass) return result;
+
+    ZXRunOnMainSync(^{
+        @try {
+            id ctrl = [ctrlClass sharedInstance];
+            for (SBApplication *app in [ctrl allApplications]) {
+                NSString *bundle = nil;
+                if ([app respondsToSelector:@selector(bundleIdentifier)]) bundle = [app bundleIdentifier];
+                if (bundle.length == 0 && [app respondsToSelector:@selector(displayIdentifier)]) {
+                    bundle = [app displayIdentifier];
+                }
+                if (bundle.length == 0) continue;
+                NSString *name = [app respondsToSelector:@selector(displayName)] ? [app displayName] : nil;
+                if (name.length == 0) name = bundle;
+                [result addObject:@{ @"bundle": bundle, @"name": name }];
+            }
+        } @catch (NSException *exception) {
+            NSLog(@"com.zjx.springboard: ZXInstalledApplications failed: %@", exception.reason);
+        }
+    });
+
+    return [result sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [a[@"name"] localizedCaseInsensitiveCompare:b[@"name"]];
+    }];
+}
+
+NSString *ZXRingtoneFolder(void)
+{
+    for (NSString *path in @[ @"/Library/Ringtones", @"/var/jb/Library/Ringtones" ]) {
+        BOOL isDir = NO;
+        if ([[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&isDir] && isDir) return path;
+    }
+    return @"/Library/Ringtones";
+}
+
+static NSArray<NSString *> *ZXRingtoneFolders(void)
+{
+    return @[ @"/Library/Ringtones", @"/var/jb/Library/Ringtones" ];
+}
+
+NSArray<NSString *> *ZXRingtoneNames(void)
+{
+    NSMutableArray *names = [NSMutableArray array];
+    for (NSString *folder in ZXRingtoneFolders()) {
+        for (NSString *name in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:folder error:nil]) {
+            NSString *ext = [name pathExtension].lowercaseString;
+            if ([ext isEqualToString:@"m4r"] || [ext isEqualToString:@"caf"] || [ext isEqualToString:@"aiff"]) {
+                if (![names containsObject:name]) [names addObject:name];
+            }
+        }
+    }
+    return [names sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
+
+BOOL ZXPlayRingtone(NSString *path, double seconds, NSError **error)
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *resolved = path ?: @"";
+    if (![fm fileExistsAtPath:resolved]) {
+        // 允许只填文件名：到系统铃声目录里找
+        NSString *name = [path lastPathComponent];
+        resolved = @"";
+        for (NSString *folder in ZXRingtoneFolders()) {
+            NSString *candidate = [folder stringByAppendingPathComponent:name ?: @""];
+            if (name.length > 0 && [fm fileExistsAtPath:candidate]) { resolved = candidate; break; }
+        }
+    }
+    if (resolved.length == 0 || ![fm fileExistsAtPath:resolved]) {
+        if (error) *error = ZXActionError([NSString stringWithFormat:@"找不到铃声：%@", path ?: @""]);
+        return NO;
+    }
+
+    // 静态持有：播放期间必须保证 AVAudioPlayer 不被 ARC 提前释放
+    static AVAudioPlayer *playing = nil;
+
+    @try {
+        AVAudioSession *session = [AVAudioSession sharedInstance];
+        [session setCategory:AVAudioSessionCategoryPlayback error:nil];
+        [session setActive:YES error:nil];
+
+        NSError *playerError = nil;
+        AVAudioPlayer *player = [[AVAudioPlayer alloc] initWithContentsOfURL:[NSURL fileURLWithPath:resolved]
+                                                                      error:&playerError];
+        if (!player) {
+            if (error) *error = ZXActionError([NSString stringWithFormat:@"无法播放：%@",
+                                               playerError.localizedDescription ?: @"格式不支持"]);
+            return NO;
+        }
+
+        playing = player;
+        player.numberOfLoops = -1;
+        [player play];
+
+        if (seconds > 0) {
+            double capped = MIN(seconds, 3600.0);
+            usleep((useconds_t)llround(capped * 1e6));
+            [player stop];
+        }
+        return YES;
+    } @catch (NSException *exception) {
+        if (error) *error = ZXActionError(exception.reason ?: @"播放铃声失败。");
+        return NO;
+    }
+}
+
+BOOL ZXSetVolume(NSString *mode, double value, NSError **error)
+{
+    static dispatch_once_t once;
+    static Class volumeClass = Nil;
+    dispatch_once(&once, ^{
+        if (dlopen("/System/Library/PrivateFrameworks/Celestial.framework/Celestial", RTLD_LAZY)) {
+            volumeClass = objc_getClass("AVSystemController");
+        }
+    });
+
+    if (!volumeClass) {
+        if (error) *error = ZXActionError(@"当前系统不支持直接调整音量。");
+        return NO;
+    }
+
+    @try {
+        id controller = [volumeClass sharedAVSystemController];
+        if (!controller) {
+            if (error) *error = ZXActionError(@"拿不到系统音量控制器。");
+            return NO;
+        }
+
+        NSString *category = @"Audio/Video";
+        float current = 0.0f;
+        [(AVSystemController *)controller getVolume:&current forCategory:category];
+
+        float target = current;
+        if ([mode isEqualToString:@"delta"]) {
+            target = current + (float)(value / 16.0);
+        } else {
+            target = (float)(value / 100.0);
+        }
+        target = MAX(0.0f, MIN(1.0f, target));
+
+        if (![(AVSystemController *)controller setVolumeTo:target forCategory:category]) {
+            if (error) *error = ZXActionError(@"设置音量失败。");
+            return NO;
+        }
+        return YES;
+    } @catch (NSException *exception) {
+        if (error) *error = ZXActionError(exception.reason ?: @"调整音量失败。");
+        return NO;
+    }
 }

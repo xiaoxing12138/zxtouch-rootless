@@ -275,6 +275,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     UIButton        *_recordBtn;
     UIButton        *_newScriptBtn;  // 挑脚本时顶行的「＋」：弹菜单（新建 / 导入）
     UIButton        *_flowSettingsBtn; // 流程编辑页的「设置」：循环次数/间隔 + 定时启动结束
+    UIButton        *_biliBtn;      // 流程编辑页「设置」左边的文字入口：弹交流与免责声明
     UIImageView     *_resizeGrip;   // 右下角把手：拖它改面板大小
     FNPanelMode      _panelMode;    // 功能页 / 流程编辑页
     BOOL             _flowCanGoBack; // 流程编辑器在子页（顶栏左键 = 返回）
@@ -455,6 +456,14 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
         [[FlowWindow shared] showSettings];
     }] forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:_flowSettingsBtn];
+
+    // 设置左边的文字入口：点了弹「交流与免责声明」
+    _biliBtn = fnMakeButton(@"bilibili:小新Lap", [UIColor systemPinkColor]);
+    _biliBtn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    [_biliBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [[FlowWindow shared] showAboutSheet];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [_cardView addSubview:_biliBtn];
 
     // 顶行右侧：录制（未录制显示「录制」，录制中显示「停止」）
     _recordBtn = fnMakeButton(@"录制", [UIColor systemRedColor]);
@@ -661,6 +670,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     _runBtn.hidden = (_pickingScript || flow);
     _saveBtn.hidden = (_pickingScript || flow);
     _flowSettingsBtn.hidden = !flow;
+    _biliBtn.hidden = !flow;
     _recordBtn.hidden = !_pickingScript;
     _newScriptBtn.hidden = !_pickingScript;
 
@@ -670,8 +680,8 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     _closeBtn.frame = CGRectMake(rightX - 32.0f, topY, 32.0f, topH);
     rightX -= (32.0f + gap);
 
-    NSArray<UIButton *> *topButtons = @[ _saveBtn, _runBtn, _flowSettingsBtn, _recordBtn, _newScriptBtn ];
-    NSArray<NSNumber *> *topWidths = @[ @64.0, @64.0, @40.0, @60.0, @40.0 ];
+    NSArray<UIButton *> *topButtons = @[ _saveBtn, _runBtn, _flowSettingsBtn, _biliBtn, _recordBtn, _newScriptBtn ];
+    NSArray<NSNumber *> *topWidths = @[ @64.0, @64.0, @40.0, @110.0, @60.0, @40.0 ];
     for (NSUInteger i = 0; i < topButtons.count; i++) {
         UIButton *btn = topButtons[i];
         if (btn.hidden) continue;

@@ -54,6 +54,9 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 }
 @end
 
+@interface ZXAboutViewController : UIViewController
+@end
+
 @implementation SettingsPageViewController
 {
     NSArray *sections;
@@ -213,7 +216,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     // Do any additional setup after loading the view.
     self.title = @"设置";
     
-    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"关于小新Lap", @"Python 依赖检测"];
+    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"高级", @"关于小新Lap"];
     configManager = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
     BOOL doubleClickPopup = YES;
     if ([configManager getValueFromKey:@"double_click_volume_show_popup"])
@@ -221,12 +224,6 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         doubleClickPopup = [[configManager getValueFromKey:@"double_click_volume_show_popup"] boolValue];
     }
     
-    BOOL switchAppBeforeRunScript = YES;
-    if ([configManager getValueFromKey:@"switch_app_before_run_script"])
-    {
-        switchAppBeforeRunScript = [[configManager getValueFromKey:@"switch_app_before_run_script"] boolValue];
-    }
-
     BOOL showFinishedPopup = YES;
     if ([configManager getValueFromKey:@"show_script_finished_popup"])
     {
@@ -262,11 +259,9 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量减", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"主屏幕按钮", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_HOME], @"trigger_key": ZX_TRIGGER_HOME, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量减", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"运行脚本前切换App", @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"脚本完成弹窗", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"示例脚本", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"脚本注册表", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
@@ -275,10 +270,10 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": [NSString stringWithFormat:@"v%@ · 基于开源 ZXTouch 二次修改", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @""], @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": [NSString stringWithFormat:@"v%@ · 基于开源 ZXTouch 二次修改", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @""], @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
         ]
     ];
      
@@ -307,9 +302,6 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     BOOL doubleClickPopup = YES;
     if ([configManager getValueFromKey:@"double_click_volume_show_popup"])
         doubleClickPopup = [[configManager getValueFromKey:@"double_click_volume_show_popup"] boolValue];
-    BOOL switchAppBeforeRunScript = YES;
-    if ([configManager getValueFromKey:@"switch_app_before_run_script"])
-        switchAppBeforeRunScript = [[configManager getValueFromKey:@"switch_app_before_run_script"] boolValue];
     BOOL showFinishedPopup = YES;
     if ([configManager getValueFromKey:@"show_script_finished_popup"])
     {
@@ -326,7 +318,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([configManager getValueFromKey:@"floating_menu_enabled"])
         floatingMenu = [[configManager getValueFromKey:@"floating_menu_enabled"] boolValue];
 
-    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"关于小新Lap", @"Python 依赖检测"];
+    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"高级", @"关于小新Lap"];
     cellsForEachSection = @[
         [self remoteManagementCells],
         @[
@@ -340,11 +332,9 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量减", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"主屏幕按钮", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_HOME], @"trigger_key": ZX_TRIGGER_HOME, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量减", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"运行脚本前切换App", @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"脚本完成弹窗", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"示例脚本", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"脚本注册表", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
@@ -353,28 +343,13 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": [NSString stringWithFormat:@"v%@ · 基于开源 ZXTouch 二次修改", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @""], @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": [NSString stringWithFormat:@"v%@ · 基于开源 ZXTouch 二次修改", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @""], @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
         ]
     ];
     [_tableView reloadData];
-}
-
-- (void)handleSwitchAppBeforePlaying:(UISwitch*)s {
-    if ([s isOn])
-    {
-        [configManager updateKey:@"switch_app_before_run_script" forValue:@(true)];
-        [configManager save];
-    }
-    else
-    {
-        [configManager updateKey:@"switch_app_before_run_script" forValue:@(false)];
-        [configManager save];
-    }
-    
-    [self sendTweakCommandAsync:@"902"];
 }
 
 - (void)handleScriptFinishedPopupToggle:(UISwitch*)s {
@@ -657,13 +632,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 }
 
 - (void)handleCreditsTap:(TableViewCellWithEntry*)cell {
-    // Show a brief about alert
-    [Util showAlertBoxWithOneOption:self title:@"小新Lap"
-        message:@"本软件基于开源项目 ZXTouch 二次修改，非原作者发布。\n"
-                @"原项目：https://github.com/Epic0001/zxtouchrootless\n"
-                @"最初来源：xuan32546/IOS13-SimulateTouch\n\n"
-                @"二改版本名：小新Lap（iOS 15-17 无根越狱移植）"
-        buttonString:@"确定"];
+    ZXAboutViewController *vc = [[ZXAboutViewController alloc] init];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 static NSString *ZXPythonErrnoName(int e) {
@@ -1071,14 +1041,260 @@ static NSString *ZXPythonErrnoName(int e) {
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
     return 38;
 }
-/*
-#pragma mark - Navigation
 
-// In a storyboard-based application, you will often want to do a little preparation before navigation
-- (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender {
-    // Get the new view controller using [segue destinationViewController].
-    // Pass the selected object to the new view controller.
+@end
+
+#pragma mark - 关于小新Lap
+
+static NSString * const kZXQQGroup     = @"558715113";
+static NSString * const kZXBilibiliURL = @"https://space.bilibili.com/1036605484";
+
+static NSString *ZXAboutDisclaimerText(void) {
+    return @"本软件（小新Lap）全功能免费，禁止倒卖、转售或二次打包收费；"
+            "仅可用于学习交流与自动化测试，禁止用于任何违法违规用途，"
+            "请勿在游戏、金融等对公平性或安全性有要求的场景中违规使用。"
+            "使用本软件产生的一切后果由使用者自行承担，开发者不承担任何责任。"
+            "请自觉遵守当地法律法规，如不同意本声明请立即停止使用并卸载本软件。";
 }
-*/
+
+static NSArray<NSString *> *ZXLatestVersionURLs(void) {
+    return @[ @"https://cdn.jsdelivr.net/gh/xiaoxing12138/zxtouch-rootless@main/version.json",
+              @"https://raw.githubusercontent.com/xiaoxing12138/zxtouch-rootless/main/version.json" ];
+}
+
+static NSString *ZXCleanVersion(NSString *raw) {
+    NSMutableString *result = [NSMutableString string];
+    for (NSUInteger i = 0; i < raw.length; i++) {
+        unichar c = [raw characterAtIndex:i];
+        if ((c >= '0' && c <= '9') || c == '.') [result appendFormat:@"%C", c];
+    }
+    return result;
+}
+
+static BOOL ZXVersionIsNewer(NSString *remote, NSString *current) {
+    NSString *a = ZXCleanVersion(remote);
+    NSString *b = ZXCleanVersion(current);
+    if (a.length == 0) return NO;
+    NSArray<NSString *> *left = [a componentsSeparatedByString:@"."];
+    NSArray<NSString *> *right = [b componentsSeparatedByString:@"."];
+    NSUInteger count = MAX(left.count, right.count);
+    for (NSUInteger i = 0; i < count; i++) {
+        NSInteger x = i < left.count ? left[i].integerValue : 0;
+        NSInteger y = i < right.count ? right[i].integerValue : 0;
+        if (x != y) return x > y;
+    }
+    return NO;
+}
+
+static void ZXFetchVersionFromURLs(NSArray<NSString *> *urls, NSUInteger index,
+                                   void (^completion)(NSString *version, NSError *error)) {
+    if (index >= urls.count) {
+        completion(nil, [NSError errorWithDomain:@"小新Lap" code:1
+                                        userInfo:@{ NSLocalizedDescriptionKey: @"网络请求失败" }]);
+        return;
+    }
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urls[index]]];
+    request.timeoutInterval = 10;
+    request.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+    [[[NSURLSession sharedSession] dataTaskWithRequest:request
+                                    completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSString *version = nil;
+        if (data.length > 0) {
+            id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+            if ([json isKindOfClass:[NSDictionary class]]) {
+                id value = json[@"version"];
+                if ([value isKindOfClass:[NSString class]]) version = value;
+                else if ([value isKindOfClass:[NSNumber class]]) version = [value stringValue];
+            }
+            if (version.length == 0) {
+                NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                text = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                if (text.length > 0 && text.length < 32) version = text;
+            }
+        }
+        if (version.length > 0) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(version, nil); });
+        } else {
+            ZXFetchVersionFromURLs(urls, index + 1, completion);
+        }
+    }] resume];
+}
+
+static void ZXFetchLatestVersion(BOOL useCache, void (^completion)(NSString *version, NSError *error)) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if (useCache) {
+        NSString *cached = [defaults stringForKey:@"ZXLatestVersion"];
+        NSDate *checkedAt = [defaults objectForKey:@"ZXLatestVersionCheckedAt"];
+        if (cached.length > 0 && [checkedAt isKindOfClass:[NSDate class]] && -[checkedAt timeIntervalSinceNow] < 6 * 3600) {
+            completion(cached, nil);
+            return;
+        }
+    }
+    ZXFetchVersionFromURLs(ZXLatestVersionURLs(), 0, ^(NSString *version, NSError *error) {
+        if (version.length > 0) {
+            NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+            [d setObject:version forKey:@"ZXLatestVersion"];
+            [d setObject:[NSDate date] forKey:@"ZXLatestVersionCheckedAt"];
+            [d synchronize];
+        }
+        completion(version, error);
+    });
+}
+
+@implementation ZXAboutViewController {
+    UILabel  *_latestLabel;
+    UIButton *_updateButton;
+    NSString *_currentVersion;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"关于小新Lap";
+    self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
+
+    UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:self.view.bounds];
+    scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    scroll.alwaysBounceVertical = YES;
+    [self.view addSubview:scroll];
+
+    _currentVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?";
+
+    CGFloat margin = 16.0f;
+    CGFloat w = self.view.bounds.size.width - margin * 2;
+    CGFloat y = 16.0f;
+    CGFloat cy = 0.0f;
+
+    UIView *versionCard = [self cardAt:y width:w margin:margin inScroll:scroll];
+    cy = 14.0f;
+    [self addText:@"小新Lap" font:[UIFont systemFontOfSize:20 weight:UIFontWeightBold]
+            color:[UIColor labelColor] card:versionCard y:&cy width:w wrap:NO];
+    [self addText:[NSString stringWithFormat:@"当前版本：v%@", _currentVersion]
+             font:[UIFont systemFontOfSize:14] color:[UIColor secondaryLabelColor]
+             card:versionCard y:&cy width:w wrap:NO];
+    _latestLabel = [self addText:@"最新版本：检测中…" font:[UIFont systemFontOfSize:14]
+                           color:[UIColor secondaryLabelColor] card:versionCard y:&cy width:w wrap:NO];
+    cy += 2;
+    _updateButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _updateButton.frame = CGRectMake(14, cy, w - 28, 34);
+    _updateButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    [_updateButton setTitle:@"有新版本，点击查看获取方式" forState:UIControlStateNormal];
+    _updateButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    [_updateButton addTarget:self action:@selector(showUpdateHint) forControlEvents:UIControlEventTouchUpInside];
+    _updateButton.hidden = YES;
+    [versionCard addSubview:_updateButton];
+    cy += 38;
+    [self finishCard:versionCard y:&y height:cy + 6 margin:margin width:w];
+
+    UIView *contactCard = [self cardAt:y width:w margin:margin inScroll:scroll];
+    cy = 14.0f;
+    [self addText:@"交流" font:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
+            color:[UIColor labelColor] card:contactCard y:&cy width:w wrap:NO];
+    cy += [self addLink:@"QQ 交流群：558715113（点击复制群号）" card:contactCard y:cy width:w
+                 action:@selector(copyQQGroup)];
+    cy += [self addLink:@"bilibili：小新Lap（点击打开主页）" card:contactCard y:cy width:w
+                 action:@selector(openBilibili)];
+    [self finishCard:contactCard y:&y height:cy + 6 margin:margin width:w];
+
+    UIView *noticeCard = [self cardAt:y width:w margin:margin inScroll:scroll];
+    cy = 14.0f;
+    [self addText:@"开源声明" font:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
+            color:[UIColor labelColor] card:noticeCard y:&cy width:w wrap:NO];
+    [self addText:@"本软件基于开源项目 ZXTouch 二次修改，非原作者发布，此处仅声明来源。"
+             font:[UIFont systemFontOfSize:13] color:[UIColor secondaryLabelColor]
+             card:noticeCard y:&cy width:w wrap:YES];
+    [self finishCard:noticeCard y:&y height:cy + 8 margin:margin width:w];
+
+    UIView *disclaimerCard = [self cardAt:y width:w margin:margin inScroll:scroll];
+    cy = 14.0f;
+    [self addText:@"免责声明" font:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
+            color:[UIColor labelColor] card:disclaimerCard y:&cy width:w wrap:NO];
+    [self addText:ZXAboutDisclaimerText() font:[UIFont systemFontOfSize:13]
+            color:[UIColor secondaryLabelColor] card:disclaimerCard y:&cy width:w wrap:YES];
+    [self finishCard:disclaimerCard y:&y height:cy + 8 margin:margin width:w];
+
+    scroll.contentSize = CGSizeMake(w + margin * 2, y + 20);
+
+    __weak typeof(self) weakSelf = self;
+    ZXFetchLatestVersion(YES, ^(NSString *version, NSError *error) {
+        ZXAboutViewController *s = weakSelf;
+        if (!s) return;
+        if (version.length == 0) {
+            s->_latestLabel.text = @"最新版本：获取失败（请检查网络后重进本页）";
+            return;
+        }
+        if (ZXVersionIsNewer(version, s->_currentVersion)) {
+            s->_latestLabel.text = [NSString stringWithFormat:@"最新版本：v%@", version];
+            s->_latestLabel.textColor = [UIColor systemRedColor];
+            s->_updateButton.hidden = NO;
+        } else {
+            s->_latestLabel.text = [NSString stringWithFormat:@"最新版本：v%@（已是最新）", version];
+        }
+    });
+}
+
+- (UIView *)cardAt:(CGFloat)y width:(CGFloat)w margin:(CGFloat)margin inScroll:(UIScrollView *)scroll {
+    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(margin, y, w, 10)];
+    card.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+    card.layer.cornerRadius = 12;
+    [scroll addSubview:card];
+    return card;
+}
+
+- (void)finishCard:(UIView *)card y:(CGFloat *)y height:(CGFloat)height margin:(CGFloat)margin width:(CGFloat)w {
+    card.frame = CGRectMake(margin, *y, w, height);
+    *y += height + 12.0f;
+}
+
+- (UILabel *)addText:(NSString *)text font:(UIFont *)font color:(UIColor *)color
+                card:(UIView *)card y:(CGFloat *)y width:(CGFloat)w wrap:(BOOL)wrap {
+    CGFloat height = 22.0f;
+    if (wrap) {
+        CGRect rect = [text boundingRectWithSize:CGSizeMake(w - 28, CGFLOAT_MAX)
+                                         options:NSStringDrawingUsesLineFragmentOrigin
+                                      attributes:@{ NSFontAttributeName: font } context:nil];
+        height = ceil(rect.size.height) + 2.0f;
+    }
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(14, *y, w - 28, height)];
+    label.text = text;
+    label.font = font;
+    label.textColor = color;
+    label.numberOfLines = wrap ? 0 : 1;
+    label.adjustsFontSizeToFitWidth = !wrap;
+    label.minimumScaleFactor = 0.75;
+    [card addSubview:label];
+    *y += height + 4.0f;
+    return label;
+}
+
+- (CGFloat)addLink:(NSString *)title card:(UIView *)card y:(CGFloat)y width:(CGFloat)w action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.frame = CGRectMake(14, y, w - 28, 32);
+    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    [button setTitle:title forState:UIControlStateNormal];
+    button.titleLabel.font = [UIFont systemFontOfSize:14];
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:button];
+    return 36.0f;
+}
+
+- (void)copyQQGroup {
+    [UIPasteboard generalPasteboard].string = kZXQQGroup;
+    [Util showAlertBoxWithOneOption:self title:@"QQ 交流群"
+        message:[NSString stringWithFormat:@"群号 %@ 已复制到剪贴板。", kZXQQGroup]
+        buttonString:@"确定"];
+}
+
+- (void)openBilibili {
+    NSURL *url = [NSURL URLWithString:kZXBilibiliURL];
+    if (!url) return;
+    [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+}
+
+- (void)showUpdateHint {
+    [UIPasteboard generalPasteboard].string = kZXQQGroup;
+    [Util showAlertBoxWithOneOption:self title:@"有新版本"
+        message:[NSString stringWithFormat:@"请加入 QQ 交流群 %@ 获取最新版本文件。\n\n（群号已复制到剪贴板）", kZXQQGroup]
+        buttonString:@"确定"];
+}
 
 @end

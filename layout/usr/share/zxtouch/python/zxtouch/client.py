@@ -125,6 +125,51 @@ class zxtouch:
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_PROCESS_BRING_FOREGROUND, bundle_identifier))
         return self._recv_response()
 
+    def go_home(self):
+        """Return to the home screen
+
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_GO_HOME))
+        return self._recv_response()
+
+    def kill_app(self, bundle_identifier):
+        """Kill a running application (remove it from the app switcher)
+
+        :param bundle_identifier: the bundle identifier of the application
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_KILL_APP, bundle_identifier))
+        return self._recv_response()
+
+    def play_ring(self, sound, seconds=3):
+        """Play a system ringtone
+
+        :param sound: ringtone file name (searched in the system ringtone folder) or an absolute path
+        :param seconds: how long to keep playing
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_PLAY_RING, sound, seconds))
+        return self._recv_response()
+
+    def set_volume(self, percent):
+        """Set the device volume to an absolute level
+
+        :param percent: volume level, 0 - 100
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_SET_VOLUME, "percent", percent))
+        return self._recv_response()
+
+    def change_volume(self, steps):
+        """Raise or lower the device volume by a number of system steps (1 step = 1/16)
+
+        :param steps: positive to raise, negative to lower
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_SET_VOLUME, "delta", steps))
+        return self._recv_response()
+
     def show_alert_box(self, title, content, duration):
         """Show alert box on device
 

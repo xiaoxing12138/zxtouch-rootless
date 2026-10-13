@@ -18,6 +18,8 @@
 #import "ColorPicker.h"
 #import "ScreenMatch.h"
 #import "TextRecognization/TextRecognizer.h"
+#import "Process.h"
+#import "UIKeyboard.h"
 
 #import <math.h>   // llround / fabs
 #import <stdio.h>  // snprintf
@@ -111,6 +113,12 @@ static UIColor *fwTypeColor(NSString *kind)
     if ([kind isEqualToString:kFlowFindColor]) return fwColor(0xC22E7A, 0xF0559B);
     if ([kind isEqualToString:kFlowImage])     return fwColor(0x1B8F49, 0x35C46B);
     if ([kind isEqualToString:kFlowOCR])       return fwColor(0x0E7490, 0x2AA6C4);
+    if ([kind isEqualToString:kFlowOpenApp])   return fwColor(0x3F51B5, 0x7C8CF8);
+    if ([kind isEqualToString:kFlowHome])      return fwColor(0x546E7A, 0x90A4AE);
+    if ([kind isEqualToString:kFlowKillApp])   return fwColor(0xC62828, 0xF16A6A);
+    if ([kind isEqualToString:kFlowPaste])     return fwColor(0x6A1B9A, 0xB085D8);
+    if ([kind isEqualToString:kFlowRing])      return fwColor(0xB8860B, 0xF0C24B);
+    if ([kind isEqualToString:kFlowVolume])    return fwColor(0x00838F, 0x4DD0E1);
     return fwColor(0x4C8DFF, 0x6EA8FF);
 }
 
@@ -144,6 +152,17 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
         @{ @"title": @"区域", @"keys": @[ @"X1", @"Y1", @"X2", @"Y2" ] },
         @{ @"title": @"判据", @"keys": @[ @"Match", @"Text" ] },
         @{ @"title": @"识别", @"keys": @[ @"Languages" ] },
+    ];
+    if ([kind isEqualToString:kFlowOpenApp]) return @[ @{ @"title": @"目标", @"keys": @[ @"Bundle" ] } ];
+    if ([kind isEqualToString:kFlowKillApp]) return @[ @{ @"title": @"目标", @"keys": @[ @"Bundle" ] } ];
+    if ([kind isEqualToString:kFlowPaste]) return @[ @{ @"title": @"内容", @"keys": @[ @"Text" ] } ];
+    if ([kind isEqualToString:kFlowRing]) return @[
+        @{ @"title": @"铃声", @"keys": @[ @"Sound" ] },
+        @{ @"title": @"时长", @"keys": @[ @"Seconds" ] },
+    ];
+    if ([kind isEqualToString:kFlowVolume]) return @[
+        @{ @"title": @"方式", @"keys": @[ @"Mode" ] },
+        @{ @"title": @"数值", @"keys": @[ @"Percent", @"Steps" ] },
     ];
     return @[];
 }
@@ -1522,6 +1541,62 @@ static FlowWindow *_fwShared = nil;
     return y + 24;
 }
 
+#pragma mark - 子浮窗：交流与免责声明
+
+static NSString * const kFwQQGroup     = @"558715113";
+static NSString * const kFwBilibiliURL = @"https://space.bilibili.com/1036605484";
+
+static NSString *fwDisclaimerText(void)
+{
+    return @"本软件（小新Lap）全功能免费，禁止倒卖、转售或二次打包收费；"
+            "仅可用于学习交流与自动化测试，禁止用于任何违法违规用途，"
+            "请勿在游戏、金融等对公平性或安全性有要求的场景中违规使用。"
+            "使用本软件产生的一切后果由使用者自行承担，开发者不承担任何责任。"
+            "请自觉遵守当地法律法规，如不同意本声明请立即停止使用并卸载本软件。";
+}
+
+- (void)showAboutSheet
+{
+    __weak typeof(self) weakSelf = self;
+    [self showSubWithTitle:@"交流与免责声明" builder:^CGFloat(UIScrollView *content, CGFloat w) {
+        FlowWindow *strongSelf = weakSelf;
+        if (!strongSelf) return 0.0f;
+        CGFloat y = 8.0f;
+
+        y = [strongSelf subAddSection:@"交流" width:w y:y];
+        UIView *qq = [strongSelf makeActionRow:[NSString stringWithFormat:@"QQ 交流群：%@", kFwQQGroup]
+                                        detail:@"点击复制"
+                                         color:ZXPalette(ZXPalAccent) primary:NO width:w
+                                        action:^{
+            [UIPasteboard generalPasteboard].string = kFwQQGroup;
+            showAlertBox(@"QQ 交流群", [NSString stringWithFormat:@"群号 %@ 已复制到剪贴板。", kFwQQGroup], 2);
+        }];
+        y = [strongSelf subAddRow:qq y:y];
+
+        UIView *bili = [strongSelf makeActionRow:@"bilibili：小新Lap"
+                                          detail:@"点击打开主页"
+                                           color:ZXPalette(ZXPalAccent) primary:NO width:w
+                                          action:^{
+            NSURL *url = [NSURL URLWithString:kFwBilibiliURL];
+            if (url) [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+        }];
+        y = [strongSelf subAddRow:bili y:y];
+
+        y = [strongSelf subAddSection:@"免责声明" width:w y:y];
+        UILabel *text = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, w - 16, 10)];
+        text.text = fwDisclaimerText();
+        text.font = [UIFont systemFontOfSize:12];
+        text.textColor = ZXPalette(ZXPalSub);
+        text.numberOfLines = 0;
+        CGRect rect = [text.text boundingRectWithSize:CGSizeMake(w - 16, CGFLOAT_MAX)
+                                              options:NSStringDrawingUsesLineFragmentOrigin
+                                           attributes:@{ NSFontAttributeName: text.font } context:nil];
+        text.frame = CGRectMake(0, 0, w - 16, ceil(rect.size.height) + 4);
+        y = [strongSelf subAddRow:text y:y];
+        return y;
+    }];
+}
+
 #pragma mark - 子浮窗：添加步骤
 
 - (void)showAddSheet {
@@ -1535,7 +1610,7 @@ static FlowWindow *_fwShared = nil;
     if (all.count == 0) return;
 
     NSMutableArray<NSDictionary *> *groups = [NSMutableArray array];
-    if (actions.count > 0) [groups addObject:@{ @"title": @"触摸动作", @"types": actions }];
+    if (actions.count > 0) [groups addObject:@{ @"title": @"动作", @"types": actions }];
     if (conditions.count > 0) [groups addObject:@{ @"title": @"判断条件", @"types": conditions }];
 
     __weak typeof(self) weakSelf = self;
@@ -1804,6 +1879,62 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         double seconds = MAX(fwStepNumber(step, @"Seconds", 2), 1);
         showAlertBox(@"提示", text.length ? text : @"（没填提示文字）", (int)llround(seconds));
         return;
+    } else if ([kind isEqualToString:kFlowOpenApp]) {
+        NSString *bundle = [step[@"Bundle"] isKindOfClass:[NSString class]] ? step[@"Bundle"] : @"";
+        if (bundle.length == 0) {
+            showAlertBox(@"打开App", @"还没有选择目标 App。", 2);
+            return;
+        }
+        bringAppForeground(bundle);
+        usleep(400000);
+    } else if ([kind isEqualToString:kFlowHome]) {
+        NSError *error = nil;
+        if (!ZXGoHome(&error)) {
+            showAlertBox(@"返回主屏幕", error.localizedDescription ?: @"执行失败。", 2);
+            return;
+        }
+    } else if ([kind isEqualToString:kFlowKillApp]) {
+        NSString *bundle = [step[@"Bundle"] isKindOfClass:[NSString class]] ? step[@"Bundle"] : @"";
+        NSError *error = nil;
+        if (!ZXKillApp(bundle, &error)) {
+            showAlertBox(@"关闭App", error.localizedDescription ?: @"执行失败。", 2);
+            return;
+        }
+    } else if ([kind isEqualToString:kFlowPaste]) {
+        NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+        NSMutableData *keep = nil;
+        NSString *payload = text.length > 0 ? [NSString stringWithFormat:@"1;;%@", text] : @"5";
+        UInt8 *raw = fwRawBuffer(payload, &keep);
+        NSError *error = nil;
+        inputTextFromRawData(raw, &error);
+        if (error) {
+            showAlertBox(@"粘贴", error.localizedDescription ?: @"执行失败。", 2);
+            return;
+        }
+        usleep(300000);
+    } else if ([kind isEqualToString:kFlowRing]) {
+        NSString *sound = [step[@"Sound"] isKindOfClass:[NSString class]] ? step[@"Sound"] : @"";
+        double seconds = MAX(fwStepNumber(step, @"Seconds", 3), 0.5);
+        NSError *error = nil;
+        if (!ZXPlayRingtone(sound, seconds, &error)) {
+            showAlertBox(@"响铃", error.localizedDescription ?: @"执行失败。", 2);
+            return;
+        }
+    } else if ([kind isEqualToString:kFlowVolume]) {
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"percent";
+        NSError *error = nil;
+        BOOL ok = NO;
+        if ([mode isEqualToString:@"up"]) {
+            ok = ZXSetVolume(@"delta", MAX(fwStepNumber(step, @"Steps", 2), 1), &error);
+        } else if ([mode isEqualToString:@"down"]) {
+            ok = ZXSetVolume(@"delta", -MAX(fwStepNumber(step, @"Steps", 2), 1), &error);
+        } else {
+            ok = ZXSetVolume(@"percent", fwStepNumber(step, @"Percent", 50), &error);
+        }
+        if (!ok) {
+            showAlertBox(@"调整音量", error.localizedDescription ?: @"执行失败。", 2);
+            return;
+        }
     } else {
         return;
     }
@@ -2219,6 +2350,16 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     BOOL integer = spec.integer;
     __weak typeof(self) weakSelf = self;
 
+    // 从列表里选（已安装 App / 系统铃声）：不手打，点开列表选
+    if (spec.pickerKind.length > 0) {
+        NSString *current = [step[key] isKindOfClass:[NSString class]] ? step[key] : @"";
+        return [self makeActionRow:spec.title
+                            detail:(current.length > 0 ? current : @"点这里选择")
+                             color:ZXPalette(ZXPalAccent) primary:NO
+                            symbol:@"list.bullet" width:w
+                            action:^{ [weakSelf showPickerForSpec:spec step:step]; }];
+    }
+
     // 分段选择型字段（判据之类）：不做输入框，点哪段就存对应的值
     if (spec.choiceTitles.count > 0) {
         NSArray<NSString *> *titles = spec.choiceTitles;
@@ -2238,6 +2379,69 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                          step[key] = [FlowScript valueFromText:text integer:integer];
                          [weakSelf autosave];   // 每敲一个字都落盘
                      }];
+}
+
+// 选择列表：App 用 bundle id 存，铃声存文件名；选完自动回到这一步的参数页
+- (void)showPickerForSpec:(FlowFieldSpec *)spec step:(NSMutableDictionary *)step
+{
+    NSString *key = spec.key;
+    BOOL isApp = [spec.pickerKind isEqualToString:@"app"];
+    NSArray<NSDictionary *> *apps = isApp ? ZXInstalledApplications() : nil;
+    NSArray<NSString *> *sounds = isApp ? nil : ZXRingtoneNames();
+
+    __weak typeof(self) weakSelf = self;
+    NSString *title = [NSString stringWithFormat:@"选择%@", spec.title ?: @"项目"];
+    [self showSubWithTitle:title builder:^CGFloat(UIScrollView *content, CGFloat w) {
+        FlowWindow *strongSelf = weakSelf;
+        if (!strongSelf) return 0.0f;
+        CGFloat y = 8.0f;
+
+        NSString *current = [step[key] isKindOfClass:[NSString class]] ? step[key] : @"";
+        if (isApp) {
+            for (NSDictionary *app in apps) {
+                NSString *bundle = app[@"bundle"];
+                NSString *name = app[@"name"];
+                BOOL on = [bundle isEqualToString:current];
+                UIView *row = [strongSelf makeActionRow:name
+                                                  detail:bundle
+                                                   color:on ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalText)
+                                                 primary:on width:w
+                                                  action:^{
+                    FlowWindow *s = weakSelf;
+                    if (!s) return;
+                    step[key] = bundle;
+                    [s autosave];
+                    [s dismissSubAnimated:NO];
+                    [s showParamsSubForStep:step parentSteps:nil];
+                }];
+                y = [strongSelf subAddRow:row y:y];
+            }
+        } else {
+            for (NSString *sound in sounds) {
+                BOOL on = [sound isEqualToString:current];
+                UIView *row = [strongSelf makeActionRow:sound
+                                                  detail:nil
+                                                   color:on ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalText)
+                                                 primary:on width:w
+                                                  action:^{
+                    FlowWindow *s = weakSelf;
+                    if (!s) return;
+                    step[key] = sound;
+                    [s autosave];
+                    [s dismissSubAnimated:NO];
+                    [s showParamsSubForStep:step parentSteps:nil];
+                }];
+                y = [strongSelf subAddRow:row y:y];
+            }
+        }
+
+        if ((isApp && apps.count == 0) || (!isApp && sounds.count == 0)) {
+            UIView *empty = [strongSelf makeActionRow:@"列表为空" detail:nil color:ZXPalette(ZXPalSub)
+                                              primary:NO width:w action:^{ }];
+            y = [strongSelf subAddRow:empty y:y];
+        }
+        return y;
+    }];
 }
 
 // 一行「标签 + 分段按钮」：选项不多时比输入框直观（如 包含 / 等于 / 不包含）

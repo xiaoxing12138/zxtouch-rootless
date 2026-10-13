@@ -17,6 +17,16 @@
 #import "Socket.h"
 #import "Util.h"
 
+static NSString *ZXDisclaimerText(void) {
+    return @"本软件（小新Lap）基于开源项目 ZXTouch 二次修改，非原作者发布，仅供学习与交流使用。\n\n"
+            "1. 全功能免费，禁止任何形式的倒卖、转售、付费代购或二次打包收费。\n"
+            "2. 禁止用于任何违法违规用途，仅可用于学习交流与自动化测试。\n"
+            "3. 请勿在游戏、金融等对公平性或安全性有要求的场景中违规使用。\n"
+            "4. 使用本软件产生的一切后果由使用者自行承担，开发者不承担任何责任。\n"
+            "5. 请自觉遵守当地法律法规，如不同意本声明请立即停止使用并卸载本软件。\n\n"
+            "点击「确定」即表示你已阅读并同意以上全部内容。";
+}
+
 @interface ScriptListViewController ()
 
 @end
@@ -120,41 +130,25 @@
     self._scriptListTableView.separatorInset = UIEdgeInsetsMake(0, 70, 0, 16);
     self._scriptListTableView.tableFooterView = [[UIView alloc] init];
     
+    NSMutableArray<NSDictionary *> *popups = [NSMutableArray array];
     if (![[NSUserDefaults standardUserDefaults] boolForKey:@"notifyDoubleClickVolumnBtn"])
     {
-        
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"提示"
-                                                                       message:@"在任意应用中双击音量减按钮即可显示弹出窗。"
-                                       preferredStyle:UIAlertControllerStyleAlert];
-         
-        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault
-           handler:^(UIAlertAction * action) {}];
-         
-        [alert addAction:defaultAction];
-        [self presentViewController:alert animated:YES completion:nil];
-        
-        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"notifyDoubleClickVolumnBtn"];
-        [[NSUserDefaults standardUserDefaults] synchronize];
+        [popups addObject:@{ @"title": @"提示",
+                             @"message": @"在任意应用中双击音量减按钮即可显示弹出窗。",
+                             @"key": @"notifyDoubleClickVolumnBtn" }];
     }
-    
-    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"ZXTouchAlreadyLaunchedv0.0.6"])
+
+    NSString *currentVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
+    NSString *seenVersion = [[NSUserDefaults standardUserDefaults] stringForKey:@"ZXDisclaimerVersion"];
+    if (![seenVersion isEqualToString:currentVersion])
     {
-        
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"新特性"
-                                                                       message:@"1. 新增 zxtouch Python 库支持（详见示例脚本）\n2. 支持底部、左侧、右侧悬浮提示\n3. 新增日志与添加按钮\n4. 界面更新\n5. 所有示例脚本均已更新\n6. 修复若干问题"
-                                       preferredStyle:UIAlertControllerStyleAlert];
-         
-        UIAlertAction* defaultAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault
-           handler:^(UIAlertAction * action) {}];
-         
-        [alert addAction:defaultAction];
-        [self presentViewController:alert animated:YES completion:nil];
-        
-        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"ZXTouchAlreadyLaunchedv0.0.6"];
-        [[NSUserDefaults standardUserDefaults] synchronize];
+        [popups addObject:@{ @"title": @"免责声明",
+                             @"message": ZXDisclaimerText(),
+                             @"key": @"ZXDisclaimerVersion",
+                             @"value": currentVersion }];
     }
-    
-    
+    [self presentPendingPopups:popups];
+
     scriptList = [self updateScriptList];
     
     refreshControl = [[UIRefreshControl alloc]init];
@@ -166,6 +160,28 @@
     {
         self.navigationItem.leftBarButtonItems = nil;
     }
+}
+
+// 首启 / 版本变化时的弹窗排队展示：前一个点了确定再弹下一个，避免被系统静默丢弃
+- (void)presentPendingPopups:(NSMutableArray<NSDictionary *> *)popups {
+    if (popups.count == 0) return;
+    NSDictionary *info = popups.firstObject;
+    [popups removeObjectAtIndex:0];
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:info[@"title"]
+                                                                   message:info[@"message"]
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        id value = info[@"value"] ?: @(YES);
+        [defaults setObject:value forKey:info[@"key"]];
+        [defaults synchronize];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf presentPendingPopups:popups];
+        });
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)updateReadmeHeader {
