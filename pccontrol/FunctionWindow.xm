@@ -363,6 +363,13 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     _window.backgroundColor = [UIColor clearColor];
     _window.overrideUserInterfaceStyle = (UIUserInterfaceStyle)_appearanceMode;
 
+    // 兜底：窗口自己认一个「点空白」手势。底下的遮罩视图在某些机型/场景下没接到触摸时，
+    // 仍然能靠它关掉面板（否则那一击会穿到下层 App）
+    UITapGestureRecognizer *winTap = [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                            action:@selector(handleBackdropTap:)];
+    winTap.delegate = self;
+    [_window addGestureRecognizer:winTap];
+
     _window.rootViewController = [[FNRootViewController alloc] init];
     UIView *root = _window.rootViewController.view;
 
@@ -436,7 +443,8 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     // 顶行右侧：运行 / 保存（都在 ✕ 左边，位置在 layoutCard 里排）
     _runBtn = fnMakeButton(@"运行", [UIColor systemGreenColor]);
     _runBtn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-    _runBtn.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.14];
+    _runBtn.backgroundColor = [UIColor systemGreenColor];
+    [_runBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     [_runBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
         [self runFunctionSelection];
     }] forControlEvents:UIControlEventTouchUpInside];
@@ -578,6 +586,11 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     if (alpha > 1) alpha = 1;
     if (alpha < 0 && hasAlpha) alpha = 0;
 
+    BOOL hasImageAlpha = [config[@"floating_menu_panel_bg_image_alpha"] isKindOfClass:[NSNumber class]];
+    CGFloat imageAlpha = hasImageAlpha ? [config[@"floating_menu_panel_bg_image_alpha"] doubleValue] : -1;
+    if (imageAlpha > 1) imageAlpha = 1;
+    if (imageAlpha < 0 && hasImageAlpha) imageAlpha = 0;
+
     UIColor *color = ZXColorFromHex(hex);
     if (!color) color = [UIColor systemBackgroundColor];
     if (hasAlpha) color = [color colorWithAlphaComponent:alpha];
@@ -603,6 +616,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     // 有图：图铺最底层，颜色层叠在图上（透明度作用在颜色层）
     _functionBgView = [[UIImageView alloc] initWithFrame:_cardView.bounds];
     _functionBgView.image = image;
+    _functionBgView.alpha = (hasImageAlpha ? imageAlpha : 1.0f);
     _functionBgView.contentMode = UIViewContentModeScaleAspectFill;
     _functionBgView.clipsToBounds = YES;
     _functionBgView.userInteractionEnabled = NO;
@@ -725,7 +739,24 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     if ([g isKindOfClass:[UIPanGestureRecognizer class]]) {
         return [g locationInView:_cardView].y <= FN_TOP_H;
     }
+    if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
+        if (!_window) return NO;
+        // 卡片上的点击交给卡片自己的按钮
+        if (_cardView && CGRectContainsPoint(_cardView.frame, [g locationInView:_window])) return NO;
+        // 子浮窗开着时由子浮窗的遮罩负责（先关子浮窗，主面板不动）
+        if ([self hasOverlaySubview]) return NO;
+        return YES;
+    }
     return YES;
+}
+
+// 面板根视图上除了遮罩和卡片，还挂着东西 = 子浮窗（流程编辑器）开着
+- (BOOL)hasOverlaySubview {
+    UIView *root = _window.rootViewController.view;
+    for (UIView *v in root.subviews) {
+        if (v != _backdrop && v != _cardView) return YES;
+    }
+    return NO;
 }
 
 // 拖右下角把手改面板大小：改完存盘，所有脚本、所有页面下次打开都是这个大小
@@ -1429,7 +1460,12 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
         FNScriptRowView *row = [[FNScriptRowView alloc] initWithFrame:CGRectMake(4, y, rowW, FN_ROW_H)];
         // 当前选中的脚本用浅色标出来，下次进列表一眼看到
         if ([path isEqualToString:_functionScriptPath]) {
-            row.content.backgroundColor = [[UIColor systemBlueColor] colorWithAlphaComponent:0.14];
+            row.content.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
+                if (tc.userInterfaceStyle == UIUserInterfaceStyleDark) {
+                    return [UIColor colorWithRed:0.05f green:0.17f blue:0.34f alpha:1.0f];
+                }
+                return [UIColor colorWithRed:0.82f green:0.91f blue:1.0f alpha:1.0f];
+            }];
         }
 
         // 步数在最左边（占文件夹箭头那格），然后才是图标和文件名
@@ -1892,8 +1928,8 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 - (void)refreshRecordingButton {
     BOOL recording = isRecordingStart();
     [_recordBtn setTitle:(recording ? @"停止" : @"录制") forState:UIControlStateNormal];
-    _recordBtn.backgroundColor = recording ? [[UIColor systemRedColor] colorWithAlphaComponent:0.20f]
-                                           : [UIColor secondarySystemBackgroundColor];
+    _recordBtn.backgroundColor = recording ? [UIColor systemRedColor] : [UIColor secondarySystemBackgroundColor];
+    [_recordBtn setTitleColor:(recording ? [UIColor whiteColor] : [UIColor systemRedColor]) forState:UIControlStateNormal];
 }
 
 #pragma mark - 显示 / 隐藏
@@ -1926,6 +1962,7 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
         }
         [self refreshRecordingButton];   // 录制可能在面板关着的时候被别人起停过
         [self applyPanelBackground];     // 背景色/背景图/透明度由 App 的「控制按钮悬浮窗」参数决定
+        ((FMPassthroughWindow *)self->_window).swallowTouches = YES;
         self->_window.hidden = NO;
         // 同上：不在 show 时 makeKeyWindow，避免破坏 SpringBoard 触摸路由。
         // 输入框编辑时由 ZXMakeWindowKeyIfNeeded 按需变 key。
@@ -1935,8 +1972,20 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!self->_shown) return;
             [self layoutCard];
+            [self animatePanelAppear];
         });
     });
+}
+
+- (void)animatePanelAppear {
+    UIView *card = _cardView;
+    if (!card) return;
+    card.layer.transform = CATransform3DMakeRotation(M_PI_2, 1.0, 0.0, 0.0);
+    card.alpha = 0.0f;
+    [UIView animateWithDuration:0.28 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        card.layer.transform = CATransform3DIdentity;
+        card.alpha = 1.0f;
+    } completion:nil];
 }
 
 // 关闭面板。「保存」走 saveAndHide；✕ 直接调这里，不额外存盘
@@ -1947,6 +1996,9 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
     ZXSafeMainAsync(^{
         if (!self->_window) return;
         [self->_cardView endEditing:YES];
+        self->_cardView.layer.transform = CATransform3DIdentity;
+        self->_cardView.alpha = 1.0f;
+        ((FMPassthroughWindow *)self->_window).swallowTouches = NO;
         self->_window.hidden = YES;
     });
 }
@@ -1961,11 +2013,17 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
             if (self->_execMasking) return;
             self->_wasHiddenBeforeMask = self->_window ? self->_window.hidden : YES;
             self->_execMasking = YES;
-            if (self->_window) self->_window.hidden = YES;
+            if (self->_window) {
+                ((FMPassthroughWindow *)self->_window).swallowTouches = NO;
+                self->_window.hidden = YES;
+            }
         } else {
             if (!self->_execMasking) return;
             self->_execMasking = NO;
-            if (self->_window) self->_window.hidden = self->_wasHiddenBeforeMask;
+            if (self->_window) {
+                self->_window.hidden = self->_wasHiddenBeforeMask;
+                ((FMPassthroughWindow *)self->_window).swallowTouches = !self->_wasHiddenBeforeMask;
+            }
         }
     };
     if ([NSThread isMainThread]) work();

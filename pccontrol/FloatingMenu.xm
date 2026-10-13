@@ -8,6 +8,7 @@
 #import "FunctionWindow.h"
 #import "ScriptFunctions.h"      // ZXLastFunctionScriptPath / ZXFirstScriptPathWithFunctions
 #import "Record.h"
+#import "ScriptFloat.h"           // ZXScriptFloatHitTestScreenPoint
 #import <QuartzCore/QuartzCore.h>
 #import <CoreImage/CoreImage.h>
 #include <roothide.h>
@@ -198,7 +199,18 @@ typedef NS_ENUM(NSInteger, FMScriptPlayState) {
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
-    return (hit == self) ? nil : hit;
+    if (hit != self) {
+        return hit;
+    }
+    // 面板展开中：空白处由面板自己吞掉（不再穿到下层 App）；压在脚本悬浮球上的那一点仍然放行，
+    // 否则面板开着时悬浮球拖不动
+    if (self.swallowTouches) {
+        if (ZXScriptFloatHitTestScreenPoint(point)) {
+            return nil;
+        }
+        return self;
+    }
+    return nil;
 }
 
 // 面板里要能输入文字：输入框所在的 window 必须是 key window，系统键盘才会出来（Apple QA1813）。
@@ -1491,6 +1503,16 @@ static void fmPersistKeys(NSDictionary *pairs)
 {
     ZXSafeMainAsync(^{
         @try {
+            FMScriptPlayState actual = FMScriptPlayStateIdle;
+            if (isRecordingStart()) {
+                actual = FMScriptPlayStateRecording;
+            } else if (isScriptPlaying()) {
+                actual = isScriptPaused() ? FMScriptPlayStatePaused : FMScriptPlayStateRunning;
+            }
+            if (actual != self->_playState) {
+                [FloatingMenu refreshScriptPlayState];
+            }
+
             // 自愈 0：enabled 但 window 不存在或 hidden → 重建（SpringBoard 重启后 scene 延迟就绪）
             if (self->_enabled && (!self->_window || self->_window.hidden)) {
                 [self setEnabled:YES persist:NO];
@@ -1649,7 +1671,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 {
     ZXSafeMainAsync(^{
         @try {
-            BOOL enabled = NO;
+            BOOL enabled = YES;
             BOOL hasEdge = NO;
             int edge = 1;
             BOOL hasRatio = NO;
@@ -1676,7 +1698,10 @@ static void fmPersistKeys(NSDictionary *pairs)
 
             NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:fmConfigPath()];
             if ([config isKindOfClass:[NSDictionary class]]) {
-                enabled = [config[kFMCfgEnabled] boolValue];
+                NSNumber *enabledValue = config[kFMCfgEnabled];
+                if ([enabledValue isKindOfClass:[NSNumber class]]) {
+                    enabled = [enabledValue boolValue];
+                }
                 NSNumber *edgeValue = config[kFMCfgEdge];
                 if ([edgeValue isKindOfClass:[NSNumber class]]) {
                     edge = [edgeValue intValue];

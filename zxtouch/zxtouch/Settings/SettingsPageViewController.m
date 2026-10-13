@@ -216,7 +216,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     // Do any additional setup after loading the view.
     self.title = @"设置";
     
-    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"高级", @"关于小新Lap"];
+    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"检测", @"关于小新Lap"];
     configManager = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
     BOOL doubleClickPopup = YES;
     if ([configManager getValueFromKey:@"double_click_volume_show_popup"])
@@ -250,9 +250,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         [self remoteManagementCells],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"圆点与坐标悬浮窗", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"控制按钮悬浮窗", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"控制按钮悬浮窗", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))}
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 边距", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))}
@@ -270,6 +268,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
         ],
         @[
@@ -318,14 +318,12 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([configManager getValueFromKey:@"floating_menu_enabled"])
         floatingMenu = [[configManager getValueFromKey:@"floating_menu_enabled"] boolValue];
 
-    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"高级", @"关于小新Lap"];
+    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"检测", @"关于小新Lap"];
     cellsForEachSection = @[
         [self remoteManagementCells],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"触摸指示器", @"secondary_title": @"圆点与坐标悬浮窗", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"控制按钮悬浮窗", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"控制按钮悬浮窗", @"secondary_title": @"开关 / 吸附边 / 纵向位置（也可手动拖动）", @"row_click_handler": NSStringFromSelector(@selector(handleFloatingMenuEntryTap:))}
         ],
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 边距", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))}
@@ -343,6 +341,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
         ],
         @[

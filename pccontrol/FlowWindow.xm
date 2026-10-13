@@ -1076,6 +1076,11 @@ static FlowWindow *_fwShared = nil;
     if (alpha > 1) alpha = 1;
     if (alpha < 0 && hasAlpha) alpha = 0;
 
+    BOOL hasImageAlpha = [config[@"floating_menu_panel_bg_image_alpha"] isKindOfClass:[NSNumber class]];
+    CGFloat imageAlpha = hasImageAlpha ? [config[@"floating_menu_panel_bg_image_alpha"] doubleValue] : -1;
+    if (imageAlpha > 1) imageAlpha = 1;
+    if (imageAlpha < 0 && hasImageAlpha) imageAlpha = 0;
+
     UIColor *color = ZXColorFromHex(hex);
     if (!color) color = ZXPalette(ZXPalCard);
     if (hasAlpha) color = [color colorWithAlphaComponent:alpha];
@@ -1101,6 +1106,7 @@ static FlowWindow *_fwShared = nil;
     // 有图：图铺底，颜色层叠在图上
     UIImageView *bg = [[UIImageView alloc] initWithFrame:card.bounds];
     bg.image = image;
+    bg.alpha = (hasImageAlpha ? imageAlpha : 1.0f);
     bg.contentMode = UIViewContentModeScaleAspectFill;
     bg.clipsToBounds = YES;
     bg.userInteractionEnabled = NO;
@@ -1152,12 +1158,7 @@ static FlowWindow *_fwShared = nil;
         if (!strongSelf) {
             return;
         }
-        id<FlowEditorHost> host = strongSelf->_host;
-        if (host) {
-            [host flowHostRequestHidePanel];
-        } else {
-            [strongSelf dismissSubAnimated:YES];
-        }
+        [strongSelf dismissSubAnimated:YES];
     }] forControlEvents:UIControlEventTouchUpInside];
     [dim addSubview:backdrop];
 
@@ -2227,9 +2228,9 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             y = [strongSelf subAddRow:endRow y:y];
         }
 
-        // ---- 脚本悬浮球：每个脚本一个，点一下启动 / 再点一下停止 ----
+        // ---- 脚本悬浮球：每个脚本一个，长按悬浮球可快速隐藏 ----
         y += 6;
-        y = [strongSelf subAddSection:@"脚本悬浮球（点一下启动 / 再点一下停止）" width:w y:y];
+        y = [strongSelf subAddSection:@"脚本悬浮球（长按悬浮球可快速隐藏）" width:w y:y];
         {
             NSString *ballPath = strongSelf->_bundlePath;
             NSDictionary *ballConfig = [ScriptFloat ballConfigForScriptPath:ballPath];

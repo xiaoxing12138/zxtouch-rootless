@@ -199,8 +199,19 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
         isRecording = false;
         NSLog(@"com.zjx.springboard: recording stopped and torn down.");
 
+        NSDictionary *rawAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:rawFilePath error:nil];
+        BOOL emptyRecording = ([rawAttrs[NSFileSize] unsignedLongLongValue] == 0);
+        if (emptyRecording)
+        {
+            [[NSFileManager defaultManager] removeItemAtPath:scriptDirectory error:nil];
+        }
+
         ZXSafeMainAsync(^{
             [FloatingMenu refreshScriptPlayState];
+            if (emptyRecording) {
+                showAlertBox(@"小新Lap", @"这次录制没有任何操作，未创建脚本文件。", 1);
+                return;
+            }
             NSError *convertError = nil;
             if ([FlowScript convertRecordingBundleToFlow:scriptDirectory error:&convertError]) {
                 [[FunctionWindow shared] openFlowBundle:scriptDirectory];

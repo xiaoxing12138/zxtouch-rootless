@@ -118,6 +118,11 @@ static void sfToast(NSString *content, int type)
     [Toast showToastWithContent:content type:type duration:1.8f position:1 fontSize:14];
 }
 
+static UIColor *sfBallThemeColor(void)
+{
+    return [UIColor colorWithRed:0.0f green:0.48f blue:1.0f alpha:1.0f];
+}
+
 static NSString *sfAppIconPath(void)
 {
     static NSString *cached = nil;
@@ -236,16 +241,16 @@ static NSString *sfPathForInoToken(NSString *token)
     self = [super initWithFrame:frame];
     if (self) {
         CGFloat radius = frame.size.width / 2.0f;
-        self.backgroundColor = [UIColor colorWithRed:0.08f green:0.08f blue:0.11f alpha:0.86f];
+        self.backgroundColor = [UIColor whiteColor];
         self.layer.cornerRadius = radius;
-        self.layer.borderWidth = 1.0f;
-        self.layer.borderColor = [UIColor colorWithWhite:1.0f alpha:0.28f].CGColor;
+        self.layer.borderWidth = 2.0f;
+        self.layer.borderColor = sfBallThemeColor().CGColor;
         _iconMode = kSFIconTitle;
         _playState = kSFStateIdle;
 
         _sfTitleLabel = [[UILabel alloc] initWithFrame:self.bounds];
         _sfTitleLabel.textAlignment = NSTextAlignmentCenter;
-        _sfTitleLabel.textColor = [UIColor whiteColor];
+        _sfTitleLabel.textColor = sfBallThemeColor();
         _sfTitleLabel.font = [UIFont boldSystemFontOfSize:17.0f];
         _sfTitleLabel.adjustsFontSizeToFitWidth = YES;
         _sfTitleLabel.minimumScaleFactor = 0.5f;
@@ -301,13 +306,12 @@ static NSString *sfPathForInoToken(NSString *token)
 
 - (void)applyPlayStateAppearance
 {
+    self.layer.borderColor = sfBallThemeColor().CGColor;
     if (_playState == kSFStateRunning) {
         self.alpha = 1.0f;
-        self.layer.borderColor = [UIColor colorWithRed:0.2f green:0.9f blue:0.35f alpha:0.9f].CGColor;
         [self startSpinner];
     } else {
         self.alpha = (_playState == kSFStatePaused) ? 0.55f : 1.0f;
-        self.layer.borderColor = [UIColor colorWithWhite:1.0f alpha:0.28f].CGColor;
         [self stopSpinner];
     }
 }

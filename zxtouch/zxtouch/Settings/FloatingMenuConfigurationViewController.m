@@ -25,7 +25,8 @@ static NSString *kCfgEdgeDelay   = @"floating_menu_auto_edge_delay";     // 收�
 // 选项面板（功能页）背景，全局生效：颜色 + 透明度 + 自定义图片
 // 图片落盘到共享目录，配置里只存文件名（tweak 端不访问相册）
 static NSString *kCfgPanelBgColor = @"floating_menu_panel_bg_color";     // #RRGGBB，缺省 = 跟随系统
-static NSString *kCfgPanelBgAlpha = @"floating_menu_panel_bg_alpha";     // 0..1
+static NSString *kCfgPanelBgAlpha = @"floating_menu_panel_bg_alpha";     // 0..1，作用在颜色层
+static NSString *kCfgPanelBgImageAlpha = @"floating_menu_panel_bg_image_alpha"; // 0..1，作用在背景图片本身
 static NSString *kCfgPanelBgImage = @"floating_menu_panel_bg_image";     // 文件名，空 = 不用图
 static NSString * const kPanelBgCustomFile = @"fm_panel_bg_custom.png";
 static const float kPanelBgAlphaDefault = 1.0f;
@@ -64,9 +65,10 @@ typedef NS_ENUM(NSInteger, FMSection) {
 
 // 「选项面板背景」分组行号
 typedef NS_ENUM(NSInteger, PanelBgRow) {
-    PanelBgRowColor = 0,  // 背景颜色
-    PanelBgRowAlpha,      // 背景透明度
-    PanelBgRowImage       // 自定义背景图片
+    PanelBgRowColor = 0,   // 背景颜色
+    PanelBgRowAlpha,       // 背景颜色透明度
+    PanelBgRowImageAlpha,  // 背景图片透明度
+    PanelBgRowImage        // 自定义背景图片
 };
 
 // 「自动收边」分组行号
@@ -218,6 +220,12 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
 
 - (void)reloadTweak {
     [_springBoardSocket send:@"32;;3\r\n"];
+}
+
+// 配置里没写过这个键 = 用户没动过开关 → 跟随 tweak 端默认（开启）
+- (BOOL)menuEnabled {
+    NSNumber *value = _config[kCfgEnabled];
+    return [value isKindOfClass:[NSNumber class]] ? [value boolValue] : YES;
 }
 
 #pragma mark - 开关
@@ -644,6 +652,20 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     [self saveConfig];
 }
 
+- (void)panelBgImageAlphaValueChanged:(UISlider *)slider {
+    float stepped = roundf(slider.value * 100.0f) / 100.0f;
+    [slider setValue:stepped animated:NO];
+    UIView *view = slider;
+    while (view && ![view isKindOfClass:[TableViewCellWithSlider class]]) {
+        view = view.superview;
+    }
+    if ([view isKindOfClass:[TableViewCellWithSlider class]]) {
+        ((TableViewCellWithSlider *)view).value.text = [NSString stringWithFormat:@"%.2f", stepped];
+    }
+    _config[kCfgPanelBgImageAlpha] = @(stepped);
+    [self saveConfig];
+}
+
 - (void)pickPanelBgColorAtIndexPath:(NSIndexPath *)indexPath {
     NSString *current = [self colorHexForKey:kCfgPanelBgColor defaultHex:@"#FFFFFF"];
     __weak FloatingMenuConfigurationViewController *weakSelf = self;
@@ -748,7 +770,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
     // 关掉开关时整页只留开关行
-    return [_config[kCfgEnabled] boolValue] ? 9 : 1;
+    return [self menuEnabled] ? 9 : 1;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -761,7 +783,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         case FMSectionColors:     return (NSInteger)FMColorSpecs().count;
         case FMSectionPause:      return (NSInteger)FMPauseSpecs().count;
         case FMSectionMenuAppearance: return (NSInteger)FMMenuAppearanceSpecs().count;
-        case FMSectionPanelBg:    return 3;  // 背景颜色 + 背景透明度 + 自定义背景图片
+        case FMSectionPanelBg:    return 4;  // 背景颜色 + 颜色透明度 + 图片透明度 + 自定义背景图片
         default:                  return 0;
     }
 }
@@ -788,7 +810,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
         [cell setTitleText:@"控制按钮悬浮窗"];
         [cell.switchBtn removeTarget:nil action:NULL forControlEvents:UIControlEventValueChanged];
         [cell.switchBtn addTarget:self action:@selector(switchEnabled:) forControlEvents:UIControlEventValueChanged];
-        BOOL enabled = [_config[kCfgEnabled] boolValue];
+        BOOL enabled = [self menuEnabled];
         [cell.switchBtn setOn:enabled];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         return cell;
@@ -910,7 +932,7 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     }
 
     // 「选项面板背景」：颜色 / 自定义图片走 Value1 + 箭头，透明度走下面的滑块
-    if (indexPath.section == FMSectionPanelBg && indexPath.row != PanelBgRowAlpha) {
+    if (indexPath.section == FMSectionPanelBg && indexPath.row != PanelBgRowAlpha && indexPath.row != PanelBgRowImageAlpha) {
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"PanelBgCell"];
         if (!cell) {
             cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"PanelBgCell"];
@@ -941,7 +963,8 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
     } else if (indexPath.section == FMSectionPause) {
         changedSelector = @selector(pauseSliderChanged:);
     } else if (indexPath.section == FMSectionPanelBg) {
-        changedSelector = @selector(panelBgAlphaValueChanged:);
+        changedSelector = (indexPath.row == PanelBgRowAlpha) ? @selector(panelBgAlphaValueChanged:)
+                                                             : @selector(panelBgImageAlphaValueChanged:);
     }
     [cell.slideBar addTarget:self action:changedSelector forControlEvents:UIControlEventValueChanged];
     [cell.slideBar addTarget:self action:@selector(sliderTouchUp:)
@@ -992,9 +1015,11 @@ didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *
             ? [NSString stringWithFormat:@"%.2f", value]
             : [NSString stringWithFormat:@"%.0f pt", value];
     } else if (indexPath.section == FMSectionPanelBg) {
-        float alpha = _config[kCfgPanelBgAlpha] ? [_config[kCfgPanelBgAlpha] floatValue] : kPanelBgAlphaDefault;
+        BOOL isImageAlpha = (indexPath.row == PanelBgRowImageAlpha);
+        NSString *key = isImageAlpha ? kCfgPanelBgImageAlpha : kCfgPanelBgAlpha;
+        float alpha = _config[key] ? [_config[key] floatValue] : kPanelBgAlphaDefault;
         if (alpha < 0.0f || alpha > 1.0f) alpha = kPanelBgAlphaDefault;
-        cell.title.text = @"背景透明度";
+        cell.title.text = isImageAlpha ? @"图片透明度" : @"背景透明度";
         cell.slideBar.minimumValue = 0.0f;
         cell.slideBar.maximumValue = 1.0f;
         cell.slideBar.value = alpha;

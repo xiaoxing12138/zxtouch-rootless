@@ -12,6 +12,8 @@
 // 只有选项面板要设为 YES（弹键盘需要 key window）；控制圆点必须保持 NO，
 // 否则它作为顶层透传窗口成为 key window 后会吞掉注入的 HID 触摸，脚本点击全部失效。
 @property (nonatomic, assign) BOOL allowsKeyWindow;
+// 面板展开期间置 YES：本窗口不再把空白处放行给下层 App，由面板自己接管（点空白 = 关面板）
+@property (nonatomic, assign) BOOL swallowTouches;
 @end
 
 /*
