@@ -1150,6 +1150,39 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             notifyClient((UInt8*)[(ok ? @"0\r\n" : [NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"调整音量失败"]) UTF8String], writeStreamRef);
         }
     }
+    else if (taskType == TASK_STOP_ALL_SCRIPTS)
+    {
+        @autoreleasepool {
+            NSError *err = nil;
+            BOOL ok = ZXStopAllScripts(&err);
+            notifyClient((UInt8*)[(ok ? @"0\r\n" : [NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"停止脚本失败"]) UTF8String], writeStreamRef);
+        }
+    }
+    else if (taskType == TASK_MAKE_CALL)
+    {
+        @autoreleasepool {
+            NSString *data = eventData ? [NSString stringWithUTF8String:(const char *)eventData] : @"";
+            NSArray *parts = [data componentsSeparatedByString:@";;"];
+            NSString *number = parts.count > 0 ? parts[0] : @"";
+            NSString *sim = parts.count > 1 ? parts[1] : @"default";
+            NSError *err = nil;
+            BOOL ok = ZXMakeCall(number, sim, &err);
+            notifyClient((UInt8*)[(ok ? @"0\r\n" : [NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"拨号失败"]) UTF8String], writeStreamRef);
+        }
+    }
+    else if (taskType == TASK_SEND_SMS)
+    {
+        @autoreleasepool {
+            NSString *data = eventData ? [NSString stringWithUTF8String:(const char *)eventData] : @"";
+            NSArray *parts = [data componentsSeparatedByString:@";;"];
+            NSString *number = parts.count > 0 ? parts[0] : @"";
+            NSString *text = parts.count > 1 ? parts[1] : @"";
+            NSString *sim = parts.count > 2 ? parts[2] : @"default";
+            NSError *err = nil;
+            BOOL ok = ZXSendSMS(number, text, sim, &err);
+            notifyClient((UInt8*)[(ok ? @"0\r\n" : [NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"发送短信失败"]) UTF8String], writeStreamRef);
+        }
+    }
     else if (taskType == TASK_UPDATE_CACHE)
     {
         @autoreleasepool{

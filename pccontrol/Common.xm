@@ -1,7 +1,9 @@
 #include "Common.h"
 #include "Config.h"
+#include "Play.h"
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <sys/utsname.h>
 #import <sys/wait.h>
 #include <dlfcn.h>
@@ -795,7 +797,7 @@ NSArray<NSDictionary *> *ZXInstalledApplications(void)
                 if (bundle.length == 0) continue;
                 NSString *name = [app respondsToSelector:@selector(displayName)] ? [app displayName] : nil;
                 if (name.length == 0) name = bundle;
-                [result addObject:@{ @"bundle": bundle, @"name": name }];
+                [result addObject:@{ @"bundle": bundle, @"name": name, @"system": @([bundle hasPrefix:@"com.apple."]) }];
             }
         } @catch (NSException *exception) {
             NSLog(@"com.zjx.springboard: ZXInstalledApplications failed: %@", exception.reason);
@@ -807,32 +809,94 @@ NSArray<NSDictionary *> *ZXInstalledApplications(void)
     }];
 }
 
-NSString *ZXRingtoneFolder(void)
-{
-    for (NSString *path in @[ @"/Library/Ringtones", @"/var/jb/Library/Ringtones" ]) {
-        BOOL isDir = NO;
-        if ([[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&isDir] && isDir) return path;
-    }
-    return @"/Library/Ringtones";
-}
-
 static NSArray<NSString *> *ZXRingtoneFolders(void)
 {
     return @[ @"/Library/Ringtones", @"/var/jb/Library/Ringtones" ];
 }
 
-NSArray<NSString *> *ZXRingtoneNames(void)
+static NSArray<NSString *> *ZXUserRingtoneFolders(void)
 {
-    NSMutableArray *names = [NSMutableArray array];
-    for (NSString *folder in ZXRingtoneFolders()) {
-        for (NSString *name in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:folder error:nil]) {
-            NSString *ext = [name pathExtension].lowercaseString;
-            if ([ext isEqualToString:@"m4r"] || [ext isEqualToString:@"caf"] || [ext isEqualToString:@"aiff"]) {
-                if (![names containsObject:name]) [names addObject:name];
-            }
+    return @[ @"/var/mobile/Media/iTunes_Control/Ringtones" ];
+}
+
+// 爱思助手 / iTunes 导入的 m4r，文件名常被改成乱码（如 ENMK.m4r），真名在 ©nam 原子里的 data 段
+static NSString *ZXRingtoneEmbeddedName(NSString *path)
+{
+    NSData *data = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
+    if (data.length < 32) return nil;
+    const uint8_t *bytes = data.bytes;
+    NSUInteger total = data.length;
+    const char namAtom[4] = { (char)0xA9, 'n', 'a', 'm' };
+
+    for (NSUInteger i = 0; i + 8 <= total; ) {
+        uint32_t len = ((uint32_t)bytes[i] << 24) | ((uint32_t)bytes[i + 1] << 16) |
+                       ((uint32_t)bytes[i + 2] << 8) | bytes[i + 3];
+        if (memcmp(bytes + i + 4, namAtom, 4) != 0) {
+            if (len < 8) break;
+            i += len;
+            continue;
+        }
+        NSUInteger atomEnd = (len == 0) ? total : MIN(i + (NSUInteger)len, total);
+        NSUInteger p = i + 8;
+        if (p + 8 > atomEnd) break;
+
+        uint32_t inner = ((uint32_t)bytes[p] << 24) | ((uint32_t)bytes[p + 1] << 16) |
+                         ((uint32_t)bytes[p + 2] << 8) | bytes[p + 3];
+        NSUInteger textStart = p + 16;   // data 原子头：size + 'data' + flags + locale
+        NSUInteger textEnd = (inner == 0) ? atomEnd : MIN(p + (NSUInteger)inner, atomEnd);
+        if (memcmp(bytes + p + 4, "data", 4) != 0) {
+            textStart = p + 8;
+            textEnd = atomEnd;
+        }
+        if (textStart >= textEnd) break;
+
+        NSString *name = [[NSString alloc] initWithBytes:bytes + textStart
+                                                  length:textEnd - textStart
+                                                encoding:NSUTF8StringEncoding];
+        if (name.length == 0) {
+            name = [[NSString alloc] initWithBytes:bytes + textStart
+                                            length:textEnd - textStart
+                                          encoding:NSUTF16StringEncoding];
+        }
+        if (name.length > 0) return name;
+        break;
+    }
+    return nil;
+}
+
+NSArray<NSDictionary *> *ZXRingtoneItems(void)
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *okExtensions = @[ @"m4r", @"m4a", @"mp3", @"caf", @"aiff", @"wav" ];
+    NSMutableArray *items = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
+
+    for (NSString *folder in ZXUserRingtoneFolders()) {
+        for (NSString *file in [fm contentsOfDirectoryAtPath:folder error:nil]) {
+            if (![okExtensions containsObject:[file pathExtension].lowercaseString]) continue;
+            NSString *full = [folder stringByAppendingPathComponent:file];
+            if ([seen containsObject:full]) continue;
+            [seen addObject:full];
+            NSString *name = ZXRingtoneEmbeddedName(full);
+            if (name.length == 0) name = [file stringByDeletingPathExtension];
+            [items addObject:@{ @"name": name, @"path": full, @"user": @YES }];
         }
     }
-    return [names sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+    for (NSString *folder in ZXRingtoneFolders()) {
+        for (NSString *file in [fm contentsOfDirectoryAtPath:folder error:nil]) {
+            if (![okExtensions containsObject:[file pathExtension].lowercaseString]) continue;
+            NSString *full = [folder stringByAppendingPathComponent:file];
+            if ([seen containsObject:full]) continue;
+            [seen addObject:full];
+            [items addObject:@{ @"name": file, @"path": full, @"user": @NO }];
+        }
+    }
+
+    return [items sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        BOOL userA = [a[@"user"] boolValue], userB = [b[@"user"] boolValue];
+        if (userA != userB) return userA ? NSOrderedAscending : NSOrderedDescending;
+        return [a[@"name"] localizedCaseInsensitiveCompare:b[@"name"]];
+    }];
 }
 
 BOOL ZXPlayRingtone(NSString *path, double seconds, NSError **error)
@@ -915,6 +979,8 @@ BOOL ZXSetVolume(NSString *mode, double value, NSError **error)
         float target = current;
         if ([mode isEqualToString:@"delta"]) {
             target = current + (float)(value / 16.0);
+        } else if ([mode isEqualToString:@"deltaPercent"]) {
+            target = current + (float)(value / 100.0);
         } else {
             target = (float)(value / 100.0);
         }
@@ -929,4 +995,222 @@ BOOL ZXSetVolume(NSString *mode, double value, NSError **error)
         if (error) *error = ZXActionError(exception.reason ?: @"调整音量失败。");
         return NO;
     }
+}
+
+BOOL ZXStopAllScripts(NSError **error)
+{
+    stopScriptPlaying(error);
+    if (error && *error) return NO;
+    return YES;
+}
+
+/*
+ 打电话 / 发短信走的是系统私有 API，没有公开头文件。这里只声明「我们要用的那几个方法」，
+ 运行时按名字取类再按 respondsToSelector 探路，取不到就退化成系统 URL（会弹确认框）。
+*/
+@interface ZXCallProvider : NSObject
+@property (nonatomic, readonly) NSString *identifier;
+@property (nonatomic, readonly) NSString *localizedName;
+@end
+
+@interface ZXCallProviderManager : NSObject
++ (instancetype)sharedInstance;
+- (instancetype)initWithQueue:(id)queue;
+@property (nonatomic, readonly) NSArray *providers;
+@end
+
+@interface ZXTUDialRequest : NSObject
+- (instancetype)initWithProvider:(id)provider;
+@property (nonatomic, copy) NSString *destinationID;
+@end
+
+@interface ZXCallCenter : NSObject
++ (instancetype)callCenter;
++ (instancetype)sharedInstance;
+- (void)dialWithRequest:(id)request;
+- (void)dialWithRequest:(id)request completion:(void (^)(id result))completion;
+@end
+
+@interface ZXCTMessageCenter : NSObject
++ (instancetype)sharedMessageCenter;
+- (void)sendSMSWithText:(NSString *)text serviceCenter:(id)serviceCenter toAddress:(NSString *)address;
+- (void)sendSMSWithText:(NSString *)text serviceCenter:(id)serviceCenter toAddress:(NSString *)address withMoreToFollow:(BOOL)more;
+@end
+
+static void ZXLoadFramework(const char *path)
+{
+    static dispatch_once_t once;
+    static NSMutableSet *loaded = nil;
+    dispatch_once(&once, ^{ loaded = [NSMutableSet set]; });
+    if (!path) return;
+    NSString *key = [NSString stringWithUTF8String:path];
+    if ([loaded containsObject:key]) return;
+    [loaded addObject:key];
+    dlopen(path, RTLD_LAZY);
+}
+
+static NSString *ZXDialableNumber(NSString *raw)
+{
+    NSMutableString *out = [NSMutableString string];
+    NSCharacterSet *keep = [NSCharacterSet characterSetWithCharactersInString:@"0123456789+*#"];
+    for (NSUInteger i = 0; i < raw.length; i++) {
+        unichar c = [raw characterAtIndex:i];
+        if ([keep characterIsMember:c]) [out appendFormat:@"%C", c];
+    }
+    return out;
+}
+
+static BOOL ZXOpenURLScheme(NSString *urlString)
+{
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) return NO;
+    ZXRunOnMainSync(^{
+        @try {
+            UIApplication *app = [UIApplication sharedApplication];
+            if ([app respondsToSelector:@selector(openURL:options:completionHandler:)]) {
+                [app openURL:url options:@{} completionHandler:nil];
+            } else if ([app respondsToSelector:@selector(openURL:)]) {
+                [app openURL:url];
+            }
+        } @catch (NSException *exception) {
+            NSLog(@"com.zjx.springboard: openURL %@ failed: %@", urlString, exception.reason);
+        }
+    });
+    return YES;
+}
+
+static id ZXCallProviderForSIM(NSString *sim)
+{
+    if (sim.length == 0 || [sim isEqualToString:@"default"]) return nil;
+    NSInteger wanted = sim.integerValue;
+    if (wanted < 1) return nil;
+
+    Class managerClass = objc_getClass("TUCallProviderManager");
+    if (!managerClass) return nil;
+
+    ZXCallProviderManager *manager = nil;
+    @try {
+        if ([managerClass respondsToSelector:@selector(sharedInstance)]) {
+            manager = [(ZXCallProviderManager *)managerClass sharedInstance];
+        }
+        if (!manager) {
+            manager = [[(id)managerClass alloc] initWithQueue:nil];
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"com.zjx.springboard: ZXCallProviderManager failed: %@", exception.reason);
+        manager = nil;
+    }
+    if (!manager) return nil;
+
+    NSArray *providers = nil;
+    @try {
+        providers = manager.providers;
+    } @catch (NSException *exception) {
+        providers = nil;
+    }
+    if (providers.count == 0) return nil;
+
+    NSMutableArray *simProviders = [NSMutableArray array];
+    for (id provider in providers) {
+        NSString *label = nil;
+        @try {
+            label = [(ZXCallProvider *)provider localizedName];
+            if (label.length == 0) label = [(ZXCallProvider *)provider identifier];
+        } @catch (NSException *exception) {
+            label = nil;
+        }
+        NSString *lower = label.lowercaseString ?: @"";
+        if ([lower containsString:@"sim"] || [lower containsString:@"卡"]) {
+            [simProviders addObject:provider];
+        }
+    }
+    if ((NSInteger)simProviders.count >= wanted) return simProviders[wanted - 1];
+    return nil;
+}
+
+BOOL ZXMakeCall(NSString *number, NSString *sim, NSError **error)
+{
+    NSString *dialable = ZXDialableNumber(number ?: @"");
+    if (dialable.length == 0) {
+        if (error) *error = ZXActionError(@"没有可拨打的号码。");
+        return NO;
+    }
+
+    ZXLoadFramework("/System/Library/PrivateFrameworks/TelephonyUtilities.framework/TelephonyUtilities");
+    Class centerClass = objc_getClass("TUCallCenter");
+    Class requestClass = objc_getClass("TUDialRequest");
+    if (centerClass && requestClass) {
+        @try {
+            ZXCallCenter *center = nil;
+            if ([centerClass respondsToSelector:@selector(callCenter)]) {
+                center = [(ZXCallCenter *)centerClass callCenter];
+            }
+            if (!center && [centerClass respondsToSelector:@selector(sharedInstance)]) {
+                center = [(ZXCallCenter *)centerClass sharedInstance];
+            }
+
+            id provider = ZXCallProviderForSIM(sim);
+            ZXTUDialRequest *request = nil;
+            if ([requestClass instancesRespondToSelector:@selector(initWithProvider:)]) {
+                request = [[(id)requestClass alloc] initWithProvider:provider];
+            }
+            if (!request) request = [[(id)requestClass alloc] init];
+
+            if ([request respondsToSelector:@selector(setDestinationID:)]) {
+                request.destinationID = dialable;
+            }
+
+            if (center && request) {
+                if ([center respondsToSelector:@selector(dialWithRequest:completion:)]) {
+                    [center dialWithRequest:request completion:nil];
+                    return YES;
+                }
+                if ([center respondsToSelector:@selector(dialWithRequest:)]) {
+                    [center dialWithRequest:request];
+                    return YES;
+                }
+            }
+        } @catch (NSException *exception) {
+            NSLog(@"com.zjx.springboard: ZXMakeCall private API failed: %@", exception.reason);
+        }
+    }
+
+    BOOL opened = ZXOpenURLScheme([@"tel:" stringByAppendingString:dialable]);
+    if (!opened && error) *error = ZXActionError(@"当前系统不支持直接拨号。");
+    return opened;
+}
+
+BOOL ZXSendSMS(NSString *number, NSString *text, NSString *sim, NSError **error)
+{
+    NSString *dialable = ZXDialableNumber(number ?: @"");
+    if (dialable.length == 0) {
+        if (error) *error = ZXActionError(@"没有可发送的号码。");
+        return NO;
+    }
+    NSString *body = text ?: @"";
+
+    ZXLoadFramework("/System/Library/PrivateFrameworks/CoreTelephony.framework/CoreTelephony");
+    Class messageClass = objc_getClass("CTMessageCenter");
+    if (messageClass && [messageClass respondsToSelector:@selector(sharedMessageCenter)]) {
+        @try {
+            ZXCTMessageCenter *center = [(ZXCTMessageCenter *)messageClass sharedMessageCenter];
+            if (center) {
+                if ([center respondsToSelector:@selector(sendSMSWithText:serviceCenter:toAddress:withMoreToFollow:)]) {
+                    [center sendSMSWithText:body serviceCenter:nil toAddress:dialable withMoreToFollow:NO];
+                    return YES;
+                }
+                if ([center respondsToSelector:@selector(sendSMSWithText:serviceCenter:toAddress:)]) {
+                    [center sendSMSWithText:body serviceCenter:nil toAddress:dialable];
+                    return YES;
+                }
+            }
+        } @catch (NSException *exception) {
+            NSLog(@"com.zjx.springboard: ZXSendSMS private API failed: %@", exception.reason);
+        }
+    }
+
+    NSString *encoded = [body stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]] ?: @"";
+    BOOL opened = ZXOpenURLScheme([NSString stringWithFormat:@"sms:%@&body=%@", dialable, encoded]);
+    if (!opened && error) *error = ZXActionError(@"当前系统不支持直接发短信。");
+    return opened;
 }

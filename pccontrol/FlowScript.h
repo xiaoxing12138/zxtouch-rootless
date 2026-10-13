@@ -34,6 +34,10 @@ extern NSString * const kFlowKillApp;    // 关闭 App（杀后台）
 extern NSString * const kFlowPaste;      // 粘贴
 extern NSString * const kFlowRing;       // 响铃
 extern NSString * const kFlowVolume;     // 调整设备音量
+extern NSString * const kFlowStopAll;    // 停止所有脚本
+extern NSString * const kFlowCall;       // 打电话
+extern NSString * const kFlowSMS;        // 发短信
+extern NSString * const kFlowWeChat;     // 发微信（占位）
 
 /// 在弹窗里追加的「从屏幕取…」动作
 typedef NS_ENUM(NSInteger, FlowPickMode) {
@@ -66,7 +70,9 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 @property (nonatomic, copy) NSString *kind;
 @property (nonatomic, copy) NSString *title;        // 「点击」
 @property (nonatomic, copy) NSString *symbolName;   // SF Symbol
+@property (nonatomic, copy) NSString *category;     // 分类名（“添加步骤”按它分组）
 @property (nonatomic) BOOL isCondition;             // 是不是「判断」类（有成立/不成立）
+@property (nonatomic, copy) NSString *hint;         // 参数页顶部的一句提示，可为空串
 @property (nonatomic, copy) NSString *pickActionTitle;  // 空串 = 这个类型没有取点动作
 @property (nonatomic) FlowPickMode pickMode;
 @property (nonatomic, copy) NSArray<NSString *> *pickTargets;
@@ -78,6 +84,7 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 
 + (NSArray<FlowStepType *> *)allStepTypes;       // 顶层能加的全部类型
 + (NSArray<FlowStepType *> *)simpleStepTypes;    // 「成立 / 不成立」分支里能加的类型（只能放动作）
++ (NSArray<NSString *> *)categoryTitles;         // 分类的固定顺序（“添加步骤”按它分组）
 + (nullable FlowStepType *)typeForKind:(NSString *)kind;
 
 + (NSMutableDictionary *)newStepOfKind:(NSString *)kind;

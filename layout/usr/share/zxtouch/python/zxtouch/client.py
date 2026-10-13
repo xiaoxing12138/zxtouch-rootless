@@ -170,6 +170,44 @@ class zxtouch:
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_SET_VOLUME, "delta", steps))
         return self._recv_response()
 
+    def change_volume_percent(self, percent):
+        """Raise or lower the device volume by a percentage of the full scale
+
+        :param percent: positive to raise, negative to lower, 0 - 100
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_SET_VOLUME, "deltaPercent", percent))
+        return self._recv_response()
+
+    def stop_all_scripts(self):
+        """Stop every script that is currently running
+
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_STOP_ALL_SCRIPTS))
+        return self._recv_response()
+
+    def make_call(self, number, sim="default"):
+        """Place a phone call
+
+        :param number: the phone number to dial
+        :param sim: which SIM to use: "default" / "1" / "2"
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_MAKE_CALL, number, sim))
+        return self._recv_response()
+
+    def send_sms(self, number, text, sim="default"):
+        """Send an SMS
+
+        :param number: the phone number to send to
+        :param text: the message body
+        :param sim: which SIM to use: "default" / "1" / "2"
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_SEND_SMS, number, text, sim))
+        return self._recv_response()
+
     def show_alert_box(self, title, content, duration):
         """Show alert box on device
 

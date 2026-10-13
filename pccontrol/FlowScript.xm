@@ -25,6 +25,17 @@ NSString * const kFlowKillApp = @"killApp";
 NSString * const kFlowPaste = @"paste";
 NSString * const kFlowRing = @"ring";
 NSString * const kFlowVolume = @"volume";
+NSString * const kFlowStopAll = @"stopAll";
+NSString * const kFlowCall = @"call";
+NSString * const kFlowSMS = @"sms";
+NSString * const kFlowWeChat = @"wechat";
+
+// 分类固定顺序：触摸 → 判断条件 → 流程 → App 与输入 → 提醒
+static NSString * const kCatTouch = @"触摸";
+static NSString * const kCatCondition = @"判断条件";
+static NSString * const kCatFlow = @"流程";
+static NSString * const kCatApp = @"App 与输入";
+static NSString * const kCatRemind = @"提醒";
 
 // 点击的默认值：改这里，生成器与弹窗默认值一起跟着变
 static const double kDefaultTapInterval = 0.02;
@@ -32,6 +43,31 @@ static const double kDefaultTapHold = 0.02;
 
 // 生成脚本开头那一行标记：靠它判断 main.py 是不是我们生成的
 static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视化编辑器生成。";
+
+// 「用哪张卡」的选择项：默认卡 / 卡 1 / 卡 2（打电话、发短信共用）
+static FlowFieldSpec *flowSimFieldSpec(void)
+{
+    FlowFieldSpec *sim = [FlowFieldSpec key:@"SIM" title:@"用哪张卡" integer:NO def:@"default"];
+    sim.choiceTitles = @[ @"默认卡", @"卡 1", @"卡 2" ];
+    sim.choiceValues = @[ @"default", @"1", @"2" ];
+    return sim;
+}
+
+// 卡号在界面上的中文名
+static NSString *fwSimTitle(id value)
+{
+    NSString *sim = [value isKindOfClass:[NSString class]] ? value : @"default";
+    if ([sim isEqualToString:@"1"]) return @"卡 1";
+    if ([sim isEqualToString:@"2"]) return @"卡 2";
+    return @"默认卡";
+}
+
+// 卡号落进 plist 的值
+static NSString *fwSimValue(id value)
+{
+    NSString *sim = [value isKindOfClass:[NSString class]] ? value : @"default";
+    return sim.length ? sim : @"default";
+}
 
 @implementation FlowFieldSpec
 + (instancetype)key:(NSString *)key title:(NSString *)title integer:(BOOL)integer def:(NSString *)def
@@ -65,6 +101,7 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         FlowStepType *tap = [self type:kFlowTap title:@"点击" symbol:@"hand.tap.fill" condition:NO];
+        tap.category = kCatTouch;
         tap.pickActionTitle = @"从屏幕取坐标";
         tap.pickMode = FlowPickModePoint;
         tap.pickTargets = @[@"X", @"Y"];
@@ -77,6 +114,7 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         ];
 
         FlowStepType *swipe = [self type:kFlowSwipe title:@"滑动" symbol:@"hand.draw.fill" condition:NO];
+        swipe.category = kCatTouch;
         swipe.pickActionTitle = @"从屏幕取起点和终点";
         swipe.pickMode = FlowPickModePath;
         swipe.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
@@ -89,15 +127,18 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         ];
 
         FlowStepType *wait = [self type:kFlowWait title:@"等待" symbol:@"clock.fill" condition:NO];
+        wait.category = kCatFlow;
         wait.fields = @[ [FlowFieldSpec numKey:@"Seconds" title:@"等几秒" integer:NO def:@"0.5"] ];
 
         FlowStepType *toast = [self type:kFlowToast title:@"提示" symbol:@"text.bubble.fill" condition:NO];
+        toast.category = kCatFlow;
         toast.fields = @[
             [FlowFieldSpec key:@"Text" title:@"提示文字" integer:NO def:@"完成"],
             [FlowFieldSpec numKey:@"Seconds" title:@"显示几秒" integer:NO def:@"2"],
         ];
 
         FlowStepType *color = [self type:kFlowColor title:@"识色" symbol:@"eyedropper.halffull" condition:YES];
+        color.category = kCatCondition;
         color.pickActionTitle = @"从屏幕取颜色";
         color.pickMode = FlowPickModeColor;
         color.pickTargets = @[@"X", @"Y"];
@@ -109,6 +150,7 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         ];
 
         FlowStepType *findColor = [self type:kFlowFindColor title:@"找色" symbol:@"magnifyingglass" condition:YES];
+        findColor.category = kCatCondition;
         findColor.pickActionTitle = @"从屏幕框选区域";
         findColor.pickMode = FlowPickModeRect;
         findColor.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
@@ -122,6 +164,7 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         ];
 
         FlowStepType *image = [self type:kFlowImage title:@"识图" symbol:@"photo.fill" condition:YES];
+        image.category = kCatCondition;
         image.pickActionTitle = @"从屏幕框选模板";
         image.pickMode = FlowPickModeTemplate;
         image.pickTargets = @[@"Template"];
@@ -132,6 +175,7 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
 
         // 识字：把框选区域里的文字/数字识别出来，只用来判断，不改变脚本流程
         FlowStepType *ocr = [self type:kFlowOCR title:@"识字" symbol:@"text.viewfinder" condition:YES];
+        ocr.category = kCatCondition;
         ocr.pickActionTitle = @"从屏幕框选识字区域";
         ocr.pickMode = FlowPickModeRect;
         ocr.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
@@ -150,28 +194,34 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
 
         // 打开 App：Bundle 从「已安装 App 列表」里选，不手打
         FlowStepType *openApp = [self type:kFlowOpenApp title:@"打开App" symbol:@"app.badge.fill" condition:NO];
+        openApp.category = kCatApp;
         FlowFieldSpec *openAppBundle = [FlowFieldSpec key:@"Bundle" title:@"目标 App" integer:NO def:@""];
         openAppBundle.pickerKind = @"app";
         openApp.fields = @[ openAppBundle ];
 
         // 返回主屏幕：无参数
         FlowStepType *home = [self type:kFlowHome title:@"返回主屏幕" symbol:@"house.fill" condition:NO];
+        home.category = kCatApp;
         home.fields = @[];
 
         // 关闭 App（杀后台）
         FlowStepType *killApp = [self type:kFlowKillApp title:@"关闭App" symbol:@"xmark.app.fill" condition:NO];
+        killApp.category = kCatApp;
+        killApp.hint = @"「关闭App」会把该 App 的后台进程直接杀掉（等同于上滑清后台），并不是简单切走。";
         FlowFieldSpec *killAppBundle = [FlowFieldSpec key:@"Bundle" title:@"目标 App" integer:NO def:@""];
         killAppBundle.pickerKind = @"app";
         killApp.fields = @[ killAppBundle ];
 
         // 粘贴：填了文字就输入文字，没填就用剪贴板
         FlowStepType *paste = [self type:kFlowPaste title:@"粘贴" symbol:@"doc.on.clipboard" condition:NO];
+        paste.category = kCatApp;
         paste.fields = @[
             [FlowFieldSpec key:@"Text" title:@"要输入的文字（留空 = 粘贴剪贴板）" integer:NO def:@""],
         ];
 
         // 响铃：系统铃声 + 持续秒数
         FlowStepType *ring = [self type:kFlowRing title:@"响铃" symbol:@"bell.fill" condition:NO];
+        ring.category = kCatRemind;
         FlowFieldSpec *ringSound = [FlowFieldSpec key:@"Sound" title:@"铃声" integer:NO def:@"Alarm.m4r"];
         ringSound.pickerKind = @"ringtone";
         ring.fields = @[
@@ -179,20 +229,54 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
             [FlowFieldSpec numKey:@"Seconds" title:@"响几秒" integer:NO def:@"3"],
         ];
 
-        // 调整设备音量：百分比 / 调高 / 调低
+        // 调整设备音量：方式 + 百分比（不再用 1-16 格）
         FlowStepType *volume = [self type:kFlowVolume title:@"调整音量" symbol:@"speaker.wave.3.fill" condition:NO];
+        volume.category = kCatApp;
         FlowFieldSpec *volumeMode = [FlowFieldSpec key:@"Mode" title:@"方式" integer:NO def:@"percent"];
-        volumeMode.choiceTitles = @[ @"百分比", @"调高", @"调低" ];
+        volumeMode.choiceTitles = @[ @"调整至目标音量", @"调高", @"调低" ];
         volumeMode.choiceValues = @[ @"percent", @"up", @"down" ];
         volume.fields = @[
             volumeMode,
-            [FlowFieldSpec key:@"Percent" title:@"目标音量（0-100，百分比时用）" integer:YES def:@"50"],
-            [FlowFieldSpec key:@"Steps" title:@"增减格数（1-16，调高/调低时用）" integer:YES def:@"2"],
+            [FlowFieldSpec key:@"Percent" title:@"百分比（0-100）" integer:YES def:@"50"],
         ];
 
-        types = @[tap, swipe, wait, toast, color, findColor, image, ocr, openApp, home, killApp, paste, ring, volume];
+        // 停止所有脚本：给流程一个统一的终止指令
+        FlowStepType *stopAll = [self type:kFlowStopAll title:@"停止所有脚本" symbol:@"stop.circle.fill" condition:NO];
+        stopAll.category = kCatFlow;
+        stopAll.fields = @[];
+
+        // 打电话 / 发短信：号码 + 正文 + 用哪张卡
+        FlowStepType *call = [self type:kFlowCall title:@"打电话" symbol:@"phone.fill" condition:NO];
+        call.category = kCatRemind;
+        call.fields = @[
+            [FlowFieldSpec key:@"Number" title:@"号码" integer:NO def:@""],
+            flowSimFieldSpec(),
+        ];
+
+        FlowStepType *sms = [self type:kFlowSMS title:@"发短信" symbol:@"message.fill" condition:NO];
+        sms.category = kCatRemind;
+        sms.fields = @[
+            [FlowFieldSpec key:@"Number" title:@"号码" integer:NO def:@""],
+            [FlowFieldSpec key:@"Text" title:@"短信内容" integer:NO def:@""],
+            flowSimFieldSpec(),
+        ];
+
+        // 发微信：占位步骤，暂不执行，先放在这里
+        FlowStepType *wechat = [self type:kFlowWeChat title:@"发微信" symbol:@"bubble.left.and.bubble.right.fill" condition:NO];
+        wechat.category = kCatRemind;
+        wechat.hint = @"「发微信」目前是占位步骤，放进流程里不会真正发送，后续版本再接。";
+        wechat.fields = @[];
+
+        types = @[tap, swipe, wait, toast, color, findColor, image, ocr,
+                  stopAll, openApp, home, killApp, paste, volume,
+                  ring, call, sms, wechat];
     });
     return types;
+}
+
++ (NSArray<NSString *> *)categoryTitles
+{
+    return @[ kCatTouch, kCatCondition, kCatFlow, kCatApp, kCatRemind ];
 }
 
 + (FlowStepType *)type:(NSString *)kind title:(NSString *)title symbol:(NSString *)symbol condition:(BOOL)condition
@@ -202,6 +286,8 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
     type.title = title;
     type.symbolName = symbol;
     type.isCondition = condition;
+    type.category = @"";
+    type.hint = @"";
     type.pickActionTitle = @"";
     type.pickMode = FlowPickModeNone;
     type.pickTargets = @[];
@@ -325,7 +411,7 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
     }
     if ([kind isEqualToString:kFlowKillApp]) {
         NSString *bundle = [step[@"Bundle"] isKindOfClass:[NSString class]] ? step[@"Bundle"] : @"";
-        return [NSString stringWithFormat:@"关闭 App %@", bundle.length ? bundle : @"（未选择）"];
+        return [NSString stringWithFormat:@"关闭 App %@（会杀死进程）", bundle.length ? bundle : @"（未选择）"];
     }
     if ([kind isEqualToString:kFlowPaste]) {
         NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
@@ -338,12 +424,29 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
     if ([kind isEqualToString:kFlowVolume]) {
         NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"percent";
         if ([mode isEqualToString:@"up"]) {
-            return [NSString stringWithFormat:@"音量调高 %@ 格", [self textForValue:step[@"Steps"]]];
+            return [NSString stringWithFormat:@"音量调高 %@%%", [self textForValue:step[@"Percent"]]];
         }
         if ([mode isEqualToString:@"down"]) {
-            return [NSString stringWithFormat:@"音量调低 %@ 格", [self textForValue:step[@"Steps"]]];
+            return [NSString stringWithFormat:@"音量调低 %@%%", [self textForValue:step[@"Percent"]]];
         }
-        return [NSString stringWithFormat:@"音量设为 %@%%", [self textForValue:step[@"Percent"]]];
+        return [NSString stringWithFormat:@"音量调整至 %@%%", [self textForValue:step[@"Percent"]]];
+    }
+    if ([kind isEqualToString:kFlowStopAll]) {
+        return @"停止所有脚本";
+    }
+    if ([kind isEqualToString:kFlowCall]) {
+        NSString *number = [step[@"Number"] isKindOfClass:[NSString class]] ? step[@"Number"] : @"";
+        return [NSString stringWithFormat:@"打电话给 %@（%@）", number.length ? number : @"（没填号码）",
+                fwSimTitle(step[@"SIM"])];
+    }
+    if ([kind isEqualToString:kFlowSMS]) {
+        NSString *number = [step[@"Number"] isKindOfClass:[NSString class]] ? step[@"Number"] : @"";
+        NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+        return [NSString stringWithFormat:@"发短信给 %@（%@）「%@」", number.length ? number : @"（没填号码）",
+                fwSimTitle(step[@"SIM"]), text.length ? text : @"（空）"];
+    }
+    if ([kind isEqualToString:kFlowWeChat]) {
+        return @"发微信（占位，暂不执行）";
     }
     return @"未知步骤";
 }
@@ -888,13 +991,28 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         line = [NSString stringWithFormat:@"设备.play_ring(\"%@\", %@)", sound, [self textForValue:step[@"Seconds"]]];
     } else if ([kind isEqualToString:kFlowVolume]) {
         NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"percent";
+        NSString *percent = [self textForValue:step[@"Percent"]];
         if ([mode isEqualToString:@"up"]) {
-            line = [NSString stringWithFormat:@"设备.change_volume(%@)", [self textForValue:step[@"Steps"]]];
+            line = [NSString stringWithFormat:@"设备.change_volume_percent(%@)", percent];
         } else if ([mode isEqualToString:@"down"]) {
-            line = [NSString stringWithFormat:@"设备.change_volume(-%@)", [self textForValue:step[@"Steps"]]];
+            line = [NSString stringWithFormat:@"设备.change_volume_percent(-%@)", percent];
         } else {
-            line = [NSString stringWithFormat:@"设备.set_volume(%@)", [self textForValue:step[@"Percent"]]];
+            line = [NSString stringWithFormat:@"设备.set_volume(%@)", percent];
         }
+    } else if ([kind isEqualToString:kFlowStopAll]) {
+        line = @"设备.stop_all_scripts()";
+    } else if ([kind isEqualToString:kFlowCall]) {
+        NSString *number = [NSString stringWithFormat:@"%@", step[@"Number"] ?: @""];
+        number = [number stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+        line = [NSString stringWithFormat:@"设备.make_call(\"%@\", \"%@\")", number, fwSimValue(step[@"SIM"])];
+    } else if ([kind isEqualToString:kFlowSMS]) {
+        NSString *number = [NSString stringWithFormat:@"%@", step[@"Number"] ?: @""];
+        number = [number stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+        NSString *text = [NSString stringWithFormat:@"%@", step[@"Text"] ?: @""];
+        text = [text stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+        line = [NSString stringWithFormat:@"设备.send_sms(\"%@\", \"%@\", \"%@\")", number, text, fwSimValue(step[@"SIM"])];
+    } else if ([kind isEqualToString:kFlowWeChat]) {
+        line = @"pass";
     } else {
         return;
     }

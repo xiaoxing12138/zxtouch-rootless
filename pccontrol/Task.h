@@ -51,8 +51,17 @@
 #define TASK_KILL_APP 47
 // 48：响铃；载荷 = 铃声路径或文件名;;持续秒数
 #define TASK_PLAY_RING 48
-// 49：调整音量；载荷 = percent|delta;;数值（percent 为 0-100，delta 为增减格数）
+// 49：调整音量；载荷 = percent|delta|deltaPercent;;数值
+//   percent       0-100，绝对值
+//   deltaPercent  0-100，增减的百分点（正数调高、负数调低）
+//   delta         增减格数（1 格 = 1/16，兼容旧脚本）
 #define TASK_SET_VOLUME 49
+// 50：停止所有正在运行的脚本（无载荷）
+#define TASK_STOP_ALL_SCRIPTS 50
+// 51：拨打电话；载荷 = 号码;;卡（default|1|2）
+#define TASK_MAKE_CALL 51
+// 52：发送短信；载荷 = 号码;;内容;;卡（default|1|2）
+#define TASK_SEND_SMS 52
 
 #define TASK_UPDATE_CACHE 90
 

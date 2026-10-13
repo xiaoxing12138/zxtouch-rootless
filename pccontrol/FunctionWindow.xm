@@ -376,8 +376,11 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     _backdrop = [[FNBackdropView alloc] initWithFrame:root.bounds];
     _backdrop.backgroundColor = [UIColor clearColor];
     _backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [_backdrop addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self
-                                                                            action:@selector(handleBackdropTap:)]];
+    UITapGestureRecognizer *backdropTap = [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                                 action:@selector(handleBackdropTap:)];
+    // 与窗口兜底手势共用同一套「该不该关」的判断（卡内点击不关、子浮窗开着时先交给子浮窗）
+    backdropTap.delegate = self;
+    [_backdrop addGestureRecognizer:backdropTap];
     [root addSubview:_backdrop];
 
     // 居中卡片（frame 由 layoutCard 计算，autoresizing 保证旋转后仍居中）
@@ -1480,6 +1483,16 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
             count.adjustsFontSizeToFitWidth = YES;
             count.minimumScaleFactor = 0.8;
             [row.content addSubview:count];
+        } else {
+            UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(countX, (FN_ROW_H - 16) / 2.0f, countW, 16)];
+            badge.text = @"PY";
+            badge.font = [UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold];
+            badge.textColor = [UIColor systemBlueColor];
+            badge.textAlignment = NSTextAlignmentCenter;
+            badge.backgroundColor = [[UIColor systemBlueColor] colorWithAlphaComponent:0.14f];
+            badge.layer.cornerRadius = 4;
+            badge.clipsToBounds = YES;
+            [row.content addSubview:badge];
         }
 
         UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(countX + countW + 2.0f,
@@ -1873,6 +1886,9 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 }
 
 - (void)handleBackdropTap:(UITapGestureRecognizer *)g {
+    // 兜底再判一次：不管手势挂在哪个视图上，落在卡片内、或子浮窗开着时，主面板一律不关
+    if (_cardView && _window && CGRectContainsPoint(_cardView.frame, [g locationInView:_window])) return;
+    if ([self hasOverlaySubview]) return;
     [self hide];
 }
 

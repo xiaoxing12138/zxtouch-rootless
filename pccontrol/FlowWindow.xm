@@ -119,6 +119,10 @@ static UIColor *fwTypeColor(NSString *kind)
     if ([kind isEqualToString:kFlowPaste])     return fwColor(0x6A1B9A, 0xB085D8);
     if ([kind isEqualToString:kFlowRing])      return fwColor(0xB8860B, 0xF0C24B);
     if ([kind isEqualToString:kFlowVolume])    return fwColor(0x00838F, 0x4DD0E1);
+    if ([kind isEqualToString:kFlowStopAll])   return fwColor(0x8E24AA, 0xC77DFF);
+    if ([kind isEqualToString:kFlowCall])      return fwColor(0x2E7D32, 0x66BB6A);
+    if ([kind isEqualToString:kFlowSMS])       return fwColor(0x0277BD, 0x4FC3F7);
+    if ([kind isEqualToString:kFlowWeChat])    return fwColor(0x1FAE1F, 0x5CE65C);
     return fwColor(0x4C8DFF, 0x6EA8FF);
 }
 
@@ -162,7 +166,13 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
     ];
     if ([kind isEqualToString:kFlowVolume]) return @[
         @{ @"title": @"方式", @"keys": @[ @"Mode" ] },
-        @{ @"title": @"数值", @"keys": @[ @"Percent", @"Steps" ] },
+        @{ @"title": @"数值", @"keys": @[ @"Percent" ] },
+    ];
+    if ([kind isEqualToString:kFlowCall]) return @[
+        @{ @"title": @"拨打", @"keys": @[ @"Number", @"SIM" ] },
+    ];
+    if ([kind isEqualToString:kFlowSMS]) return @[
+        @{ @"title": @"发送", @"keys": @[ @"Number", @"Text", @"SIM" ] },
     ];
     return @[];
 }
@@ -1333,11 +1343,14 @@ static FlowWindow *_fwShared = nil;
 
     [host addSubview:dim];
     if (!animated) return;
+    // 子浮窗与主面板一套动画：主面板 X 轴翻转，子浮窗 Y 轴翻转
     dim.alpha = 0;
-    card.transform = CGAffineTransformMakeScale(0.92f, 0.92f);
-    [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+    card.layer.transform = CATransform3DMakeRotation(M_PI_2, 0.0, 1.0, 0.0);
+    card.alpha = 0.0f;
+    [UIView animateWithDuration:0.26 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
         dim.alpha = 1;
-        card.transform = CGAffineTransformIdentity;
+        card.layer.transform = CATransform3DIdentity;
+        card.alpha = 1.0f;
     } completion:nil];
 }
 
@@ -1495,6 +1508,7 @@ static FlowWindow *_fwShared = nil;
 
 - (void)dismissSubAnimated:(BOOL)animated {
     UIView *dim = _subDim;
+    UIView *card = _subCard;
     _subDim = nil;
     _subCard = nil;
     _subTitleBar = nil;
@@ -1514,8 +1528,10 @@ static FlowWindow *_fwShared = nil;
         [dim removeFromSuperview];
         return;
     }
-    [UIView animateWithDuration:0.15 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
+    [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
         dim.alpha = 0;
+        card.layer.transform = CATransform3DMakeRotation(M_PI_2, 0.0, 1.0, 0.0);
+        card.alpha = 0.0f;
     } completion:^(BOOL finished) {
         [dim removeFromSuperview];
     }];
@@ -1556,13 +1572,128 @@ static NSString *fwDisclaimerText(void)
             "请自觉遵守当地法律法规，如不同意本声明请立即停止使用并卸载本软件。";
 }
 
+static NSString *fwNoticeText(void)
+{
+    return @"本软件（小新Lap）基于开源项目 ZXTouch 二次修改，仅供学习与交流使用，"
+            "代码与功能均已按需调整，此处仅声明来源。";
+}
+
+static NSString *fwAppVersion(void)
+{
+    static NSString *cached = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSArray<NSString *> *paths = @[ @"/var/jb/Applications/zxtouch.app/Info.plist",
+                                        @"/Applications/zxtouch.app/Info.plist" ];
+        for (NSString *path in paths) {
+            NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:path];
+            NSString *version = info[@"CFBundleShortVersionString"];
+            if ([version isKindOfClass:[NSString class]] && version.length > 0) {
+                cached = version;
+                break;
+            }
+        }
+    });
+    return cached ?: @"";
+}
+
+static NSArray<NSString *> *fwVersionURLs(void)
+{
+    return @[ @"https://cdn.jsdelivr.net/gh/xiaoxing12138/zxtouch-rootless@main/version.json",
+              @"https://raw.githubusercontent.com/xiaoxing12138/zxtouch-rootless/main/version.json" ];
+}
+
+static NSString *fwCleanVersion(NSString *raw)
+{
+    NSMutableString *result = [NSMutableString string];
+    for (NSUInteger i = 0; i < raw.length; i++) {
+        unichar c = [raw characterAtIndex:i];
+        if ((c >= '0' && c <= '9') || c == '.') [result appendFormat:@"%C", c];
+    }
+    return result;
+}
+
+static BOOL fwVersionIsNewer(NSString *remote, NSString *current)
+{
+    NSArray<NSString *> *a = [fwCleanVersion(remote) componentsSeparatedByString:@"."];
+    NSArray<NSString *> *b = [fwCleanVersion(current) componentsSeparatedByString:@"."];
+    NSUInteger n = MAX(a.count, b.count);
+    for (NSUInteger i = 0; i < n; i++) {
+        NSInteger x = (i < a.count) ? a[i].integerValue : 0;
+        NSInteger y = (i < b.count) ? b[i].integerValue : 0;
+        if (x != y) return x > y;
+    }
+    return NO;
+}
+
+static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *version))
+{
+    NSArray<NSString *> *urls = fwVersionURLs();
+    if (index >= urls.count) {
+        completion(nil);
+        return;
+    }
+    NSURL *url = [NSURL URLWithString:urls[index]];
+    if (!url) {
+        fwFetchLatestVersion(index + 1, completion);
+        return;
+    }
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url
+        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSString *version = nil;
+        if (data.length > 0) {
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            if ([json isKindOfClass:[NSDictionary class]]) {
+                id value = json[@"version"];
+                if ([value isKindOfClass:[NSString class]]) version = value;
+            }
+        }
+        if (version.length == 0) {
+            fwFetchLatestVersion(index + 1, completion);
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(version); });
+        }
+    }];
+    [task resume];
+}
+
+#define FW_ABOUT_VERSION_TAG 99817
+
+- (UILabel *)subAddPlainLabel:(NSString *)text font:(UIFont *)font color:(UIColor *)color
+                        width:(CGFloat)w tag:(NSInteger)tag
+{
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, w - 16, 18)];
+    label.text = text;
+    label.font = font;
+    label.textColor = color;
+    label.numberOfLines = 1;
+    label.adjustsFontSizeToFitWidth = YES;
+    label.minimumScaleFactor = 0.7;
+    label.tag = tag;
+    return label;
+}
+
 - (void)showAboutSheet
 {
+    NSString *current = fwAppVersion();
     __weak typeof(self) weakSelf = self;
     [self showSubWithTitle:@"交流与免责声明" builder:^CGFloat(UIScrollView *content, CGFloat w) {
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return 0.0f;
         CGFloat y = 8.0f;
+
+        y = [strongSelf subAddSection:@"版本" width:w y:y];
+
+        UILabel *cur = [strongSelf subAddPlainLabel:[NSString stringWithFormat:@"当前版本：v%@", current.length ? current : @"未知"]
+                                               font:[UIFont systemFontOfSize:12]
+                                              color:ZXPalette(ZXPalSub) width:w tag:0];
+        y = [strongSelf subAddRow:cur y:y];
+
+        UILabel *latest = [strongSelf subAddPlainLabel:@"最新版本：检测中…"
+                                                  font:[UIFont systemFontOfSize:12]
+                                                 color:ZXPalette(ZXPalSub) width:w
+                                                   tag:FW_ABOUT_VERSION_TAG];
+        y = [strongSelf subAddRow:latest y:y];
 
         y = [strongSelf subAddSection:@"交流" width:w y:y];
         UIView *qq = [strongSelf makeActionRow:[NSString stringWithFormat:@"QQ 交流群：%@", kFwQQGroup]
@@ -1583,6 +1714,18 @@ static NSString *fwDisclaimerText(void)
         }];
         y = [strongSelf subAddRow:bili y:y];
 
+        y = [strongSelf subAddSection:@"开源声明" width:w y:y];
+        UILabel *notice = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, w - 16, 10)];
+        notice.text = fwNoticeText();
+        notice.font = [UIFont systemFontOfSize:12];
+        notice.textColor = ZXPalette(ZXPalSub);
+        notice.numberOfLines = 0;
+        CGRect noticeRect = [notice.text boundingRectWithSize:CGSizeMake(w - 16, CGFLOAT_MAX)
+                                                     options:NSStringDrawingUsesLineFragmentOrigin
+                                                  attributes:@{ NSFontAttributeName: notice.font } context:nil];
+        notice.frame = CGRectMake(0, 0, w - 16, ceil(noticeRect.size.height) + 4);
+        y = [strongSelf subAddRow:notice y:y];
+
         y = [strongSelf subAddSection:@"免责声明" width:w y:y];
         UILabel *text = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, w - 16, 10)];
         text.text = fwDisclaimerText();
@@ -1596,6 +1739,23 @@ static NSString *fwDisclaimerText(void)
         y = [strongSelf subAddRow:text y:y];
         return y;
     }];
+
+    fwFetchLatestVersion(0, ^(NSString *version) {
+        FlowWindow *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        UILabel *label = (UILabel *)[strongSelf->_subScroll viewWithTag:FW_ABOUT_VERSION_TAG];
+        if (![label isKindOfClass:[UILabel class]]) return;
+        if (version.length == 0) {
+            label.text = @"最新版本：获取失败（请检查网络后重开本页）";
+            return;
+        }
+        if (current.length > 0 && fwVersionIsNewer(version, current)) {
+            label.text = [NSString stringWithFormat:@"最新版本：v%@（有新版本，请加入 QQ 交流群获取最新文件）", version];
+            label.textColor = ZXPalette(ZXPalDanger);
+        } else {
+            label.text = [NSString stringWithFormat:@"最新版本：v%@（已是最新）", version];
+        }
+    });
 }
 
 #pragma mark - 子浮窗：添加步骤
@@ -1603,23 +1763,38 @@ static NSString *fwDisclaimerText(void)
 - (void)showAddSheet {
     BOOL branch = [_stack.lastObject[@"branch"] boolValue];
     NSArray<FlowStepType *> *all = branch ? [FlowScript simpleStepTypes] : [FlowScript allStepTypes];
-    NSMutableArray<FlowStepType *> *actions = [NSMutableArray array];
-    NSMutableArray<FlowStepType *> *conditions = [NSMutableArray array];
-    for (FlowStepType *type in all) {
-        [(type.isCondition ? conditions : actions) addObject:type];
-    }
     if (all.count == 0) return;
 
+    // 按分类分组，分类顺序固定；没归类的兜底放进「其他」
     NSMutableArray<NSDictionary *> *groups = [NSMutableArray array];
-    if (actions.count > 0) [groups addObject:@{ @"title": @"动作", @"types": actions }];
-    if (conditions.count > 0) [groups addObject:@{ @"title": @"判断条件", @"types": conditions }];
+    NSMutableArray<FlowStepType *> *rest = [NSMutableArray array];
+    for (NSString *category in [FlowScript categoryTitles]) {
+        NSMutableArray<FlowStepType *> *list = [NSMutableArray array];
+        for (FlowStepType *type in all) {
+            if ([type.category isEqualToString:category]) [list addObject:type];
+        }
+        if (list.count > 0) [groups addObject:@{ @"title": category, @"types": list }];
+    }
+    for (FlowStepType *type in all) {
+        if (![[FlowScript categoryTitles] containsObject:type.category]) [rest addObject:type];
+    }
+    if (rest.count > 0) [groups addObject:@{ @"title": @"其他", @"types": rest }];
 
     __weak typeof(self) weakSelf = self;
     [self showSubWithTitle:@"添加步骤" builder:^CGFloat(UIScrollView *content, CGFloat w) {
-        CGFloat cellGap = 8.0f;
-        CGFloat cellW = floor((w - cellGap) / 2.0f);
-        CGFloat y = 8.0f;
+        const CGFloat cellGap = 8.0f;
+        const CGFloat maxCellW = 168.0f;
+        const CGFloat minCellW = 92.0f;
+        const CGFloat innerW = MAX(w - 16.0f, 60.0f);
 
+        // 列数：先按「每个按钮不超过最大宽度」定下限，再按「不小于最小宽度」封顶
+        NSInteger byMax = (NSInteger)ceil((innerW + cellGap) / (maxCellW + cellGap));
+        NSInteger byMin = (NSInteger)floor((innerW + cellGap) / (minCellW + cellGap));
+        NSInteger cols = MIN(MAX(byMax, 1), MAX(byMin, 1));
+        cols = MIN(cols, 6);
+        CGFloat cellW = floor((innerW - (cols - 1) * cellGap) / cols);
+
+        CGFloat y = 8.0f;
         for (NSDictionary *group in groups) {
             UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, y, w - 8, 18)];
             label.text = group[@"title"];
@@ -1631,8 +1806,8 @@ static NSString *fwDisclaimerText(void)
             NSArray<FlowStepType *> *types = group[@"types"];
             for (NSUInteger i = 0; i < types.count; i++) {
                 FlowStepType *type = types[i];
-                NSInteger col = (NSInteger)(i % 2);
-                NSInteger line = (NSInteger)(i / 2);
+                NSInteger col = (NSInteger)(i % (NSUInteger)cols);
+                NSInteger line = (NSInteger)(i / (NSUInteger)cols);
                 UIButton *cell = [UIButton buttonWithType:UIButtonTypeSystem];
                 cell.frame = CGRectMake(8 + col * (cellW + cellGap), y + line * (FW_CELL_H + cellGap),
                                         cellW, FW_CELL_H);
@@ -1672,7 +1847,7 @@ static NSString *fwDisclaimerText(void)
                 }] forControlEvents:UIControlEventTouchUpInside];
                 [content addSubview:cell];
             }
-            NSInteger lines = (NSInteger)ceil((double)types.count / 2.0);
+            NSInteger lines = (NSInteger)ceil((double)types.count / (double)cols);
             y += lines * FW_CELL_H + (lines - 1) * cellGap + 14.0f;
         }
         return y;
@@ -1696,6 +1871,20 @@ static NSString *fwDisclaimerText(void)
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return 0.0f;
         CGFloat y = 8.0f;
+
+        if (type.hint.length > 0) {
+            UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, w - 16, 10)];
+            hint.text = type.hint;
+            hint.font = [UIFont systemFontOfSize:12];
+            hint.textColor = ZXPalette(ZXPalSub);
+            hint.numberOfLines = 0;
+            CGRect hrect = [hint.text boundingRectWithSize:CGSizeMake(w - 16, CGFLOAT_MAX)
+                                                  options:NSStringDrawingUsesLineFragmentOrigin
+                                               attributes:@{ NSFontAttributeName: hint.font } context:nil];
+            hint.frame = CGRectMake(0, 0, w - 16, ceil(hrect.size.height) + 4);
+            y = [strongSelf subAddRow:hint y:y];
+            y += 2;
+        }
 
         if (type.pickMode != FlowPickModeNone) {
             UIView *pick = [strongSelf makeActionRow:type.pickActionTitle
@@ -1923,19 +2112,46 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         }
     } else if ([kind isEqualToString:kFlowVolume]) {
         NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"percent";
+        double percent = MAX(MIN(fwStepNumber(step, @"Percent", 50), 100), 0);
         NSError *error = nil;
         BOOL ok = NO;
         if ([mode isEqualToString:@"up"]) {
-            ok = ZXSetVolume(@"delta", MAX(fwStepNumber(step, @"Steps", 2), 1), &error);
+            ok = ZXSetVolume(@"deltaPercent", MAX(percent, 1), &error);
         } else if ([mode isEqualToString:@"down"]) {
-            ok = ZXSetVolume(@"delta", -MAX(fwStepNumber(step, @"Steps", 2), 1), &error);
+            ok = ZXSetVolume(@"deltaPercent", -MAX(percent, 1), &error);
         } else {
-            ok = ZXSetVolume(@"percent", fwStepNumber(step, @"Percent", 50), &error);
+            ok = ZXSetVolume(@"percent", percent, &error);
         }
         if (!ok) {
             showAlertBox(@"调整音量", error.localizedDescription ?: @"执行失败。", 2);
             return;
         }
+    } else if ([kind isEqualToString:kFlowStopAll]) {
+        NSError *error = nil;
+        if (!ZXStopAllScripts(&error)) {
+            showAlertBox(@"停止所有脚本", error.localizedDescription ?: @"执行失败。", 2);
+            return;
+        }
+    } else if ([kind isEqualToString:kFlowCall]) {
+        NSString *number = [step[@"Number"] isKindOfClass:[NSString class]] ? step[@"Number"] : @"";
+        NSString *sim = [step[@"SIM"] isKindOfClass:[NSString class]] ? step[@"SIM"] : @"default";
+        NSError *error = nil;
+        if (!ZXMakeCall(number, sim, &error)) {
+            showAlertBox(@"打电话", error.localizedDescription ?: @"执行失败。", 2);
+            return;
+        }
+    } else if ([kind isEqualToString:kFlowSMS]) {
+        NSString *number = [step[@"Number"] isKindOfClass:[NSString class]] ? step[@"Number"] : @"";
+        NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+        NSString *sim = [step[@"SIM"] isKindOfClass:[NSString class]] ? step[@"SIM"] : @"default";
+        NSError *error = nil;
+        if (!ZXSendSMS(number, text, sim, &error)) {
+            showAlertBox(@"发送短信", error.localizedDescription ?: @"执行失败。", 2);
+            return;
+        }
+    } else if ([kind isEqualToString:kFlowWeChat]) {
+        showAlertBox(@"发微信", @"该步骤暂未开放，仅作占位。", 2);
+        return;
     } else {
         return;
     }
@@ -2382,65 +2598,140 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                      }];
 }
 
-// 选择列表：App 用 bundle id 存，铃声存文件名；选完自动回到这一步的参数页
+// 选择列表：App 用 bundle id 存，铃声存绝对路径；顶部带搜索，列表分「用户 / 系统」两段
 - (void)showPickerForSpec:(FlowFieldSpec *)spec step:(NSMutableDictionary *)step
 {
     NSString *key = spec.key;
     BOOL isApp = [spec.pickerKind isEqualToString:@"app"];
     NSArray<NSDictionary *> *apps = isApp ? ZXInstalledApplications() : nil;
-    NSArray<NSString *> *sounds = isApp ? nil : ZXRingtoneNames();
+    NSArray<NSDictionary *> *sounds = isApp ? nil : ZXRingtoneItems();
 
     __weak typeof(self) weakSelf = self;
     NSString *title = [NSString stringWithFormat:@"选择%@", spec.title ?: @"项目"];
+
+    __block CGFloat listTop = 0.0f;
+    __block CGFloat listWidth = 0.0f;
+
+    CGFloat (^fill)(UIView *, NSString *) = ^CGFloat(UIView *box, NSString *query) {
+        for (UIView *v in [box.subviews copy]) [v removeFromSuperview];
+        FlowWindow *s = weakSelf;
+        if (!s) return 0.0f;
+
+        NSString *q = [query stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        CGFloat w = box.frame.size.width;
+        __block CGFloat y = 0.0f;
+
+        void (^section)(NSString *) = ^(NSString *text) {
+            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(0, y, w, 18)];
+            label.text = text;
+            label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+            label.textColor = ZXPalette(ZXPalSub);
+            [box addSubview:label];
+            y += 20.0f;
+        };
+
+        void (^addRow)(NSString *, NSString *, NSString *) = ^(NSString *label, NSString *detail, NSString *value) {
+            NSString *current = [step[key] isKindOfClass:[NSString class]] ? step[key] : @"";
+            BOOL on = current.length > 0 &&
+                      ([value isEqualToString:current] ||
+                       [value.lastPathComponent isEqualToString:current]);
+            UIView *row = [s makeActionRow:label
+                                    detail:detail
+                                     color:on ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalText)
+                                   primary:on width:w
+                                    action:^{
+                FlowWindow *ss = weakSelf;
+                if (!ss || value.length == 0) return;
+                step[key] = value;
+                [ss autosave];
+                [ss dismissSubAnimated:NO];
+                [ss showParamsSubForStep:step parentSteps:nil];
+            }];
+            row.frame = CGRectMake(0, y, row.frame.size.width, row.frame.size.height);
+            [box addSubview:row];
+            y += row.frame.size.height + FW_GAP;
+        };
+
+        if (isApp) {
+            NSMutableArray *user = [NSMutableArray array];
+            NSMutableArray *system = [NSMutableArray array];
+            for (NSDictionary *app in apps) {
+                NSString *name = app[@"name"] ?: @"";
+                NSString *bundle = app[@"bundle"] ?: @"";
+                if (q.length > 0 &&
+                    ![name localizedCaseInsensitiveContainsString:q] &&
+                    ![bundle localizedCaseInsensitiveContainsString:q]) continue;
+                [( [app[@"system"] boolValue] ? system : user ) addObject:app];
+            }
+            if (user.count > 0) {
+                section(@"用户 App");
+                for (NSDictionary *app in user) addRow(app[@"name"], app[@"bundle"], app[@"bundle"]);
+            }
+            if (system.count > 0) {
+                section(@"系统自带 App");
+                for (NSDictionary *app in system) addRow(app[@"name"], app[@"bundle"], app[@"bundle"]);
+            }
+            if (user.count == 0 && system.count == 0) addRow(@"没有找到 App", nil, @"");
+        } else {
+            NSMutableArray *user = [NSMutableArray array];
+            NSMutableArray *system = [NSMutableArray array];
+            for (NSDictionary *item in sounds) {
+                NSString *name = item[@"name"] ?: @"";
+                if (q.length > 0 && ![name localizedCaseInsensitiveContainsString:q]) continue;
+                [( [item[@"user"] boolValue] ? user : system ) addObject:item];
+            }
+            if (user.count > 0) {
+                section(@"用户铃声");
+                for (NSDictionary *item in user) addRow(item[@"name"], nil, item[@"path"]);
+            }
+            if (system.count > 0) {
+                section(@"系统铃声");
+                for (NSDictionary *item in system) addRow(item[@"name"], nil, item[@"path"]);
+            }
+            if (user.count == 0 && system.count == 0) addRow(@"没有找到铃声", nil, @"");
+        }
+        return y;
+    };
+
     [self showSubWithTitle:title builder:^CGFloat(UIScrollView *content, CGFloat w) {
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return 0.0f;
+
+        CGFloat inner = w - 8.0f;
         CGFloat y = 8.0f;
 
-        NSString *current = [step[key] isKindOfClass:[NSString class]] ? step[key] : @"";
-        if (isApp) {
-            for (NSDictionary *app in apps) {
-                NSString *bundle = app[@"bundle"];
-                NSString *name = app[@"name"];
-                BOOL on = [bundle isEqualToString:current];
-                UIView *row = [strongSelf makeActionRow:name
-                                                  detail:bundle
-                                                   color:on ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalText)
-                                                 primary:on width:w
-                                                  action:^{
-                    FlowWindow *s = weakSelf;
-                    if (!s) return;
-                    step[key] = bundle;
-                    [s autosave];
-                    [s dismissSubAnimated:NO];
-                    [s showParamsSubForStep:step parentSteps:nil];
-                }];
-                y = [strongSelf subAddRow:row y:y];
-            }
-        } else {
-            for (NSString *sound in sounds) {
-                BOOL on = [sound isEqualToString:current];
-                UIView *row = [strongSelf makeActionRow:sound
-                                                  detail:nil
-                                                   color:on ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalText)
-                                                 primary:on width:w
-                                                  action:^{
-                    FlowWindow *s = weakSelf;
-                    if (!s) return;
-                    step[key] = sound;
-                    [s autosave];
-                    [s dismissSubAnimated:NO];
-                    [s showParamsSubForStep:step parentSteps:nil];
-                }];
-                y = [strongSelf subAddRow:row y:y];
-            }
-        }
+        UITextField *search = [[UITextField alloc] initWithFrame:CGRectMake(8.0f, y, inner, 34.0f)];
+        search.placeholder = isApp ? @"搜索 App" : @"搜索铃声";
+        search.font = [UIFont systemFontOfSize:13];
+        search.textColor = ZXPalette(ZXPalText);
+        search.backgroundColor = ZXPalette(ZXPalField);
+        search.layer.cornerRadius = 8;
+        search.layer.borderWidth = 1;
+        search.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
+        search.clearButtonMode = UITextFieldViewModeWhileEditing;
+        search.returnKeyType = UIReturnKeyDone;
+        search.autocorrectionType = UITextAutocorrectionTypeNo;
+        search.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        [content addSubview:search];
+        y += 34.0f + FW_GAP;
 
-        if ((isApp && apps.count == 0) || (!isApp && sounds.count == 0)) {
-            UIView *empty = [strongSelf makeActionRow:@"列表为空" detail:nil color:ZXPalette(ZXPalSub)
-                                              primary:NO width:w action:^{ }];
-            y = [strongSelf subAddRow:empty y:y];
-        }
+        UIView *box = [[UIView alloc] initWithFrame:CGRectMake(8.0f, y, inner, 0.0f)];
+        [content addSubview:box];
+        listTop = y;
+        listWidth = inner;
+        CGFloat boxH = fill(box, @"");
+        box.frame = CGRectMake(8.0f, listTop, inner, boxH);
+        y = listTop + boxH + 8.0f;
+
+        [search addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            FlowWindow *ss = weakSelf;
+            if (!ss) return;
+            CGFloat newH = fill(box, search.text ?: @"");
+            box.frame = CGRectMake(8.0f, listTop, listWidth, newH);
+            UIScrollView *scroll = ss->_subScroll;
+            if (scroll) scroll.contentSize = CGSizeMake(scroll.contentSize.width, listTop + newH + 8.0f);
+        }] forControlEvents:UIControlEventEditingChanged];
+
         return y;
     }];
 }

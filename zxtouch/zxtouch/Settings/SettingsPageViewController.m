@@ -27,6 +27,8 @@
 #import "ConfigManager.h"
 #import "RemoteDashboardServer.h"
 
+#import <QuartzCore/QuartzCore.h>
+
 #define SETTING_CELL_SWITCH 0
 #define SETTING_CELL_ENTRY 1
 #define SETTING_CELL_SEGMENT 2
@@ -54,7 +56,23 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 }
 @end
 
-@interface ZXAboutViewController : UIViewController
+@interface ZXInfoPageViewController : UIViewController
+- (UIView *)cardAt:(CGFloat)y width:(CGFloat)w margin:(CGFloat)margin inScroll:(UIScrollView *)scroll;
+- (void)finishCard:(UIView *)card y:(CGFloat *)y height:(CGFloat)height margin:(CGFloat)margin width:(CGFloat)w;
+- (UILabel *)addText:(NSString *)text font:(UIFont *)font color:(UIColor *)color card:(UIView *)card y:(CGFloat *)y width:(CGFloat)w wrap:(BOOL)wrap;
+- (CGFloat)addLink:(NSString *)title card:(UIView *)card y:(CGFloat)y width:(CGFloat)w action:(SEL)action;
+- (void)copyQQGroup;
+- (void)openBilibili;
+- (void)showUpdateHint;
+@end
+
+@interface ZXUpdateCheckViewController : ZXInfoPageViewController
+@end
+
+@interface ZXCommunityViewController : ZXInfoPageViewController
+@end
+
+@interface ZXClickTestViewController : UIViewController
 @end
 
 @implementation SettingsPageViewController
@@ -188,6 +206,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([title containsString:@"注册表"]) return @"list.bullet.rectangle";
     if ([title containsString:@"外观"]) return @"circle.lefthalf.filled";
     if ([title containsString:@"调试"]) return @"wrench.and.screwdriver";
+    if ([title containsString:@"检测更新"]) return @"arrow.down.circle";
+    if ([title containsString:@"交流"] || [title containsString:@"声明"]) return @"doc.text";
     if ([title containsString:@"小新"]) return @"info.circle";
     return @"gearshape";
 }
@@ -268,12 +288,14 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"点击测试", @"secondary_title": @"记录点击位置、次数与点击频率", @"row_click_handler": NSStringFromSelector(@selector(handleClickTestTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": [NSString stringWithFormat:@"v%@ · 基于开源 ZXTouch 二次修改", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @""], @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"检测更新", @"secondary_title": [NSString stringWithFormat:@"当前版本 v%@，点击检查是否有新版本", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @""], @"row_click_handler": NSStringFromSelector(@selector(handleUpdateCheckTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"交流与免责声明", @"secondary_title": @"QQ 交流群 / bilibili / 开源声明 / 免责声明", @"row_click_handler": NSStringFromSelector(@selector(handleCommunityTap:))}
         ]
     ];
      
@@ -341,12 +363,14 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SEGMENT), @"title": @"界面外观", @"segment_titles": @[@"深色", @"浅色", @"跟随系统"], @"segment_selected": @(appearanceMode), @"segment_click_handler": NSStringFromSelector(@selector(handleAppearanceChanged:))}
         ],
         @[
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"点击测试", @"secondary_title": @"记录点击位置、次数与点击频率", @"row_click_handler": NSStringFromSelector(@selector(handleClickTestTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"小新Lap", @"secondary_title": [NSString stringWithFormat:@"v%@ · 基于开源 ZXTouch 二次修改", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @""], @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"检测更新", @"secondary_title": [NSString stringWithFormat:@"当前版本 v%@，点击检查是否有新版本", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @""], @"row_click_handler": NSStringFromSelector(@selector(handleUpdateCheckTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"交流与免责声明", @"secondary_title": @"QQ 交流群 / bilibili / 开源声明 / 免责声明", @"row_click_handler": NSStringFromSelector(@selector(handleCommunityTap:))}
         ]
     ];
     [_tableView reloadData];
@@ -631,8 +655,18 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [self sendTweakCommandAsync:@"903"];
 }
 
-- (void)handleCreditsTap:(TableViewCellWithEntry*)cell {
-    ZXAboutViewController *vc = [[ZXAboutViewController alloc] init];
+- (void)handleUpdateCheckTap:(TableViewCellWithEntry*)cell {
+    ZXUpdateCheckViewController *vc = [[ZXUpdateCheckViewController alloc] init];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)handleCommunityTap:(TableViewCellWithEntry*)cell {
+    ZXCommunityViewController *vc = [[ZXCommunityViewController alloc] init];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)handleClickTestTap:(TableViewCellWithEntry*)cell {
+    ZXClickTestViewController *vc = [[ZXClickTestViewController alloc] init];
     [self.navigationController pushViewController:vc animated:YES];
 }
 
@@ -1039,12 +1073,16 @@ static NSString *ZXPythonErrnoName(int e) {
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
-    return 38;
+    return 28;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
+    return 6;
 }
 
 @end
 
-#pragma mark - 关于小新Lap
+#pragma mark - 检测更新 / 交流与免责声明（公共卡片页）
 
 static NSString * const kZXQQGroup     = @"558715113";
 static NSString * const kZXBilibiliURL = @"https://space.bilibili.com/1036605484";
@@ -1055,6 +1093,11 @@ static NSString *ZXAboutDisclaimerText(void) {
             "请勿在游戏、金融等对公平性或安全性有要求的场景中违规使用。"
             "使用本软件产生的一切后果由使用者自行承担，开发者不承担任何责任。"
             "请自觉遵守当地法律法规，如不同意本声明请立即停止使用并卸载本软件。";
+}
+
+static NSString *ZXAboutNoticeText(void) {
+    return @"本软件（小新Lap）基于开源项目 ZXTouch 二次修改，仅供学习与交流使用，"
+            "代码与功能均已按需调整，此处仅声明来源。";
 }
 
 static NSArray<NSString *> *ZXLatestVersionURLs(void) {
@@ -1141,96 +1184,7 @@ static void ZXFetchLatestVersion(BOOL useCache, void (^completion)(NSString *ver
     });
 }
 
-@implementation ZXAboutViewController {
-    UILabel  *_latestLabel;
-    UIButton *_updateButton;
-    NSString *_currentVersion;
-}
-
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.title = @"关于小新Lap";
-    self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
-
-    UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:self.view.bounds];
-    scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    scroll.alwaysBounceVertical = YES;
-    [self.view addSubview:scroll];
-
-    _currentVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?";
-
-    CGFloat margin = 16.0f;
-    CGFloat w = self.view.bounds.size.width - margin * 2;
-    CGFloat y = 16.0f;
-    CGFloat cy = 0.0f;
-
-    UIView *versionCard = [self cardAt:y width:w margin:margin inScroll:scroll];
-    cy = 14.0f;
-    [self addText:@"小新Lap" font:[UIFont systemFontOfSize:20 weight:UIFontWeightBold]
-            color:[UIColor labelColor] card:versionCard y:&cy width:w wrap:NO];
-    [self addText:[NSString stringWithFormat:@"当前版本：v%@", _currentVersion]
-             font:[UIFont systemFontOfSize:14] color:[UIColor secondaryLabelColor]
-             card:versionCard y:&cy width:w wrap:NO];
-    _latestLabel = [self addText:@"最新版本：检测中…" font:[UIFont systemFontOfSize:14]
-                           color:[UIColor secondaryLabelColor] card:versionCard y:&cy width:w wrap:NO];
-    cy += 2;
-    _updateButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    _updateButton.frame = CGRectMake(14, cy, w - 28, 34);
-    _updateButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    [_updateButton setTitle:@"有新版本，点击查看获取方式" forState:UIControlStateNormal];
-    _updateButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
-    [_updateButton addTarget:self action:@selector(showUpdateHint) forControlEvents:UIControlEventTouchUpInside];
-    _updateButton.hidden = YES;
-    [versionCard addSubview:_updateButton];
-    cy += 38;
-    [self finishCard:versionCard y:&y height:cy + 6 margin:margin width:w];
-
-    UIView *contactCard = [self cardAt:y width:w margin:margin inScroll:scroll];
-    cy = 14.0f;
-    [self addText:@"交流" font:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
-            color:[UIColor labelColor] card:contactCard y:&cy width:w wrap:NO];
-    cy += [self addLink:@"QQ 交流群：558715113（点击复制群号）" card:contactCard y:cy width:w
-                 action:@selector(copyQQGroup)];
-    cy += [self addLink:@"bilibili：小新Lap（点击打开主页）" card:contactCard y:cy width:w
-                 action:@selector(openBilibili)];
-    [self finishCard:contactCard y:&y height:cy + 6 margin:margin width:w];
-
-    UIView *noticeCard = [self cardAt:y width:w margin:margin inScroll:scroll];
-    cy = 14.0f;
-    [self addText:@"开源声明" font:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
-            color:[UIColor labelColor] card:noticeCard y:&cy width:w wrap:NO];
-    [self addText:@"本软件基于开源项目 ZXTouch 二次修改，非原作者发布，此处仅声明来源。"
-             font:[UIFont systemFontOfSize:13] color:[UIColor secondaryLabelColor]
-             card:noticeCard y:&cy width:w wrap:YES];
-    [self finishCard:noticeCard y:&y height:cy + 8 margin:margin width:w];
-
-    UIView *disclaimerCard = [self cardAt:y width:w margin:margin inScroll:scroll];
-    cy = 14.0f;
-    [self addText:@"免责声明" font:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
-            color:[UIColor labelColor] card:disclaimerCard y:&cy width:w wrap:NO];
-    [self addText:ZXAboutDisclaimerText() font:[UIFont systemFontOfSize:13]
-            color:[UIColor secondaryLabelColor] card:disclaimerCard y:&cy width:w wrap:YES];
-    [self finishCard:disclaimerCard y:&y height:cy + 8 margin:margin width:w];
-
-    scroll.contentSize = CGSizeMake(w + margin * 2, y + 20);
-
-    __weak typeof(self) weakSelf = self;
-    ZXFetchLatestVersion(YES, ^(NSString *version, NSError *error) {
-        ZXAboutViewController *s = weakSelf;
-        if (!s) return;
-        if (version.length == 0) {
-            s->_latestLabel.text = @"最新版本：获取失败（请检查网络后重进本页）";
-            return;
-        }
-        if (ZXVersionIsNewer(version, s->_currentVersion)) {
-            s->_latestLabel.text = [NSString stringWithFormat:@"最新版本：v%@", version];
-            s->_latestLabel.textColor = [UIColor systemRedColor];
-            s->_updateButton.hidden = NO;
-        } else {
-            s->_latestLabel.text = [NSString stringWithFormat:@"最新版本：v%@（已是最新）", version];
-        }
-    });
-}
+@implementation ZXInfoPageViewController
 
 - (UIView *)cardAt:(CGFloat)y width:(CGFloat)w margin:(CGFloat)margin inScroll:(UIScrollView *)scroll {
     UIView *card = [[UIView alloc] initWithFrame:CGRectMake(margin, y, w, 10)];
@@ -1295,6 +1249,393 @@ static void ZXFetchLatestVersion(BOOL useCache, void (^completion)(NSString *ver
     [Util showAlertBoxWithOneOption:self title:@"有新版本"
         message:[NSString stringWithFormat:@"请加入 QQ 交流群 %@ 获取最新版本文件。\n\n（群号已复制到剪贴板）", kZXQQGroup]
         buttonString:@"确定"];
+}
+
+@end
+
+#pragma mark - 检测更新
+
+@implementation ZXUpdateCheckViewController {
+    UILabel  *_latestLabel;
+    UIButton *_updateButton;
+    NSString *_currentVersion;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"检测更新";
+    self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
+
+    UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:self.view.bounds];
+    scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    scroll.alwaysBounceVertical = YES;
+    [self.view addSubview:scroll];
+
+    _currentVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?";
+
+    CGFloat margin = 16.0f;
+    CGFloat w = self.view.bounds.size.width - margin * 2;
+    CGFloat y = 16.0f;
+    CGFloat cy = 0.0f;
+
+    UIView *versionCard = [self cardAt:y width:w margin:margin inScroll:scroll];
+    cy = 14.0f;
+    [self addText:@"小新Lap" font:[UIFont systemFontOfSize:20 weight:UIFontWeightBold]
+            color:[UIColor labelColor] card:versionCard y:&cy width:w wrap:NO];
+    [self addText:[NSString stringWithFormat:@"当前版本：v%@", _currentVersion]
+             font:[UIFont systemFontOfSize:14] color:[UIColor secondaryLabelColor]
+             card:versionCard y:&cy width:w wrap:NO];
+    _latestLabel = [self addText:@"最新版本：检测中…" font:[UIFont systemFontOfSize:14]
+                           color:[UIColor secondaryLabelColor] card:versionCard y:&cy width:w wrap:NO];
+    [self addText:@"如有新版本，请加入 QQ 交流群获取最新版本文件。"
+             font:[UIFont systemFontOfSize:13] color:[UIColor secondaryLabelColor]
+             card:versionCard y:&cy width:w wrap:YES];
+    cy += 2;
+    _updateButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _updateButton.frame = CGRectMake(14, cy, w - 28, 34);
+    _updateButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    [_updateButton setTitle:@"有新版本，点击查看获取方式" forState:UIControlStateNormal];
+    _updateButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    [_updateButton addTarget:self action:@selector(showUpdateHint) forControlEvents:UIControlEventTouchUpInside];
+    _updateButton.hidden = YES;
+    [versionCard addSubview:_updateButton];
+    cy += 38;
+    [self finishCard:versionCard y:&y height:cy + 6 margin:margin width:w];
+
+    UIView *contactCard = [self cardAt:y width:w margin:margin inScroll:scroll];
+    cy = 14.0f;
+    [self addText:@"交流" font:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
+            color:[UIColor labelColor] card:contactCard y:&cy width:w wrap:NO];
+    cy += [self addLink:[NSString stringWithFormat:@"QQ 交流群：%@（点击复制群号）", kZXQQGroup]
+                   card:contactCard y:cy width:w action:@selector(copyQQGroup)];
+    cy += [self addLink:@"bilibili：小新Lap（点击打开主页）" card:contactCard y:cy width:w
+                 action:@selector(openBilibili)];
+    [self finishCard:contactCard y:&y height:cy + 6 margin:margin width:w];
+
+    scroll.contentSize = CGSizeMake(w + margin * 2, y + 20);
+
+    __weak typeof(self) weakSelf = self;
+    ZXFetchLatestVersion(YES, ^(NSString *version, NSError *error) {
+        ZXUpdateCheckViewController *s = weakSelf;
+        if (!s) return;
+        if (version.length == 0) {
+            s->_latestLabel.text = @"最新版本：获取失败（请检查网络后重进本页）";
+            return;
+        }
+        if (ZXVersionIsNewer(version, s->_currentVersion)) {
+            s->_latestLabel.text = [NSString stringWithFormat:@"最新版本：v%@", version];
+            s->_latestLabel.textColor = [UIColor systemRedColor];
+            s->_updateButton.hidden = NO;
+        } else {
+            s->_latestLabel.text = [NSString stringWithFormat:@"最新版本：v%@（已是最新）", version];
+        }
+    });
+}
+
+@end
+
+#pragma mark - 交流与免责声明
+
+@implementation ZXCommunityViewController
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"交流与免责声明";
+    self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
+
+    UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:self.view.bounds];
+    scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    scroll.alwaysBounceVertical = YES;
+    [self.view addSubview:scroll];
+
+    CGFloat margin = 16.0f;
+    CGFloat w = self.view.bounds.size.width - margin * 2;
+    CGFloat y = 16.0f;
+    CGFloat cy = 0.0f;
+
+    UIView *contactCard = [self cardAt:y width:w margin:margin inScroll:scroll];
+    cy = 14.0f;
+    [self addText:@"交流" font:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
+            color:[UIColor labelColor] card:contactCard y:&cy width:w wrap:NO];
+    cy += [self addLink:[NSString stringWithFormat:@"QQ 交流群：%@（点击复制群号）", kZXQQGroup]
+                   card:contactCard y:cy width:w action:@selector(copyQQGroup)];
+    cy += [self addLink:@"bilibili：小新Lap（点击打开主页）" card:contactCard y:cy width:w
+                 action:@selector(openBilibili)];
+    [self finishCard:contactCard y:&y height:cy + 6 margin:margin width:w];
+
+    UIView *noticeCard = [self cardAt:y width:w margin:margin inScroll:scroll];
+    cy = 14.0f;
+    [self addText:@"开源声明" font:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
+            color:[UIColor labelColor] card:noticeCard y:&cy width:w wrap:NO];
+    [self addText:ZXAboutNoticeText() font:[UIFont systemFontOfSize:13]
+            color:[UIColor secondaryLabelColor] card:noticeCard y:&cy width:w wrap:YES];
+    [self finishCard:noticeCard y:&y height:cy + 8 margin:margin width:w];
+
+    UIView *disclaimerCard = [self cardAt:y width:w margin:margin inScroll:scroll];
+    cy = 14.0f;
+    [self addText:@"免责声明" font:[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]
+            color:[UIColor labelColor] card:disclaimerCard y:&cy width:w wrap:NO];
+    [self addText:ZXAboutDisclaimerText() font:[UIFont systemFontOfSize:13]
+            color:[UIColor secondaryLabelColor] card:disclaimerCard y:&cy width:w wrap:YES];
+    [self finishCard:disclaimerCard y:&y height:cy + 8 margin:margin width:w];
+
+    scroll.contentSize = CGSizeMake(w + margin * 2, y + 20);
+}
+
+@end
+
+#pragma mark - 点击测试
+
+@interface ZXInkMark : NSObject
+@property (nonatomic) BOOL isDot;
+@property (nonatomic, strong) NSMutableArray<NSValue *> *points;
+@property (nonatomic) CFTimeInterval born;
+@end
+
+@implementation ZXInkMark
+@end
+
+static const CFTimeInterval kZXInkHold    = 1.0;
+static const CFTimeInterval kZXInkErase   = 0.6;
+static const CFTimeInterval kZXInkFreqWin = 3.0;
+
+@interface ZXInkView : UIView
+@property (nonatomic, readonly) NSInteger tapCount;
+@property (nonatomic, readonly) CGPoint lastPoint;
+@property (nonatomic, readonly) NSInteger recentTaps;
+@property (nonatomic, readonly) NSInteger ratePerMinute;
+@property (nonatomic, copy) void (^statusDidChange)(void);
+@end
+
+@implementation ZXInkView {
+    NSMutableArray<ZXInkMark *> *_marks;
+    ZXInkMark *_activeMark;
+    NSMutableArray<NSNumber *> *_tapTimes;
+    CADisplayLink *_link;
+    NSInteger _tapCount;
+    CGPoint _lastPoint;
+    NSInteger _recentTaps;
+    NSInteger _ratePerMinute;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        _marks = [NSMutableArray array];
+        _tapTimes = [NSMutableArray array];
+        self.backgroundColor = [UIColor systemBackgroundColor];
+        self.multipleTouchEnabled = NO;
+        _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick)];
+        [_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [_link invalidate];
+}
+
+- (NSInteger)tapCount { return _tapCount; }
+- (CGPoint)lastPoint { return _lastPoint; }
+- (NSInteger)recentTaps { return _recentTaps; }
+- (NSInteger)ratePerMinute { return _ratePerMinute; }
+
+- (void)tick {
+    CFTimeInterval now = CACurrentMediaTime();
+    while (_tapTimes.count > 0 && now - _tapTimes.firstObject.doubleValue > kZXInkFreqWin) {
+        [_tapTimes removeObjectAtIndex:0];
+    }
+    NSInteger recent = (NSInteger)_tapTimes.count;
+    NSInteger rate = (NSInteger)llround(recent / kZXInkFreqWin * 60.0);
+    BOOL dirty = NO;
+    if (recent != _recentTaps || rate != _ratePerMinute) {
+        _recentTaps = recent;
+        _ratePerMinute = rate;
+        dirty = YES;
+    }
+
+    CFTimeInterval life = kZXInkHold + kZXInkErase;
+    BOOL hadMarks = _marks.count > 0;
+    NSMutableArray *keep = [NSMutableArray arrayWithCapacity:_marks.count];
+    for (ZXInkMark *m in _marks) {
+        if (m == _activeMark) { [keep addObject:m]; continue; }
+        if (now - m.born >= life) { dirty = YES; continue; }
+        [keep addObject:m];
+    }
+    _marks = keep;
+
+    if (hadMarks || _marks.count > 0) [self setNeedsDisplay];
+    if (dirty && self.statusDidChange) self.statusDidChange();
+}
+
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *t = touches.anyObject;
+    CGPoint p = [t locationInView:self];
+    _tapCount += 1;
+    _lastPoint = p;
+    [_tapTimes addObject:@(CACurrentMediaTime())];
+
+    ZXInkMark *mark = [ZXInkMark new];
+    mark.isDot = YES;
+    mark.born = 0.0;
+    mark.points = [NSMutableArray arrayWithObject:[NSValue valueWithCGPoint:p]];
+    [_marks addObject:mark];
+    _activeMark = mark;
+
+    [self setNeedsDisplay];
+    if (self.statusDidChange) self.statusDidChange();
+}
+
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (!_activeMark) return;
+    UITouch *t = touches.anyObject;
+    CGPoint p = [t locationInView:self];
+    _activeMark.isDot = NO;
+    [_activeMark.points addObject:[NSValue valueWithCGPoint:p]];
+    _lastPoint = p;
+    [self setNeedsDisplay];
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (_activeMark) _activeMark.born = CACurrentMediaTime();
+    _activeMark = nil;
+}
+
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (_activeMark) _activeMark.born = CACurrentMediaTime();
+    _activeMark = nil;
+}
+
+- (void)drawMark:(ZXInkMark *)mark inContext:(CGContextRef)ctx fromIndex:(NSUInteger)start alpha:(CGFloat)alpha {
+    UIColor *color = [[UIColor systemBlueColor] colorWithAlphaComponent:alpha];
+    CGContextSetStrokeColorWithColor(ctx, color.CGColor);
+    CGContextSetFillColorWithColor(ctx, color.CGColor);
+    CGContextSetLineWidth(ctx, 4.0);
+    CGContextSetLineCap(ctx, kCGLineCapRound);
+    CGContextSetLineJoin(ctx, kCGLineJoinRound);
+
+    NSArray<NSValue *> *pts = mark.points;
+    if (mark.isDot || pts.count <= 1) {
+        CGPoint p = pts.lastObject.CGPointValue;
+        CGContextFillEllipseInRect(ctx, CGRectMake(p.x - 6.0, p.y - 6.0, 12.0, 12.0));
+        return;
+    }
+    if (start >= pts.count) return;
+    if (start == pts.count - 1) {
+        CGPoint p = pts.lastObject.CGPointValue;
+        CGContextFillEllipseInRect(ctx, CGRectMake(p.x - 3.0, p.y - 3.0, 6.0, 6.0));
+        return;
+    }
+    CGMutablePathRef path = CGPathCreateMutable();
+    CGPoint first = pts[start].CGPointValue;
+    CGPathMoveToPoint(path, NULL, first.x, first.y);
+    for (NSUInteger i = start + 1; i < pts.count; i++) {
+        CGPoint p = pts[i].CGPointValue;
+        CGPathAddLineToPoint(path, NULL, p.x, p.y);
+    }
+    CGContextAddPath(ctx, path);
+    CGContextStrokePath(ctx);
+    CGPathRelease(path);
+}
+
+- (void)drawRect:(CGRect)rect {
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    CFTimeInterval now = CACurrentMediaTime();
+    for (ZXInkMark *m in _marks) {
+        if (m.born <= 0.0) {
+            [self drawMark:m inContext:ctx fromIndex:0 alpha:1.0];
+            continue;
+        }
+        CFTimeInterval age = now - m.born;
+        if (age < kZXInkHold) {
+            [self drawMark:m inContext:ctx fromIndex:0 alpha:1.0];
+        } else {
+            CGFloat p = (CGFloat)((age - kZXInkHold) / kZXInkErase);
+            if (p >= 1.0) continue;
+            NSUInteger n = m.points.count;
+            if (m.isDot || n <= 1) {
+                [self drawMark:m inContext:ctx fromIndex:0 alpha:(CGFloat)(1.0 - p)];
+            } else {
+                NSUInteger start = (NSUInteger)(p * (CGFloat)n);
+                if (start >= n - 1) {
+                    [self drawMark:m inContext:ctx fromIndex:n - 1 alpha:(CGFloat)(1.0 - p)];
+                } else {
+                    [self drawMark:m inContext:ctx fromIndex:start alpha:1.0];
+                }
+            }
+        }
+    }
+}
+
+@end
+
+@implementation ZXClickTestViewController {
+    ZXInkView *_ink;
+    UIView *_hud;
+    UILabel *_countLabel;
+    UILabel *_coordLabel;
+    UILabel *_freqLabel;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"点击测试";
+
+    _ink = [[ZXInkView alloc] initWithFrame:self.view.bounds];
+    _ink.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.view addSubview:_ink];
+
+    _hud = [[UIView alloc] initWithFrame:self.view.bounds];
+    _hud.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _hud.userInteractionEnabled = NO;
+    _hud.backgroundColor = [UIColor clearColor];
+    [self.view addSubview:_hud];
+
+    _countLabel = [[UILabel alloc] init];
+    _countLabel.font = [UIFont monospacedDigitSystemFontOfSize:72 weight:UIFontWeightBold];
+    _countLabel.textColor = [UIColor labelColor];
+    _countLabel.textAlignment = NSTextAlignmentCenter;
+    _countLabel.text = @"0";
+    [_hud addSubview:_countLabel];
+
+    _coordLabel = [[UILabel alloc] init];
+    _coordLabel.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightRegular];
+    _coordLabel.textColor = [UIColor secondaryLabelColor];
+    _coordLabel.textAlignment = NSTextAlignmentCenter;
+    _coordLabel.text = @"当前坐标：(—, —)";
+    [_hud addSubview:_coordLabel];
+
+    _freqLabel = [[UILabel alloc] init];
+    _freqLabel.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightRegular];
+    _freqLabel.textColor = [UIColor secondaryLabelColor];
+    _freqLabel.textAlignment = NSTextAlignmentCenter;
+    _freqLabel.text = @"最近 3 秒：0 次　预计每分钟：0 次";
+    [_hud addSubview:_freqLabel];
+
+    __weak typeof(self) weakSelf = self;
+    _ink.statusDidChange = ^{
+        ZXClickTestViewController *s = weakSelf;
+        if (!s) return;
+        [s refresh];
+    };
+    [self refresh];
+}
+
+- (void)refresh {
+    _countLabel.text = [NSString stringWithFormat:@"%ld", (long)_ink.tapCount];
+    _coordLabel.text = [NSString stringWithFormat:@"当前坐标：(%.0f, %.0f)",
+                        _ink.lastPoint.x, _ink.lastPoint.y];
+    _freqLabel.text = [NSString stringWithFormat:@"最近 3 秒：%ld 次　预计每分钟：%ld 次",
+                       (long)_ink.recentTaps, (long)_ink.ratePerMinute];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    CGFloat w = self.view.bounds.size.width;
+    CGFloat top = self.view.safeAreaInsets.top + 20.0;
+    _countLabel.frame = CGRectMake(0, top, w, 84.0);
+    _coordLabel.frame = CGRectMake(0, CGRectGetMaxY(_countLabel.frame) + 4.0, w, 18.0);
+    _freqLabel.frame = CGRectMake(0, CGRectGetMaxY(_coordLabel.frame) + 2.0, w, 18.0);
 }
 
 @end

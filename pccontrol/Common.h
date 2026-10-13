@@ -58,15 +58,20 @@ NSString* getDeviceName();
 BOOL ZXGoHome(NSError **error);
 BOOL ZXKillApp(NSString *bundleIdentifier, NSError **error);
 BOOL ZXPlayRingtone(NSString *path, double seconds, NSError **error);
-/// mode：@"percent" 取 value 0-100 绝对值；@"delta" 取 value 增/减格数（1 格 = 1/16）
+/// mode：@"percent" 取 value 0-100 绝对值；@"deltaPercent" 取 value 增/减百分点；@"delta" 取 value 增/减格数（1 格 = 1/16）
 BOOL ZXSetVolume(NSString *mode, double value, NSError **error);
 
-/// 已安装 App（用户可见的），每项 @{ @"bundle": bundleIdentifier, @"name": displayName }
+/// 停止当前正在运行的脚本（等同强制停止）
+BOOL ZXStopAllScripts(NSError **error);
+/// 拨打电话；sim 取 @"default" / @"1" / @"2"
+BOOL ZXMakeCall(NSString *number, NSString *sim, NSError **error);
+/// 发送短信；sim 取 @"default" / @"1" / @"2"
+BOOL ZXSendSMS(NSString *number, NSString *text, NSString *sim, NSError **error);
+
+/// 已安装 App（用户可见的），每项 @{ @"bundle": bundleIdentifier, @"name": displayName, @"system": @(是否系统自带) }
 NSArray<NSDictionary *> *ZXInstalledApplications(void);
-/// 系统铃声目录（rootless/rootful 都试一遍）
-NSString *ZXRingtoneFolder(void);
-/// 目录下的铃声文件名（带扩展名，已排序）
-NSArray<NSString *> *ZXRingtoneNames(void);
+/// 全部铃声（用户导入的 + 系统自带的），每项 @{ @"name": 显示名, @"path": 绝对路径, @"user": @(是否用户导入) }
+NSArray<NSDictionary *> *ZXRingtoneItems(void);
 
 /*
  Main-queue UI guard.
