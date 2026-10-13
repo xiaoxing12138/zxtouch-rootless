@@ -1141,7 +1141,7 @@ static FlowWindow *_fwShared = nil;
     [card insertSubview:bg atIndex:0];
 
     card.backgroundColor = [UIColor clearColor];
-    if (hasAlpha && alpha > 0 && ZXColorFromHex(hex)) {
+    if (alpha > 0 && ZXColorFromHex(hex)) {
         UIView *tint = [[UIView alloc] initWithFrame:card.bounds];
         tint.backgroundColor = [ZXColorFromHex(hex) colorWithAlphaComponent:alpha];
         tint.userInteractionEnabled = NO;
