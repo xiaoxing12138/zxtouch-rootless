@@ -824,7 +824,7 @@ static NSString *ZXRingtoneEmbeddedName(NSString *path)
 {
     NSData *data = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
     if (data.length < 32) return nil;
-    const uint8_t *bytes = data.bytes;
+    const uint8_t *bytes = (const uint8_t *)data.bytes;
     NSUInteger total = data.length;
     const char namAtom[4] = { (char)0xA9, 'n', 'a', 'm' };
 
@@ -1091,7 +1091,7 @@ static id ZXCallProviderForSIM(NSString *sim)
     ZXCallProviderManager *manager = nil;
     @try {
         if ([managerClass respondsToSelector:@selector(sharedInstance)]) {
-            manager = [(ZXCallProviderManager *)managerClass sharedInstance];
+            manager = (ZXCallProviderManager *)[(id)managerClass sharedInstance];
         }
         if (!manager) {
             manager = [[(id)managerClass alloc] initWithQueue:nil];
@@ -1143,10 +1143,10 @@ BOOL ZXMakeCall(NSString *number, NSString *sim, NSError **error)
         @try {
             ZXCallCenter *center = nil;
             if ([centerClass respondsToSelector:@selector(callCenter)]) {
-                center = [(ZXCallCenter *)centerClass callCenter];
+                center = (ZXCallCenter *)[(id)centerClass callCenter];
             }
             if (!center && [centerClass respondsToSelector:@selector(sharedInstance)]) {
-                center = [(ZXCallCenter *)centerClass sharedInstance];
+                center = (ZXCallCenter *)[(id)centerClass sharedInstance];
             }
 
             id provider = ZXCallProviderForSIM(sim);
@@ -1193,7 +1193,7 @@ BOOL ZXSendSMS(NSString *number, NSString *text, NSString *sim, NSError **error)
     Class messageClass = objc_getClass("CTMessageCenter");
     if (messageClass && [messageClass respondsToSelector:@selector(sharedMessageCenter)]) {
         @try {
-            ZXCTMessageCenter *center = [(ZXCTMessageCenter *)messageClass sharedMessageCenter];
+            ZXCTMessageCenter *center = (ZXCTMessageCenter *)[(id)messageClass sharedMessageCenter];
             if (center) {
                 if ([center respondsToSelector:@selector(sendSMSWithText:serviceCenter:toAddress:withMoreToFollow:)]) {
                     [center sendSMSWithText:body serviceCenter:nil toAddress:dialable withMoreToFollow:NO];
