@@ -25,6 +25,8 @@
 - (void)flowHostSetNavigationTitle:(NSString *)title canGoBack:(BOOL)canGoBack;
 /// 取点时把卡片藏起来（卡片会被烤进冻结帧、也挡游戏画面）
 - (void)flowHostSetCardHidden:(BOOL)hidden;
+/// 点子浮窗外面时：整个面板（含子浮窗）一起收起
+- (void)flowHostRequestHidePanel;
 @end
 
 @interface FlowWindow : NSObject

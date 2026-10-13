@@ -1,6 +1,6 @@
 name: Build ZXTouch Package
 
-run-name: v3.1.8
+run-name: v3.1.9
 
 on:
   push:
@@ -218,12 +218,12 @@ jobs:
           generate_release_notes: true
           append_body: true
           body: |
-            ## 小新Lap 3.1.8
+            ## 小新Lap 3.1.9
 
             | File | 用途 | 越狱 | iOS |
             |------|------|------|-----|
-            | `小新Lap_3.1.8（无根rootless）.deb` | 无根越狱一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
-            | `小新Lap_3.1.8（有根）.deb` | 有根越狱一键安装（含 App + 触摸引擎） | palera1n (rootful), checkra1n | 15.0 - 16.x |
+            | `小新Lap_3.1.9（无根rootless）.deb` | 无根越狱一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
+            | `小新Lap_3.1.9（有根）.deb` | 有根越狱一键安装（含 App + 触摸引擎） | palera1n (rootful), checkra1n | 15.0 - 16.x |
 
             ### Installation
             1. Download the `.deb` for your jailbreak

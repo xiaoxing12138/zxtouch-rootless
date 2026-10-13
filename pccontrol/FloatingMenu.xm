@@ -988,6 +988,7 @@ static void fmPersistKeys(NSDictionary *pairs)
 - (void)applyGeometry
 {
     if (!_window || !_content || !_dotButton) {
+        ZXRecordSetExclusionRects(@"floatingMenu", nil);
         return;
     }
 
@@ -1075,6 +1076,29 @@ static void fmPersistKeys(NSDictionary *pairs)
             l.hidden = YES;
         }
     }
+
+    [self updateRecordExclusionRects];
+}
+
+- (void)updateRecordExclusionRects
+{
+    NSMutableArray<NSValue *> *rects = [NSMutableArray array];
+    if (_dotButton.superview && _dotButton.frame.size.width > 0) {
+        [rects addObject:[NSValue valueWithCGRect:_dotButton.frame]];
+    }
+    if (_expanded) {
+        for (UIButton *b in _menuButtons) {
+            if (b.superview && !b.hidden && b.frame.size.width > 0) {
+                [rects addObject:[NSValue valueWithCGRect:b.frame]];
+            }
+        }
+        for (UILabel *l in _menuLabels) {
+            if (l.superview && !l.hidden && l.frame.size.width > 0) {
+                [rects addObject:[NSValue valueWithCGRect:l.frame]];
+            }
+        }
+    }
+    ZXRecordSetExclusionRects(@"floatingMenu", rects);
 }
 
 #pragma mark 展开 / 收起

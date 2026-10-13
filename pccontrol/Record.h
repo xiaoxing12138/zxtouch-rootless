@@ -21,4 +21,7 @@ void stopRecording();
 static void recordIOHIDEventCallback(void* target, void* refcon, IOHIDServiceRef service, IOHIDEventRef event);
 Boolean isRecordingStart();
 
+void ZXRecordSetSuppressAll(NSString *owner, BOOL suppress);
+void ZXRecordSetExclusionRects(NSString *owner, NSArray<NSValue *> *rects);
+
 #endif

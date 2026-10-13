@@ -4,6 +4,7 @@
 //
 
 #import "FlowScript.h"
+#import "Screen.h"
 
 #import <math.h>
 
@@ -380,6 +381,9 @@ static NSString * const kGeneratedMarker = @"# 本脚本由「小新Lap」可视
         int touchType = [[payload substringWithRange:NSMakeRange(1, 1)] intValue];
         CGFloat x = [[payload substringWithRange:NSMakeRange(4, 5)] doubleValue] / 10.0;
         CGFloat y = [[payload substringWithRange:NSMakeRange(9, 5)] doubleValue] / 10.0;
+        CGPoint indicatorPoint = ZXIndicatorPointFromFramePoint(CGPointMake(x, y));
+        x = indicatorPoint.x;
+        y = indicatorPoint.y;
 
         double gap = pending;
         clock += pending;

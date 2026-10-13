@@ -10,6 +10,9 @@
 #include "FunctionWindow.h"
 #include "FlowScript.h"
 
+#include <pthread.h>
+#include <string.h>
+
 CFRunLoopRef recordRunLoop = NULL;
 static Boolean isRecording = false;
 extern NSString *documentPath;
@@ -19,6 +22,58 @@ static CFAbsoluteTime lastEventTimeStampForRecording;
 
 static CGFloat device_screen_width = 0;
 static CGFloat device_screen_height = 0;
+
+static pthread_mutex_t zxRecordExclLock = PTHREAD_MUTEX_INITIALIZER;
+static NSMutableDictionary<NSString *, NSArray<NSValue *> *> *zxRecordExclRects = nil;
+static NSMutableSet<NSString *> *zxRecordSuppressOwners = nil;
+static BOOL zxRecordTouchExcluded[32];
+
+void ZXRecordSetSuppressAll(NSString *owner, BOOL suppress)
+{
+    if (owner.length == 0) return;
+    pthread_mutex_lock(&zxRecordExclLock);
+    if (!zxRecordSuppressOwners) zxRecordSuppressOwners = [NSMutableSet set];
+    if (suppress) [zxRecordSuppressOwners addObject:owner];
+    else [zxRecordSuppressOwners removeObject:owner];
+    pthread_mutex_unlock(&zxRecordExclLock);
+}
+
+void ZXRecordSetExclusionRects(NSString *owner, NSArray<NSValue *> *rects)
+{
+    if (owner.length == 0) return;
+    CGFloat scale = [UIScreen mainScreen].scale;
+    if (scale <= 0) scale = 1;
+    NSMutableArray<NSValue *> *frameRects = [NSMutableArray array];
+    for (NSValue *value in rects) {
+        CGRect r = [value CGRectValue];
+        if (r.size.width <= 0 || r.size.height <= 0) continue;
+        CGRect indicator = CGRectMake(r.origin.x * scale, r.origin.y * scale, r.size.width * scale, r.size.height * scale);
+        [frameRects addObject:[NSValue valueWithCGRect:ZXFrameRectFromIndicatorRect(indicator)]];
+    }
+    pthread_mutex_lock(&zxRecordExclLock);
+    if (!zxRecordExclRects) zxRecordExclRects = [NSMutableDictionary dictionary];
+    if (frameRects.count > 0) zxRecordExclRects[owner] = frameRects;
+    else [zxRecordExclRects removeObjectForKey:owner];
+    pthread_mutex_unlock(&zxRecordExclLock);
+}
+
+static BOOL zxRecordFramePointExcluded(CGPoint p)
+{
+    BOOL excluded = NO;
+    pthread_mutex_lock(&zxRecordExclLock);
+    if (zxRecordSuppressOwners.count > 0) {
+        excluded = YES;
+    } else {
+        for (NSArray<NSValue *> *rects in [zxRecordExclRects allValues]) {
+            for (NSValue *value in rects) {
+                if (CGRectContainsPoint([value CGRectValue], p)) { excluded = YES; break; }
+            }
+            if (excluded) break;
+        }
+    }
+    pthread_mutex_unlock(&zxRecordExclLock);
+    return excluded;
+}
 
 
 void startRecording(CFWriteStreamRef requestClient, NSError **error)
@@ -104,6 +159,7 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
         ZXSafeMainAsync(^{ [FloatingMenu refreshScriptPlayState]; });
 
         scriptRecordingFileHandle = [NSFileHandle fileHandleForWritingAtPath:rawFilePath];
+        memset(zxRecordTouchExcluded, 0, sizeof(zxRecordTouchExcluded));
 
         // get time stamp
         lastEventTimeStampForRecording = CFAbsoluteTimeGetCurrent();
@@ -189,6 +245,23 @@ static void recordIOHIDEventCallback(void* target, void* refcon, IOHIDServiceRef
             int index = IOHIDEventGetIntegerValue(event, (IOHIDEventField)kIOHIDEventFieldDigitizerIndex);
             //NSLog(@"### com.zjx.springboard: x %f : y %f. eventMask: %d. index: %d, range: %d. Touch: %d", x, y, eventMask, index, range, touch);
             //NSLog(@"### com.zjx.springboard:  x %f : y %f. eventMask: %d. index: %d, range: %d. Touch: %d.", x, y, eventMask, index, range, touch);
+            BOOL touchDown = (touch == 1 && (eventMask & 2));
+            BOOL touchUp = (!touch && (eventMask & 2));
+            int slot = (index >= 0 && index < 32) ? index : 0;
+            if (touchDown)
+            {
+                zxRecordTouchExcluded[slot] = zxRecordFramePointExcluded(CGPointMake(x * device_screen_width, y * device_screen_height));
+            }
+            BOOL excludedTouch = zxRecordTouchExcluded[slot];
+            if (touchUp)
+            {
+                zxRecordTouchExcluded[slot] = NO;
+            }
+            if (excludedTouch)
+            {
+                continue;
+            }
+
             float sleepusecs = (CFAbsoluteTimeGetCurrent() - lastEventTimeStampForRecording)*1000000;
             float xToWrite =  x*device_screen_width*10;
             float yToWrite =  y*device_screen_height*10;

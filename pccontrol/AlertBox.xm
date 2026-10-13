@@ -3,10 +3,16 @@
 #import <CoreFoundation/CoreFoundation.h>
 #import <UIKit/UIKit.h>
 #include "Common.h"
+#include "Record.h"
 
 // Dedicated window for hosting alert controllers (survives until dismissed)
 static NSMutableArray *_alertWindows = nil;
 static CFTimeInterval _lastAlertBoxRequestTime = 0;
+
+static void zxAlertBoxUpdateRecordSuppress(void)
+{
+    ZXRecordSetSuppressAll(@"alertBox", _alertWindows.count > 0);
+}
 
 CFTimeInterval lastAlertBoxRequestTime(void)
 {
@@ -69,6 +75,7 @@ NSString *promptInputFromRawData(UInt8 *eventData, NSError **error)
                 promptWindow.hidden = YES;
                 [_alertWindows removeObject:promptWindow];
             }
+            zxAlertBoxUpdateRecordSuppress();
         });
         dispatch_semaphore_signal(sema);
     };
@@ -86,6 +93,7 @@ NSString *promptInputFromRawData(UInt8 *eventData, NSError **error)
         win.rootViewController = rvc;
         [win makeKeyAndVisible];
         [_alertWindows addObject:win];
+        zxAlertBoxUpdateRecordSuppress();
 
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
         promptAlert = alert;
@@ -146,6 +154,7 @@ void showAlertBox(NSString* title, NSString* content, int dismissTime)
         win.rootViewController = rvc;
         [win makeKeyAndVisible];
         [_alertWindows addObject:win];
+        zxAlertBoxUpdateRecordSuppress();
 
         UIAlertController *alert = [UIAlertController
             alertControllerWithTitle:title
@@ -156,6 +165,7 @@ void showAlertBox(NSString* title, NSString* content, int dismissTime)
             ZXSafeMainAsync(^{
                 win.hidden = YES;
                 [_alertWindows removeObject:win];
+                zxAlertBoxUpdateRecordSuppress();
             });
         };
 

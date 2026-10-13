@@ -58,6 +58,32 @@ static void fwSubSizeSave(CGFloat w, CGFloat h)
     [config writeToFile:path atomically:YES];
 }
 
+static NSString * const kSubPosXKey = @"flow_sub_x";
+static NSString * const kSubPosYKey = @"flow_sub_y";
+
+static BOOL fwSubPosLoad(CGPoint *out)
+{
+    NSDictionary *config = [NSDictionary dictionaryWithContentsOfFile:getCommonConfigFilePath()];
+    id x = config[kSubPosXKey];
+    id y = config[kSubPosYKey];
+    if (![x isKindOfClass:[NSNumber class]] || ![y isKindOfClass:[NSNumber class]]) return NO;
+    out->x = [x doubleValue];
+    out->y = [y doubleValue];
+    return YES;
+}
+
+static void fwSubPosSave(CGPoint origin)
+{
+    NSString *path = getCommonConfigFilePath();
+    NSMutableDictionary *config = [NSMutableDictionary dictionaryWithContentsOfFile:path];
+    if (!config) config = [NSMutableDictionary dictionary];
+    config[kSubPosXKey] = @(origin.x);
+    config[kSubPosYKey] = @(origin.y);
+    [[NSFileManager defaultManager] createDirectoryAtPath:[path stringByDeletingLastPathComponent]
+                             withIntermediateDirectories:YES attributes:nil error:NULL];
+    [config writeToFile:path atomically:YES];
+}
+
 // 页面种类（参数编辑 / 设置都在子浮窗里，不再是页面）
 static NSString * const kPageList = @"list";   // 步骤列表（整条流程 / 成立时 / 不成立时）
 
@@ -1103,7 +1129,12 @@ static FlowWindow *_fwShared = nil;
     backdrop.frame = dim.bounds;
     backdrop.backgroundColor = [UIColor colorWithWhite:0 alpha:0.15];
     [backdrop addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        [self dismissSubAnimated:YES];
+        id<FlowEditorHost> host = weakSelf->_host;
+        if (host) {
+            [host flowHostRequestHidePanel];
+        } else {
+            [weakSelf dismissSubAnimated:YES];
+        }
     }] forControlEvents:UIControlEventTouchUpInside];
     [dim addSubview:backdrop];
 
@@ -1265,7 +1296,14 @@ static FlowWindow *_fwShared = nil;
     CGFloat naturalH = FW_SUB_TITLE_H + MAX(contentH + 4.0f, 60.0f);
     CGFloat cardH = (remembered.height > 0) ? remembered.height : MIN(naturalH, hostH - 140.0f);
     cardH = MIN(MAX(cardH, FW_SUB_TITLE_H + 80.0f), maxCardH);
-    card.frame = CGRectMake((hostW - cardW) / 2.0f, (hostH - cardH) / 2.0f, cardW, cardH);
+    CGPoint origin;
+    if (fwSubPosLoad(&origin)) {
+        origin.x = MIN(MAX(origin.x, 0.0f), MAX(hostW - cardW, 0.0f));
+        origin.y = MIN(MAX(origin.y, 0.0f), MAX(hostH - cardH, 0.0f));
+    } else {
+        origin = CGPointMake((hostW - cardW) / 2.0f, (hostH - cardH) / 2.0f);
+    }
+    card.frame = CGRectMake(origin.x, origin.y, cardW, cardH);
     scroll.contentSize = CGSizeMake(cardW, contentH + 4.0f);
     [self layoutSubCard];
 
@@ -1344,6 +1382,7 @@ static FlowWindow *_fwShared = nil;
 
     if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
         fwSubSizeSave(_subResizeW, _subResizeH);
+        fwSubPosSave(card.frame.origin);
         [self rebuildSubAnimated:NO];   // 按新宽度把内容重排一遍（不重播入场动画）
     }
 }
@@ -1421,6 +1460,7 @@ static FlowWindow *_fwShared = nil;
         CGRect b = host.bounds;
         c.x = MAX(card.bounds.size.width / 2.0f,  MIN(b.size.width  - card.bounds.size.width  / 2.0f, c.x));
         c.y = MAX(card.bounds.size.height / 2.0f, MIN(b.size.height - card.bounds.size.height / 2.0f, c.y));
+        fwSubPosSave(CGPointMake(c.x - card.bounds.size.width / 2.0f, c.y - card.bounds.size.height / 2.0f));
         [UIView animateWithDuration:0.16 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
             card.center = c;
         } completion:nil];

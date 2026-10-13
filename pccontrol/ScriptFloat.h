@@ -9,6 +9,7 @@
 
 void ZXScriptInjectionNote(uint64_t timeStamp);
 BOOL ZXEventIsScriptInjection(UIEvent *event);
+BOOL ZXScriptFloatHitTestScreenPoint(CGPoint point);
 
 @interface ScriptFloat : NSObject
 

@@ -219,6 +219,7 @@ static NSString *sfPathForInoToken(NSString *token)
 @property (nonatomic, assign) NSInteger iconMode;
 @property (nonatomic, assign) NSInteger playState;
 @property (nonatomic, copy) void (^onTap)(SFBallView *ball);
+@property (nonatomic, copy) void (^onLongPress)(SFBallView *ball);
 @property (nonatomic, copy) void (^onDragMove)(SFBallView *ball, CGPoint center);
 @property (nonatomic, copy) void (^onDragEnd)(SFBallView *ball, CGPoint center);
 - (void)applyTitleForScriptPath:(NSString *)path;
@@ -262,9 +263,13 @@ static NSString *sfPathForInoToken(NSString *token)
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
         pan.maximumNumberOfTouches = 1;
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap:)];
+        UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
+        longPress.minimumPressDuration = 0.6;
         [tap requireGestureRecognizerToFail:pan];
+        [tap requireGestureRecognizerToFail:longPress];
         [self addGestureRecognizer:pan];
         [self addGestureRecognizer:tap];
+        [self addGestureRecognizer:longPress];
     }
     return self;
 }
@@ -358,6 +363,13 @@ static NSString *sfPathForInoToken(NSString *token)
     }
 }
 
+- (void)handleLongPress:(UILongPressGestureRecognizer *)press
+{
+    if (press.state == UIGestureRecognizerStateBegan && self.onLongPress) {
+        self.onLongPress(self);
+    }
+}
+
 - (void)handlePan:(UIPanGestureRecognizer *)pan
 {
     if (self.locked) {
@@ -392,6 +404,7 @@ static NSString *sfPathForInoToken(NSString *token)
 @interface ScriptFloat (SFInternal)
 + (instancetype)shared;
 - (void)noteTouchAtWindowPoint:(CGPoint)point injected:(BOOL)injected event:(UIEvent *)event;
+- (BOOL)hitTestScreenPoint:(CGPoint)point;
 @end
 
 @interface SFBallWindow : FMPassthroughWindow
@@ -702,6 +715,7 @@ static ScriptFloat *_sfShared = nil;
         _window = nil;
         _content = nil;
     }
+    [self updateRecordExclusionRects];
 }
 
 - (void)applyGeometry
@@ -713,6 +727,31 @@ static ScriptFloat *_sfShared = nil;
     for (NSString *path in _balls) {
         [self layoutBall:_balls[path] config:_configs[path]];
     }
+    [self updateRecordExclusionRects];
+}
+
+- (void)updateRecordExclusionRects
+{
+    NSMutableArray<NSValue *> *rects = [NSMutableArray array];
+    for (SFBallView *ball in _balls.allValues) {
+        if (ball.superview && ball.frame.size.width > 0) {
+            [rects addObject:[NSValue valueWithCGRect:ball.frame]];
+        }
+    }
+    ZXRecordSetExclusionRects(@"scriptFloat", rects);
+}
+
+- (BOOL)hitTestScreenPoint:(CGPoint)point
+{
+    for (SFBallView *ball in _balls.allValues) {
+        if (!ball.superview || ball.hidden || ball.alpha < 0.01f || ball.frame.size.width <= 0) {
+            continue;
+        }
+        if (CGRectContainsPoint(ball.frame, point)) {
+            return YES;
+        }
+    }
+    return NO;
 }
 
 - (void)layoutBall:(SFBallView *)ball config:(NSDictionary *)config
@@ -774,6 +813,9 @@ static ScriptFloat *_sfShared = nil;
             ball.onTap = ^(SFBallView *b) {
                 [weakSelf handleBallTap:b.scriptPath];
             };
+            ball.onLongPress = ^(SFBallView *b) {
+                [weakSelf handleBallLongPress:b.scriptPath];
+            };
             ball.onDragMove = ^(SFBallView *b, CGPoint center) {
                 [weakSelf handleBallDragMove:b center:center];
             };
@@ -790,6 +832,7 @@ static ScriptFloat *_sfShared = nil;
     }
 
     _window.hidden = NO;
+    [self updateRecordExclusionRects];
     [self startWatcher];
     [self refreshPlayStateNow];
 }
@@ -838,6 +881,19 @@ static ScriptFloat *_sfShared = nil;
             }
         }
     });
+}
+
+- (void)handleBallLongPress:(NSString *)path
+{
+    if (path.length == 0) {
+        return;
+    }
+    SFBallView *ball = _balls[path];
+    if (ball && ball.playState == kSFStateRunning) {
+        return;
+    }
+    [self setBallEnabled:NO forPath:path];
+    sfToast(@"已关闭悬浮球", 2);
 }
 
 - (void)handleBallDragMove:(SFBallView *)ball center:(CGPoint)center
@@ -981,3 +1037,12 @@ static ScriptFloat *_sfShared = nil;
 }
 
 @end
+
+BOOL ZXScriptFloatHitTestScreenPoint(CGPoint point)
+{
+    __block BOOL hit = NO;
+    sfRunOnMain(^{
+        hit = [[ScriptFloat shared] hitTestScreenPoint:point];
+    });
+    return hit;
+}

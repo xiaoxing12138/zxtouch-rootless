@@ -9,6 +9,7 @@
 #import "PickOverlay.h"      // 参数行「取点」：悬浮十字取坐标
 #import "FlowWindow.h"       // 可视化流程编辑器（内容挂在本面板里）+ FlowEditorHost
 #import "FlowScript.h"       // bundleHasFlow：判断脚本包里有没有可视化流程
+#import "ScriptFloat.h"      // 面板遮罩要放行落在脚本悬浮球上的触摸
 #import <UIKit/UIKit.h>
 
 #define FN_TOP_H     49.0f
@@ -32,6 +33,18 @@
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
     return (hit == self) ? nil : hit;
+}
+@end
+
+@interface FNBackdropView : UIView
+@end
+
+@implementation FNBackdropView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if (ZXScriptFloatHitTestScreenPoint(point)) {
+        return nil;
+    }
+    return [super hitTest:point withEvent:event];
 }
 @end
 
@@ -352,7 +365,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     _window.rootViewController = [[FNRootViewController alloc] init];
     UIView *root = _window.rootViewController.view;
 
-    _backdrop = [[UIView alloc] initWithFrame:root.bounds];
+    _backdrop = [[FNBackdropView alloc] initWithFrame:root.bounds];
     _backdrop.backgroundColor = [UIColor clearColor];
     _backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [_backdrop addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self
@@ -1809,6 +1822,10 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
     _cardView.hidden = hidden;
 }
 
+- (void)flowHostRequestHidePanel {
+    [self hide];
+}
+
 - (void)handleBackdropTap:(UITapGestureRecognizer *)g {
     [self hide];
 }
@@ -1873,6 +1890,7 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 
 - (void)show {
     _shown = YES;
+    ZXRecordSetSuppressAll(@"functionWindow", YES);
     ZXSafeMainAsync(^{
         [self ensureWindow];
         if (!self->_window) return;
@@ -1914,6 +1932,7 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 // 关闭面板。「保存」走 saveAndHide；✕ 直接调这里，不额外存盘
 - (void)hide {
     _shown = NO;
+    ZXRecordSetSuppressAll(@"functionWindow", NO);
     [[FlowWindow shared] hideOverlays];   // 编辑器弹的半屏「添加步骤」挂在窗口根上，不跟着卡片一起消失
     ZXSafeMainAsync(^{
         if (!self->_window) return;
