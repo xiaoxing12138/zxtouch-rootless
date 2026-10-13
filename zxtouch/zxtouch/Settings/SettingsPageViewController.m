@@ -1101,7 +1101,8 @@ static NSString *ZXAboutNoticeText(void) {
 }
 
 static NSArray<NSString *> *ZXLatestVersionURLs(void) {
-    return @[ @"https://cdn.jsdelivr.net/gh/xiaoxing12138/zxtouch-rootless@main/version.json",
+    return @[ @"https://api.github.com/repos/xiaoxing12138/zxtouch-rootless/releases/latest",
+              @"https://cdn.jsdelivr.net/gh/xiaoxing12138/zxtouch-rootless@main/version.json",
               @"https://raw.githubusercontent.com/xiaoxing12138/zxtouch-rootless/main/version.json" ];
 }
 
@@ -1139,6 +1140,8 @@ static void ZXFetchVersionFromURLs(NSArray<NSString *> *urls, NSUInteger index,
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urls[index]]];
     request.timeoutInterval = 10;
     request.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+    [request setValue:@"xiaoxinlap" forHTTPHeaderField:@"User-Agent"];
+    [request setValue:@"no-cache" forHTTPHeaderField:@"Cache-Control"];
     [[[NSURLSession sharedSession] dataTaskWithRequest:request
                                     completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSString *version = nil;
@@ -1148,6 +1151,15 @@ static void ZXFetchVersionFromURLs(NSArray<NSString *> *urls, NSUInteger index,
                 id value = json[@"version"];
                 if ([value isKindOfClass:[NSString class]]) version = value;
                 else if ([value isKindOfClass:[NSNumber class]]) version = [value stringValue];
+                if (version.length == 0) {
+                    id tag = json[@"tag_name"];
+                    if ([tag isKindOfClass:[NSString class]]) {
+                        version = tag;
+                        if ([version hasPrefix:@"v"] || [version hasPrefix:@"V"]) {
+                            version = [version substringFromIndex:1];
+                        }
+                    }
+                }
             }
             if (version.length == 0) {
                 NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];

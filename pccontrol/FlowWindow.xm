@@ -27,7 +27,7 @@
 #import <unistd.h> // usleep
 
 #define FW_ROW_H    45.0f
-#define FW_GAP      8.0f
+#define FW_GAP      5.0f
 #define FW_DELETE_W 88.0f   // 左滑露出来的「删除」宽度
 #define FW_CELL_H   38.0f   // 「添加步骤」子浮窗里一个类型格的高度
 #define FW_SUB_TITLE_H 46.0f
@@ -661,7 +661,7 @@ static FlowWindow *_fwShared = nil;
     _dragRow = nil;
     _scroll.scrollEnabled = YES;
     [self autosave];   // 新顺序落盘
-    [self refresh];    // 重建一遍最省事（顺带恢复行的缩放和阴影）
+    [self refreshKeepingScroll];    // 重建一遍最省事（顺带恢复行的缩放和阴影）
 }
 
 // 左滑删除：从当前这一页的数组里摘掉这一步
@@ -672,7 +672,7 @@ static FlowWindow *_fwShared = nil;
     if (index == NSNotFound) return;
     [steps removeObjectAtIndex:index];
     [self autosave];
-    [self refresh];
+    [self refreshKeepingScroll];
 }
 
 // 长按行的菜单：复制到下方
@@ -691,7 +691,7 @@ static FlowWindow *_fwShared = nil;
             if (!copy) return;
             [steps insertObject:copy atIndex:index + 1];
             [strongSelf autosave];
-            [strongSelf refresh];
+            [strongSelf refreshKeepingScroll];
         },
     } ]);
 }
@@ -713,7 +713,7 @@ static FlowWindow *_fwShared = nil;
         [strongSelf autosave];
         [strongSelf->_host flowHostSetCardHidden:NO];
         strongSelf->_subDim.hidden = NO;
-        [strongSelf refresh];
+        [strongSelf refreshKeepingScroll];
         // 取完坐标就把参数子浮窗关掉，回到步骤列表；点「取消」不走这里，子浮窗留着
         [strongSelf dismissSubAnimated:YES];
     } cancel:^{
@@ -737,7 +737,7 @@ static FlowWindow *_fwShared = nil;
             if (!s) return;
             [s applyPickResult:result toStep:step type:type];
             [s autosave];
-            [s refresh];
+            [s refreshKeepingScroll];
             [s dismissSubAnimated:YES];
         } cancel:^{}];
         [PickOverlay updateFollowAtWindowPoint:point];
@@ -909,7 +909,7 @@ static FlowWindow *_fwShared = nil;
                    action:(void (^)(void))action
 {
     UIButton *row = [UIButton buttonWithType:UIButtonTypeSystem];
-    CGFloat rowH = FW_ROW_H - 10.0f;
+    CGFloat rowH = FW_ROW_H - 5.0f;
     row.frame = CGRectMake(0, 0, w, rowH);
     row.backgroundColor = primary ? [color colorWithAlphaComponent:0.16] : ZXPalette(ZXPalRow);
     row.layer.cornerRadius = 10;
@@ -978,7 +978,7 @@ static FlowWindow *_fwShared = nil;
                    width:(CGFloat)w
                 onChange:(void (^)(NSString *text))onChange
 {
-    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, FW_ROW_H - 10.0f)];
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, FW_ROW_H - 5.0f)];
     row.backgroundColor = ZXPalette(ZXPalRow);
     row.layer.cornerRadius = 10;
     row.layer.borderWidth = 1;
@@ -987,7 +987,7 @@ static FlowWindow *_fwShared = nil;
     CGFloat labelW = MIN(150.0f, w * 0.46f);
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, labelW, row.frame.size.height)];
     label.text = title;
-    label.font = [UIFont systemFontOfSize:13];
+    label.font = [UIFont systemFontOfSize:14];
     label.textColor = ZXPalette(ZXPalSub);
     label.adjustsFontSizeToFitWidth = YES;
     label.minimumScaleFactor = 0.75;
@@ -997,7 +997,7 @@ static FlowWindow *_fwShared = nil;
     CGFloat fieldH = row.frame.size.height - 12.0f;
     CGFloat fieldW = MAX(w - fieldX - 12 - (stepper ? 26.0f : 0.0f), 60);
     UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(fieldX, 6, fieldW, fieldH)];
-    field.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    field.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
     field.textColor = ZXPalette(ZXPalValue);
     field.tintColor = ZXPalette(ZXPalAccent);
     field.backgroundColor = ZXPalette(ZXPalField);
@@ -1268,7 +1268,7 @@ static FlowWindow *_fwShared = nil;
             NSString *name = [s->_subStep[@"Name"] isKindOfClass:[NSString class]] ? s->_subStep[@"Name"] : @"";
             l.text = name.length ? name : s->_subTitle;
             l.hidden = NO; u.hidden = NO; f.hidden = YES;
-            [s refresh];
+            [s refreshKeepingScroll];
         }] forControlEvents:UIControlEventEditingDidEnd];
 
         // 初始文字
@@ -1612,7 +1612,8 @@ static NSString *fwAppVersion(void)
 
 static NSArray<NSString *> *fwVersionURLs(void)
 {
-    return @[ @"https://cdn.jsdelivr.net/gh/xiaoxing12138/zxtouch-rootless@main/version.json",
+    return @[ @"https://api.github.com/repos/xiaoxing12138/zxtouch-rootless/releases/latest",
+              @"https://cdn.jsdelivr.net/gh/xiaoxing12138/zxtouch-rootless@main/version.json",
               @"https://raw.githubusercontent.com/xiaoxing12138/zxtouch-rootless/main/version.json" ];
 }
 
@@ -1651,7 +1652,12 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
         fwFetchLatestVersion(index + 1, completion);
         return;
     }
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.timeoutInterval = 10;
+    request.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+    [request setValue:@"xiaoxinlap" forHTTPHeaderField:@"User-Agent"];
+    [request setValue:@"no-cache" forHTTPHeaderField:@"Cache-Control"];
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request
         completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSString *version = nil;
         if (data.length > 0) {
@@ -1659,6 +1665,15 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
             if ([json isKindOfClass:[NSDictionary class]]) {
                 id value = json[@"version"];
                 if ([value isKindOfClass:[NSString class]]) version = value;
+                if (version.length == 0) {
+                    id tag = json[@"tag_name"];
+                    if ([tag isKindOfClass:[NSString class]]) {
+                        version = tag;
+                        if ([version hasPrefix:@"v"] || [version hasPrefix:@"V"]) {
+                            version = [version substringFromIndex:1];
+                        }
+                    }
+                }
             }
         }
         if (version.length == 0) {
@@ -2067,18 +2082,20 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         FlowWindow *s = weakSelf;
         if (!s) return;
-        // 先把两个悬浮窗藏掉：否则触摸会点到窗口、取色/识图/找色/识字会把面板拍进去。
-        // 只切 window.hidden；子浮窗挂在面板 window 上，跟着一起藏。
+        // 单步也算「运行中」：圆点保持可见，方便随时按停止；只藏选项面板，
+        // 免得注入的触摸点到面板、取色识图把面板拍进去
+        ZXStepRunBegin();
+        ZXSafeMainAsync(^{ [FloatingMenu refreshScriptPlayState]; });
         [[FunctionWindow shared] setExecutionMasked:YES];
-        [FloatingMenu setExecutionMasked:YES];
-        // hidden=YES 后还要等画面真正刷新（截图类步骤读的是当前帧缓冲）
-        usleep(260000);
+        ZXStepRunWait(0.26);
         @try {
+            if (ZXStepRunAborted()) return;
             if (type.isCondition) [s performCheckStep:snapshot];
             else [s performActionStep:snapshot];
         } @finally {
-            [FloatingMenu setExecutionMasked:NO];
             [[FunctionWindow shared] setExecutionMasked:NO];
+            ZXStepRunFinish();
+            ZXSafeMainAsync(^{ [FloatingMenu refreshScriptPlayState]; });
         }
     });
 }
@@ -2095,25 +2112,30 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         double hold = MAX(fwStepNumber(step, @"Hold", 0.02), 0.0);
         // 和生成器里的「点()」一致：按下 → 按住 → 抬起 → 停一会儿，连做 count 下
         for (NSInteger i = 0; i < count; i++) {
+            if (ZXStepRunAborted()) break;
             fwSendTouch(TOUCH_DOWN, x, y);
-            if (hold > 0) usleep((useconds_t)llround(hold * 1e6));
+            BOOL held = (hold <= 0) ? YES : ZXStepRunWait(hold);
             fwSendTouch(TOUCH_UP, x, y);
-            if (i < count - 1 && interval > 0) usleep((useconds_t)llround(interval * 1e6));
+            if (!held) break;
+            if (i < count - 1 && interval > 0 && !ZXStepRunWait(interval)) break;
         }
     } else if ([kind isEqualToString:kFlowSwipe]) {
         double x1 = fwStepNumber(step, @"X1", 0), y1 = fwStepNumber(step, @"Y1", 0);
         double x2 = fwStepNumber(step, @"X2", 0), y2 = fwStepNumber(step, @"Y2", 0);
         double duration = MAX(fwStepNumber(step, @"Duration", 0.4), 0.05);
         const int steps = 12;   // 和「滑()」一样分 12 步，免得被游戏当成点击
+        double cx = x1, cy = y1;
         fwSendTouch(TOUCH_DOWN, x1, y1);
         for (int i = 1; i <= steps; i++) {
-            usleep((useconds_t)llround(duration / steps * 1e6));
-            fwSendTouch(TOUCH_MOVE, x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps);
+            if (!ZXStepRunWait(duration / steps)) break;
+            cx = x1 + (x2 - x1) * i / steps;
+            cy = y1 + (y2 - y1) * i / steps;
+            fwSendTouch(TOUCH_MOVE, cx, cy);
         }
-        fwSendTouch(TOUCH_UP, x2, y2);
+        fwSendTouch(TOUCH_UP, cx, cy);
     } else if ([kind isEqualToString:kFlowWait]) {
         double seconds = MAX(fwStepNumber(step, @"Seconds", 0.5), 0.0);
-        usleep((useconds_t)llround(seconds * 1e6));
+        ZXStepRunWait(seconds);
     } else if ([kind isEqualToString:kFlowToast]) {
         NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
         double seconds = MAX(fwStepNumber(step, @"Seconds", 2), 1);
@@ -2134,7 +2156,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             }
         } else {
             bringAppForeground(bundle);
-            usleep(400000);
+            ZXStepRunWait(0.4);
         }
     } else if ([kind isEqualToString:kFlowWiFi]) {
         NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"on";
@@ -2178,7 +2200,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             showAlertBox(@"粘贴", error.localizedDescription ?: @"执行失败。", 2);
             return;
         }
-        usleep(300000);
+        ZXStepRunWait(0.3);
     } else if ([kind isEqualToString:kFlowRing]) {
         NSString *sound = [step[@"Sound"] isKindOfClass:[NSString class]] ? step[@"Sound"] : @"";
         double seconds = MAX(fwStepNumber(step, @"Seconds", 3), 0.5);
@@ -2234,6 +2256,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     }
 
     // 触摸 / 等待没有画面反馈，弹一条短的让用户确认真的跑了
+    if (ZXStepRunAborted()) return;
     showAlertBox([FlowScript typeForKind:kind].title ?: @"步骤", @"已执行", 1);
 }
 
@@ -2665,6 +2688,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                           onChange:^(NSInteger idx) {
             step[key] = values[idx];
             [weakSelf autosave];
+            [weakSelf refreshKeepingScroll];
         }];
     }
 
@@ -2672,6 +2696,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                      onChange:^(NSString *text) {
                          step[key] = [FlowScript valueFromText:text integer:integer];
                          [weakSelf autosave];   // 每敲一个字都落盘
+                         [weakSelf refreshKeepingScroll];
                      }];
 }
 
@@ -2722,6 +2747,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                 step[key] = value;
                 [ss autosave];
                 [ss dismissSubAnimated:NO];
+                [ss refreshKeepingScroll];
                 [ss showParamsSubForStep:step parentSteps:nil];
             }];
             row.frame = CGRectMake(0, y, row.frame.size.width, row.frame.size.height);
@@ -2820,7 +2846,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                     width:(CGFloat)w
                  onChange:(void (^)(NSInteger idx))onChange
 {
-    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, FW_ROW_H - 10.0f)];
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, FW_ROW_H - 5.0f)];
     row.backgroundColor = ZXPalette(ZXPalRow);
     row.layer.cornerRadius = 10;
     row.layer.borderWidth = 1;
@@ -2829,7 +2855,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     CGFloat labelW = MIN(120.0f, w * 0.34f);
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, labelW, row.frame.size.height)];
     label.text = title;
-    label.font = [UIFont systemFontOfSize:13];
+    label.font = [UIFont systemFontOfSize:14];
     label.textColor = ZXPalette(ZXPalSub);
     label.adjustsFontSizeToFitWidth = YES;
     label.minimumScaleFactor = 0.75;
@@ -2957,6 +2983,16 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             scroll.transform = CGAffineTransformIdentity;
         } completion:nil];
     }
+}
+
+- (void)refreshKeepingScroll {
+    UIScrollView *scroll = _scroll;
+    CGFloat keepY = scroll ? scroll.contentOffset.y : 0.0f;
+    [self refresh];
+    UIScrollView *after = _scroll;
+    if (!after) return;
+    CGFloat maxY = MAX(0.0f, after.contentSize.height - after.bounds.size.height);
+    [after setContentOffset:CGPointMake(0, MIN(MAX(keepY, 0.0f), maxY)) animated:NO];
 }
 
 @end

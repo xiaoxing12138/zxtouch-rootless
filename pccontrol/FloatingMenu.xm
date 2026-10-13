@@ -202,21 +202,10 @@ typedef NS_ENUM(NSInteger, FMScriptPlayState) {
     if (self.hidden || self.alpha < 0.01f || !self.userInteractionEnabled) {
         return nil;
     }
-    UIView *hit = [super hitTest:point withEvent:event];
-    if (hit && hit != self) {
-        return hit;
+    if ((self.allowsKeyWindow || self.swallowTouches) && ZXScriptFloatHitTestWindowPoint(point, self)) {
+        return nil;
     }
-    // super 返回 nil 不等于「点在窗口外」：遮罩视图漏掉的一点、窗口没覆盖到的一点都会返回 nil。
-    // 以前这里把 nil 当成「命中点」直接放行，那一击就穿到下层 App，面板自己反而关不掉。
-    if (self.allowsKeyWindow || self.swallowTouches) {
-        // 面板展开中：空白处由面板自己吞掉（点空白 = 关面板）；压在脚本悬浮球上的那一点仍然放行，
-        // 否则面板开着时悬浮球拖不动
-        if (ZXScriptFloatHitTestWindowPoint(point, self)) {
-            return nil;
-        }
-        return self;
-    }
-    return nil;
+    return [super hitTest:point withEvent:event];
 }
 
 // 面板里要能输入文字：输入框所在的 window 必须是 key window，系统键盘才会出来（Apple QA1813）。

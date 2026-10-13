@@ -36,18 +36,6 @@
 }
 @end
 
-@interface FNBackdropView : UIView
-@end
-
-@implementation FNBackdropView
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    if (ZXScriptFloatHitTestWindowPoint(point, self.window)) {
-        return nil;
-    }
-    return [super hitTest:point withEvent:event];
-}
-@end
-
 @interface FNRootViewController : UIViewController
 @end
 
@@ -260,13 +248,14 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 @interface FunctionWindow () <UIGestureRecognizerDelegate, FlowEditorHost, UITextFieldDelegate>
 - (void)savePanelState;
 - (void)handleResizePan:(UIPanGestureRecognizer *)pan;
+- (void)handleBackdropTap;
 @end
 
 @implementation FunctionWindow
 {
     UIWindow        *_window;
     UIView          *_cardView;
-    UIView          *_backdrop;
+    UIButton        *_backdrop;
     UIScrollView    *_functionScrollView;
     UIButton        *_functionScriptBtn;
     UIButton        *_closeBtn;
@@ -363,24 +352,16 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     _window.backgroundColor = [UIColor clearColor];
     _window.overrideUserInterfaceStyle = (UIUserInterfaceStyle)_appearanceMode;
 
-    // 兜底：窗口自己认一个「点空白」手势。底下的遮罩视图在某些机型/场景下没接到触摸时，
-    // 仍然能靠它关掉面板（否则那一击会穿到下层 App）
-    UITapGestureRecognizer *winTap = [[UITapGestureRecognizer alloc] initWithTarget:self
-                                                                            action:@selector(handleBackdropTap:)];
-    winTap.delegate = self;
-    [_window addGestureRecognizer:winTap];
-
     _window.rootViewController = [[FNRootViewController alloc] init];
     UIView *root = _window.rootViewController.view;
 
-    _backdrop = [[FNBackdropView alloc] initWithFrame:root.bounds];
+    _backdrop = [UIButton buttonWithType:UIButtonTypeCustom];
+    _backdrop.frame = root.bounds;
     _backdrop.backgroundColor = [UIColor clearColor];
     _backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    UITapGestureRecognizer *backdropTap = [[UITapGestureRecognizer alloc] initWithTarget:self
-                                                                                 action:@selector(handleBackdropTap:)];
-    // 与窗口兜底手势共用同一套「该不该关」的判断（卡内点击不关、子浮窗开着时先交给子浮窗）
-    backdropTap.delegate = self;
-    [_backdrop addGestureRecognizer:backdropTap];
+    [_backdrop addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [self handleBackdropTap];
+    }] forControlEvents:UIControlEventTouchUpInside];
     [root addSubview:_backdrop];
 
     // 居中卡片（frame 由 layoutCard 计算，autoresizing 保证旋转后仍居中）
@@ -741,14 +722,6 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
     if ([g isKindOfClass:[UIPanGestureRecognizer class]]) {
         return [g locationInView:_cardView].y <= FN_TOP_H;
-    }
-    if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
-        if (!_window) return NO;
-        // 卡片上的点击交给卡片自己的按钮
-        if (_cardView && CGRectContainsPoint(_cardView.frame, [g locationInView:_window])) return NO;
-        // 子浮窗开着时由子浮窗的遮罩负责（先关子浮窗，主面板不动）
-        if ([self hasOverlaySubview]) return NO;
-        return YES;
     }
     return YES;
 }
@@ -1491,8 +1464,8 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
 
         UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(countX + countW + 2.0f,
                                                                           (FN_ROW_H - 16) / 2.0f, 16, 16)];
-        icon.image = fnSymbol(@"doc.text.fill");
-        icon.tintColor = [UIColor secondaryLabelColor];
+        icon.image = fnSymbol(stepCount >= 0 ? @"square.grid.2x2.fill" : @"doc.text.fill");
+        icon.tintColor = (stepCount >= 0) ? badgeColor : [UIColor secondaryLabelColor];
         icon.contentMode = UIViewContentModeScaleAspectFit;
         [row.content addSubview:icon];
 
@@ -1879,9 +1852,7 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
     [self hide];
 }
 
-- (void)handleBackdropTap:(UITapGestureRecognizer *)g {
-    // 兜底再判一次：不管手势挂在哪个视图上，落在卡片内、或子浮窗开着时，主面板一律不关
-    if (_cardView && _window && CGRectContainsPoint(_cardView.frame, [g locationInView:_window])) return;
+- (void)handleBackdropTap {
     if ([self hasOverlaySubview]) return;
     [self hide];
 }

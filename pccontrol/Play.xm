@@ -91,30 +91,42 @@ int playScriptWithSettings(UInt8* path, int repeatTime, float playSpeed, float s
 
 void stopScriptPlaying(NSError **error)
 {
+    ZXStepRunRequestStop();
     ZXSafeMainAsync(^{
         [FloatingMenu stopRunningSpinner];
         [FloatingMenu setScriptIdle];
     });
+    if (ZXStepRunActive() && !(scriptPlayer && [scriptPlayer isPlaying])) return;
     [scriptPlayer forceStop:error];
 }
 
 BOOL isScriptPlaying()
 {
+    if (ZXStepRunActive()) return YES;
     return scriptPlayer && [scriptPlayer isPlaying];
 }
 
 BOOL isScriptPaused()
 {
+    if (ZXStepRunActive()) return ZXStepRunPaused();
     return scriptPlayer && [scriptPlayer isPaused];
 }
 
 void pauseScriptPlaying()
 {
+    if (ZXStepRunActive() && !(scriptPlayer && [scriptPlayer isPlaying])) {
+        ZXStepRunSetPaused(YES);
+        return;
+    }
     [scriptPlayer pause];
 }
 
 void resumeScriptPlaying()
 {
+    if (ZXStepRunActive() && !(scriptPlayer && [scriptPlayer isPlaying])) {
+        ZXStepRunSetPaused(NO);
+        return;
+    }
     [scriptPlayer resume];
 }
 

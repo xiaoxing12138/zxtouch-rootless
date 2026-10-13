@@ -3,6 +3,7 @@
 #include "Play.h"
 #include "Screen.h"
 #import <AVFoundation/AVFoundation.h>
+#import <Photos/Photos.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <CommonCrypto/CommonHMAC.h>
 #import <objc/runtime.h>
@@ -1261,27 +1262,6 @@ BOOL ZXSetWiFi(BOOL enabled, NSError **error)
     return NO;
 }
 
-static NSString *ZXNextScreenshotPath(void)
-{
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSString *folder = @"/var/mobile/Media/DCIM/100APPLE";
-    if (![fm createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil]) return nil;
-
-    NSInteger index = 1;
-    NSCharacterSet *notDigits = [[NSCharacterSet decimalDigitCharacterSet] invertedSet];
-    for (NSString *file in [fm contentsOfDirectoryAtPath:folder error:nil]) {
-        NSString *stem = [[file stringByDeletingPathExtension] uppercaseString];
-        if (![stem hasPrefix:@"IMG"]) continue;
-        NSInteger value = [[stem stringByTrimmingCharactersInSet:notDigits] integerValue];
-        if (value >= index) index = value + 1;
-    }
-    for (NSInteger i = index; i < index + 1000; i++) {
-        NSString *candidate = [folder stringByAppendingPathComponent:[NSString stringWithFormat:@"IMG_%04ld.JPG", (long)i]];
-        if (![fm fileExistsAtPath:candidate]) return candidate;
-    }
-    return nil;
-}
-
 BOOL ZXSaveScreenshot(NSString **pathOut, NSError **error)
 {
     CGImageRef shot = [Screen createScreenShotCGImageRef];
@@ -1317,25 +1297,39 @@ BOOL ZXSaveScreenshot(NSString **pathOut, NSError **error)
     }
     CGImageRelease(shot);
 
-    NSData *jpeg = image ? UIImageJPEGRepresentation(image, 0.85) : nil;
-    if (jpeg.length == 0) {
-        if (error) *error = ZXActionError(@"将截图编码为 JPEG 失败。");
+    if (!image) {
+        if (error) *error = ZXActionError(@"截图失败。");
         return NO;
     }
 
-    NSString *path = ZXNextScreenshotPath();
-    if (path.length == 0) {
-        if (error) *error = ZXActionError(@"找不到可写入的相册目录。");
+    __block BOOL finished = NO;
+    __block NSError *saveError = nil;
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    @try {
+        [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+            [PHAssetChangeRequest creationRequestForAssetFromImage:image];
+        } completionHandler:^(BOOL success, NSError *err) {
+            if (!success) saveError = err;
+            finished = YES;
+            dispatch_semaphore_signal(sem);
+        }];
+    } @catch (NSException *exception) {
+        NSLog(@"com.zjx.springboard: ZXSaveScreenshot save failed: %@", exception.reason);
+        if (error) *error = ZXActionError(@"保存到相册失败。");
         return NO;
     }
+    dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(15 * NSEC_PER_SEC)));
 
-    NSError *writeError = nil;
-    if (![jpeg writeToFile:path options:NSDataWritingAtomic error:&writeError]) {
-        if (error) *error = ZXActionError([NSString stringWithFormat:@"保存截图失败：%@",
-                                           writeError.localizedDescription ?: path]);
+    if (!finished) {
+        if (error) *error = ZXActionError(@"保存到相册超时。");
         return NO;
     }
-    if (pathOut) *pathOut = path;
+    if (saveError) {
+        if (error) *error = ZXActionError([NSString stringWithFormat:@"保存到相册失败：%@",
+                                           saveError.localizedDescription ?: @"未知错误"]);
+        return NO;
+    }
+    if (pathOut) *pathOut = @"相册";
     return YES;
 }
 
@@ -1499,4 +1493,70 @@ BOOL ZXShouldDropTouchInjection(void)
 
     zxTouchDropDeadline = MIN(now + ZX_TOUCH_DROP_QUIET, zxTouchDropHardStop);
     return YES;
+}
+
+static volatile int zxStepRunActive = 0;
+static volatile int zxStepRunPaused = 0;
+static volatile int zxStepRunStop = 0;
+
+void ZXStepRunBegin(void)
+{
+    zxStepRunStop = 0;
+    zxStepRunPaused = 0;
+    zxStepRunActive = 1;
+}
+
+void ZXStepRunFinish(void)
+{
+    zxStepRunActive = 0;
+    zxStepRunPaused = 0;
+    zxStepRunStop = 0;
+}
+
+BOOL ZXStepRunActive(void)
+{
+    return zxStepRunActive != 0;
+}
+
+BOOL ZXStepRunPaused(void)
+{
+    return zxStepRunActive != 0 && zxStepRunPaused != 0;
+}
+
+void ZXStepRunSetPaused(BOOL paused)
+{
+    if (zxStepRunActive == 0) return;
+    zxStepRunPaused = paused ? 1 : 0;
+}
+
+void ZXStepRunRequestStop(void)
+{
+    if (zxStepRunActive == 0) return;
+    zxStepRunStop = 1;
+    zxStepRunPaused = 0;
+}
+
+BOOL ZXStepRunAborted(void)
+{
+    return zxStepRunActive != 0 && zxStepRunStop != 0;
+}
+
+BOOL ZXStepRunWait(double seconds)
+{
+    if (seconds <= 0) return !ZXStepRunAborted();
+
+    double waited = 0;
+    const double slice = 0.05;
+    while (waited < seconds) {
+        if (ZXStepRunAborted()) return NO;
+        while (zxStepRunPaused != 0) {
+            if (ZXStepRunAborted()) return NO;
+            usleep(50000);
+        }
+        double remain = seconds - waited;
+        double step = (remain < slice) ? remain : slice;
+        usleep((useconds_t)llround(step * 1e6));
+        waited += step;
+    }
+    return !ZXStepRunAborted();
 }

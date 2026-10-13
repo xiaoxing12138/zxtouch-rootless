@@ -155,6 +155,15 @@ void ZXShowMiniMenuNearView(UIView *anchor, NSArray<NSDictionary *> *items);
 void ZXDropPendingTouchInjections(void);
 BOOL ZXShouldDropTouchInjection(void);
 
+void ZXStepRunBegin(void);
+void ZXStepRunFinish(void);
+BOOL ZXStepRunActive(void);
+BOOL ZXStepRunPaused(void);
+void ZXStepRunSetPaused(BOOL paused);
+void ZXStepRunRequestStop(void);
+BOOL ZXStepRunAborted(void);
+BOOL ZXStepRunWait(double seconds);
+
 static inline void ZXSafeMainAsync(dispatch_block_t block)
 {
     dispatch_async(dispatch_get_main_queue(), ^{
