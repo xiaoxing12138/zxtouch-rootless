@@ -25,10 +25,6 @@
 - (void)flowHostSetNavigationTitle:(NSString *)title canGoBack:(BOOL)canGoBack;
 /// 取点时把卡片藏起来（卡片会被烤进冻结帧、也挡游戏画面）
 - (void)flowHostSetCardHidden:(BOOL)hidden;
-/// 点子浮窗外面时：整个面板（含子浮窗）一起收起
-- (void)flowHostRequestHidePanel;
-/// 这一击（窗口坐标）在不在主卡片里：用来决定点子浮窗外是只收子浮窗还是收整个面板
-- (BOOL)flowHostPointInsideCard:(CGPoint)point;
 @end
 
 @interface FlowWindow : NSObject
@@ -41,6 +37,9 @@
 
 /// 重画当前页
 - (void)refresh;
+
+/// 子浮窗（添加步骤 / 编辑参数 / 设置 / 关于）当前是否开着
+- (BOOL)isSubShown;
 
 /// 顶栏「设置」：弹出运行方式（循环次数/间隔）+ 定时启动/结束 的子浮窗
 - (void)showSettings;

@@ -735,13 +735,6 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     return YES;
 }
 
-// 子浮窗的遮罩要判断这一击在不在主卡片里：在卡里只收子浮窗，在卡外整个面板一起收
-- (BOOL)flowHostPointInsideCard:(CGPoint)point {
-    if (!_cardView) return NO;
-    CGPoint p = [_cardView convertPoint:point fromView:nil];
-    return [_cardView pointInside:p withEvent:nil];
-}
-
 // 拖右下角把手改面板大小：改完存盘，所有脚本、所有页面下次打开都是这个大小
 - (void)handleResizePan:(UIPanGestureRecognizer *)pan {
     if (!_cardView) return;
@@ -1865,18 +1858,16 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
     _cardView.hidden = hidden;
 }
 
-- (void)flowHostRequestHidePanel {
-    [self hide];
-}
-
 // 点主卡片之外：整个面板（含所有子浮窗）一起收。hide() 自己会收子浮窗
 - (void)handleBackdropTap {
+    if ([[FlowWindow shared] isSubShown]) return;
     [self hide];
 }
 
 // 窗口级兜底：只要这一击落在卡片外就关面板（遮罩按钮没接到触摸时也生效）
 - (void)handleWindowTap:(UITapGestureRecognizer *)g {
     if (!_shown || !_window || !_cardView) return;
+    if ([[FlowWindow shared] isSubShown]) return;
     if ([_cardView pointInside:[g locationInView:_cardView] withEvent:nil]) return;
     [self hide];
 }

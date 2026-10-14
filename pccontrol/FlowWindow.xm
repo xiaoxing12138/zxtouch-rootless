@@ -1215,7 +1215,7 @@ static FlowWindow *_fwShared = nil;
 
     UIView *dim = [[UIView alloc] initWithFrame:host.bounds];
 
-    // 轻遮罩：还能看见后面的主流程。点主卡片外 = 关掉整个面板（含子浮窗）；点主卡片里 = 只关子浮窗
+    // 轻遮罩：还能看见后面的主流程。点子浮窗区域外只关子浮窗，主面板保留
     UIView *backdrop = [[UIView alloc] initWithFrame:dim.bounds];
     backdrop.backgroundColor = [UIColor colorWithWhite:0 alpha:0.15];
     backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -1405,14 +1405,10 @@ static FlowWindow *_fwShared = nil;
     } completion:nil];
 }
 
-// 子浮窗遮罩：点主卡片外 → 整个面板（含子浮窗）收起；点主卡片里 → 只收子浮窗
+// 子浮窗遮罩：点子浮窗区域外只收子浮窗，主面板保留
 - (void)handleSubBackdropTap:(UITapGestureRecognizer *)g
 {
-    CGPoint p = [g locationInView:nil];
-    BOOL insideCard = [_host respondsToSelector:@selector(flowHostPointInsideCard:)]
-                        ? [_host flowHostPointInsideCard:p] : YES;
-    if (insideCard) [self dismissSubAnimated:YES];
-    else [_host flowHostRequestHidePanel];
+    [self dismissSubAnimated:YES];
 }
 
 // 卡片宽高变了之后，把贴边的东西重新摆一遍
@@ -1570,7 +1566,6 @@ static FlowWindow *_fwShared = nil;
 - (void)dismissSubAnimated:(BOOL)animated {
     UIView *dim = _subDim;
     UIView *card = _subCard;
-    _subDim = nil;
     _subCard = nil;
     _subTitleBar = nil;
     _subTitleLabel = nil;
@@ -1586,16 +1581,24 @@ static FlowWindow *_fwShared = nil;
     _kbShift = 0;
     if (!dim) return;
     if (!animated) {
+        _subDim = nil;
         [dim removeFromSuperview];
         return;
     }
+    __weak typeof(self) weakSelf = self;
     [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
         dim.alpha = 0;
         card.layer.transform = CATransform3DMakeRotation(M_PI_2, 0.0, 1.0, 0.0);
         card.alpha = 0.0f;
     } completion:^(BOOL finished) {
         [dim removeFromSuperview];
+        FlowWindow *s = weakSelf;
+        if (s && s->_subDim == dim) s->_subDim = nil;
     }];
+}
+
+- (BOOL)isSubShown {
+    return _subDim != nil;
 }
 
 // 面板整体收起（点 ✕ / 隐藏）时把子浮窗一起收掉，否则它会飘在游戏上
