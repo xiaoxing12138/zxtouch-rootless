@@ -653,14 +653,15 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     CGRect target = scene ? scene.coordinateSpace.bounds : CGRectZero;
     if (CGRectIsEmpty(target)) target = [UIScreen mainScreen].bounds;
     if (CGRectIsEmpty(target)) return;
-    if (CGRectIsEmpty(_window.bounds) && !CGRectIsEmpty(target)) _window.frame = target;
+    if (!CGRectIsEmpty(target) && !CGRectEqualToRect(_window.frame, target)) _window.frame = target;
     UIView *root = _window.rootViewController.view;
     if (root && !CGRectEqualToRect(root.frame, _window.bounds)) root.frame = _window.bounds;
     if (_backdrop && root && !CGRectEqualToRect(_backdrop.frame, root.bounds)) _backdrop.frame = root.bounds;
-    ZXPanelDbg([NSString stringWithFormat:@"sync win=%@ bounds=%@ root=%@ backdrop=%@ screen=%@ target=%@",
+    ZXPanelDbg([NSString stringWithFormat:@"sync win=%@ bounds=%@ root=%@ backdrop=%@ screen=%@ target=%@ sceneOri=%ld active=%ld",
                 NSStringFromCGRect(_window.frame), NSStringFromCGRect(_window.bounds),
                 NSStringFromCGRect(root.frame), NSStringFromCGRect(_backdrop.frame),
-                NSStringFromCGRect([UIScreen mainScreen].bounds), NSStringFromCGRect(target)]);
+                NSStringFromCGRect([UIScreen mainScreen].bounds), NSStringFromCGRect(target),
+                (long)(scene ? scene.interfaceOrientation : 0), (long)(scene ? scene.activationState : -1)]);
 }
 
 - (void)layoutCard {
