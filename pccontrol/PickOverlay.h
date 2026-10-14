@@ -38,6 +38,13 @@ extern NSString * const kPickTemplate;
 + (void)presentWithMode:(FlowPickMode)mode
              completion:(void (^)(NSDictionary *result))completion
                  cancel:(void (^)(void))cancel;
+
+/// 带初始坐标打开：选择器一出现就落在这些已保存的坐标上（指示器像素）；缺省 = 老行为
++ (void)presentWithMode:(FlowPickMode)mode
+           initialStart:(CGPoint)start hasStart:(BOOL)hasStart
+             initialEnd:(CGPoint)end hasEnd:(BOOL)hasEnd
+             completion:(void (^)(NSDictionary *result))completion
+                 cancel:(void (^)(void))cancel;
 + (void)dismiss;
 + (BOOL)isShown;
 

@@ -27,6 +27,8 @@
 - (void)flowHostSetCardHidden:(BOOL)hidden;
 /// 点子浮窗外面时：整个面板（含子浮窗）一起收起
 - (void)flowHostRequestHidePanel;
+/// 这一击（窗口坐标）在不在主卡片里：用来决定点子浮窗外是只收子浮窗还是收整个面板
+- (BOOL)flowHostPointInsideCard:(CGPoint)point;
 @end
 
 @interface FlowWindow : NSObject

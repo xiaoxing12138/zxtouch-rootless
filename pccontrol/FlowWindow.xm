@@ -128,6 +128,27 @@ static UIColor *fwTypeColor(NSString *kind)
     return fwColor(0x4C8DFF, 0x6EA8FF);
 }
 
+// 步骤名 + 一个铅笔字符：提示左上角这行名字点一下就能改
+static NSAttributedString *fwStepNameWithPencil(NSString *name)
+{
+    NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:(name ?: @"")
+        attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold],
+                      NSForegroundColorAttributeName: ZXPalette(ZXPalText) }];
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:@"  ✎"
+        attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightRegular],
+                      NSForegroundColorAttributeName: ZXPalette(ZXPalSub) }]];
+    return s;
+}
+
+// 步骤里已保存的坐标：缺字段 / 空串都当作没保存
+static NSNumber *fwStepCoordNumber(NSDictionary *step, NSString *key)
+{
+    id v = step[key];
+    if ([v isKindOfClass:[NSNumber class]]) return v;
+    if ([v isKindOfClass:[NSString class]] && [v length] > 0) return @([v doubleValue]);
+    return nil;
+}
+
 // 参数按语义分组，声明顺序仍然是字段自己的声明顺序
 static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
 {
@@ -709,7 +730,26 @@ static FlowWindow *_fwShared = nil;
     _subDim.hidden = YES;   // 子浮窗也会被烤进冻结帧
 
     __weak typeof(self) weakSelf = self;
-    [PickOverlay presentWithMode:type.pickMode completion:^(NSDictionary *result) {
+    // 打开取点器时把这一步已保存的坐标带上：选择器一出现就落在上次保存的位置，不用重新找
+    CGPoint pickStart = CGPointZero, pickEnd = CGPointZero;
+    BOOL hasPickStart = NO, hasPickEnd = NO;
+    NSArray<NSString *> *pickTargets = type.pickTargets;
+    if ((type.pickMode == FlowPickModePoint || type.pickMode == FlowPickModeColor) && pickTargets.count >= 2) {
+        NSNumber *x = fwStepCoordNumber(step, pickTargets[0]);
+        NSNumber *y = fwStepCoordNumber(step, pickTargets[1]);
+        if (x && y) { pickStart = CGPointMake(x.doubleValue, y.doubleValue); hasPickStart = YES; }
+    } else if ((type.pickMode == FlowPickModePath || type.pickMode == FlowPickModeRect) && pickTargets.count >= 4) {
+        NSNumber *x1 = fwStepCoordNumber(step, pickTargets[0]);
+        NSNumber *y1 = fwStepCoordNumber(step, pickTargets[1]);
+        NSNumber *x2 = fwStepCoordNumber(step, pickTargets[2]);
+        NSNumber *y2 = fwStepCoordNumber(step, pickTargets[3]);
+        if (x1 && y1) { pickStart = CGPointMake(x1.doubleValue, y1.doubleValue); hasPickStart = YES; }
+        if (x2 && y2) { pickEnd = CGPointMake(x2.doubleValue, y2.doubleValue); hasPickEnd = YES; }
+    }
+    [PickOverlay presentWithMode:type.pickMode
+                    initialStart:pickStart hasStart:hasPickStart
+                      initialEnd:pickEnd hasEnd:hasPickEnd
+                      completion:^(NSDictionary *result) {
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return;
         [strongSelf applyPickResult:result toStep:step type:type];
@@ -1175,17 +1215,12 @@ static FlowWindow *_fwShared = nil;
 
     UIView *dim = [[UIView alloc] initWithFrame:host.bounds];
 
-    // 轻遮罩：还能看见后面的主流程（点外面 = 关掉）。铺满按钮当遮罩，不和面板上的按钮抢触摸
-    UIButton *backdrop = [UIButton buttonWithType:UIButtonTypeCustom];
-    backdrop.frame = dim.bounds;
+    // 轻遮罩：还能看见后面的主流程。点主卡片外 = 关掉整个面板（含子浮窗）；点主卡片里 = 只关子浮窗
+    UIView *backdrop = [[UIView alloc] initWithFrame:dim.bounds];
     backdrop.backgroundColor = [UIColor colorWithWhite:0 alpha:0.15];
-    [backdrop addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-        __strong FlowWindow *strongSelf = weakSelf;
-        if (!strongSelf) {
-            return;
-        }
-        [strongSelf dismissSubAnimated:YES];
-    }] forControlEvents:UIControlEventTouchUpInside];
+    backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [backdrop addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                         action:@selector(handleSubBackdropTap:)]];
     [dim addSubview:backdrop];
 
     UIView *card = [[UIView alloc] init];
@@ -1269,14 +1304,14 @@ static FlowWindow *_fwShared = nil;
             UIView *u = weakUnder;
             if (!s || !f || !l) return;
             NSString *name = [s->_subStep[@"Name"] isKindOfClass:[NSString class]] ? s->_subStep[@"Name"] : @"";
-            l.text = name.length ? name : s->_subTitle;
+            l.attributedText = fwStepNameWithPencil(name.length ? name : s->_subTitle);
             l.hidden = NO; u.hidden = NO; f.hidden = YES;
             [s refreshKeepingScroll];
         }] forControlEvents:UIControlEventEditingDidEnd];
 
         // 初始文字
         NSString *initName = [_subStep[@"Name"] isKindOfClass:[NSString class]] ? _subStep[@"Name"] : @"";
-        nameLabel.text = initName.length ? initName : _subTitle;
+        nameLabel.attributedText = fwStepNameWithPencil(initName.length ? initName : _subTitle);
     } else {
         UILabel *label = [[UILabel alloc] init];
         label.text = _subTitle;
@@ -1368,6 +1403,16 @@ static FlowWindow *_fwShared = nil;
         card.layer.transform = CATransform3DIdentity;
         card.alpha = 1.0f;
     } completion:nil];
+}
+
+// 子浮窗遮罩：点主卡片外 → 整个面板（含子浮窗）收起；点主卡片里 → 只收子浮窗
+- (void)handleSubBackdropTap:(UITapGestureRecognizer *)g
+{
+    CGPoint p = [g locationInView:nil];
+    BOOL insideCard = [_host respondsToSelector:@selector(flowHostPointInsideCard:)]
+                        ? [_host flowHostPointInsideCard:p] : YES;
+    if (insideCard) [self dismissSubAnimated:YES];
+    else [_host flowHostRequestHidePanel];
 }
 
 // 卡片宽高变了之后，把贴边的东西重新摆一遍
@@ -1975,6 +2020,13 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
         // 取点行已经承载了这些字段（坐标 / 模板名），下面不再重复铺输入框
         [used addObjectsFromArray:type.pickTargets];
         for (NSDictionary<NSString *, id> *group in groups) {
+            // 粘贴步骤：方式选「剪贴板」时不显示「自定义文字」输入框
+            if ([type.kind isEqualToString:kFlowPaste] &&
+                [group[@"keys"] containsObject:@"Text"] &&
+                ![[FlowScript pasteModeForStep:step] isEqualToString:@"text"]) {
+                [used addObjectsFromArray:group[@"keys"]];
+                continue;
+            }
             NSMutableArray<FlowFieldSpec *> *specs = [NSMutableArray array];
             for (NSString *key in group[@"keys"]) {
                 if ([used containsObject:key]) continue;
@@ -2693,6 +2745,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                           onChange:^(NSInteger idx) {
             step[key] = values[idx];
             [weakSelf autosave];
+            [weakSelf rebuildSubAnimated:NO];
             [weakSelf refreshKeepingScroll];
         }];
     }

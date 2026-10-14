@@ -192,15 +192,15 @@ static NSInteger fnFlowStepCount(NSString *bundlePath) {
     return steps ? (NSInteger)steps.count : -1;
 }
 
-// 步骤数分档上色：0 灰，之后每 5 步换一色，30 步以上红
+// 步骤数分档上色：0 灰，之后每 5 步换一色，30 步以上红。不用蓝色——蓝色是自定义脚本（PY）的标识色
 static UIColor *fnStepCountColor(NSInteger count) {
     if (count <= 0)  return [UIColor systemGrayColor];
-    if (count <= 5)  return [UIColor systemBlueColor];
-    if (count <= 10) return [UIColor systemGreenColor];
-    if (count <= 15) return [UIColor systemOrangeColor];
-    if (count <= 20) return [UIColor systemPurpleColor];
-    if (count <= 25) return [UIColor systemPinkColor];
-    if (count <= 30) return [UIColor systemTealColor];
+    if (count <= 5)  return [UIColor systemGreenColor];
+    if (count <= 10) return [UIColor systemOrangeColor];
+    if (count <= 15) return [UIColor systemPurpleColor];
+    if (count <= 20) return [UIColor systemPinkColor];
+    if (count <= 25) return [UIColor systemTealColor];
+    if (count <= 30) return [UIColor systemBrownColor];
     return [UIColor systemRedColor];
 }
 
@@ -735,16 +735,11 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     return YES;
 }
 
-// 面板根视图上除了遮罩和卡片，还挂着东西 = 子浮窗（流程编辑器）开着
-// 只认真正显示的视图：残留的 hidden 视图不能挡住「点面板外关闭」
-- (BOOL)hasOverlaySubview {
-    UIView *root = _window.rootViewController.view;
-    for (UIView *v in root.subviews) {
-        if (v == _backdrop || v == _cardView) continue;
-        if (v.hidden || v.alpha < 0.01f) continue;
-        return YES;
-    }
-    return NO;
+// 子浮窗的遮罩要判断这一击在不在主卡片里：在卡里只收子浮窗，在卡外整个面板一起收
+- (BOOL)flowHostPointInsideCard:(CGPoint)point {
+    if (!_cardView) return NO;
+    CGPoint p = [_cardView convertPoint:point fromView:nil];
+    return [_cardView pointInside:p withEvent:nil];
 }
 
 // 拖右下角把手改面板大小：改完存盘，所有脚本、所有页面下次打开都是这个大小
@@ -821,8 +816,18 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     [_cardView endEditing:YES];
     _cardView.hidden = YES;   // 卡片必须让开：否则会被烤进冻结帧，也挡住游戏画面
 
+    // 打开取点器时带上当前参数里已经存好的 x / y：选择器直接落在上次保存的坐标上
+    CGPoint start = CGPointZero;
+    BOOL hasStart = NO;
+    if (xField.text.length > 0 && yField.text.length > 0) {
+        start = CGPointMake(xField.text.doubleValue, yField.text.doubleValue);
+        hasStart = YES;
+    }
+
     __weak typeof(self) weakSelf = self;
-    [PickOverlay presentWithMode:FlowPickModePoint completion:^(NSDictionary *result) {
+    [PickOverlay presentWithMode:FlowPickModePoint initialStart:start hasStart:hasStart
+                       initialEnd:CGPointZero hasEnd:NO
+                       completion:^(NSDictionary *result) {
         FunctionWindow *window = weakSelf;
         if (!window) return;
         CGPoint point = [result[kPickStart] CGPointValue];
@@ -1864,8 +1869,8 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
     [self hide];
 }
 
+// 点主卡片之外：整个面板（含所有子浮窗）一起收。hide() 自己会收子浮窗
 - (void)handleBackdropTap {
-    if ([self hasOverlaySubview]) return;
     [self hide];
 }
 
@@ -1873,7 +1878,6 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 - (void)handleWindowTap:(UITapGestureRecognizer *)g {
     if (!_shown || !_window || !_cardView) return;
     if ([_cardView pointInside:[g locationInView:_cardView] withEvent:nil]) return;
-    if ([self hasOverlaySubview]) return;
     [self hide];
 }
 

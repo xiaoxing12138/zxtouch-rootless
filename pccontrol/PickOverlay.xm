@@ -487,6 +487,11 @@ static PickOverlay *_pkShared = nil;
     CGPoint   _panelOrigin;
     BOOL      _following;
     CGPoint   _followPoint;
+
+    CGPoint   _restoreStart;    // 打开时已保存的坐标（指示器像素），用来让选择器从上次的位置出现
+    CGPoint   _restoreEnd;
+    BOOL      _hasRestoreStart;
+    BOOL      _hasRestoreEnd;
 }
 
 + (instancetype)shared {
@@ -499,8 +504,19 @@ static PickOverlay *_pkShared = nil;
              completion:(void (^)(NSDictionary *))completion
                  cancel:(void (^)(void))cancel
 {
+    [self presentWithMode:mode initialStart:CGPointZero hasStart:NO
+               initialEnd:CGPointZero hasEnd:NO completion:completion cancel:cancel];
+}
+
++ (void)presentWithMode:(FlowPickMode)mode
+           initialStart:(CGPoint)start hasStart:(BOOL)hasStart
+             initialEnd:(CGPoint)end hasEnd:(BOOL)hasEnd
+             completion:(void (^)(NSDictionary *))completion
+                 cancel:(void (^)(void))cancel
+{
     ZXSafeMainAsync(^{
-        [[self shared] presentMode:mode completion:completion cancel:cancel];
+        [[self shared] presentMode:mode initialStart:start hasStart:hasStart
+                        initialEnd:end hasEnd:hasEnd completion:completion cancel:cancel];
     });
 }
 
@@ -547,12 +563,18 @@ static PickOverlay *_pkShared = nil;
 #pragma mark - 建窗
 
 - (void)presentMode:(FlowPickMode)mode
+       initialStart:(CGPoint)start hasStart:(BOOL)hasStart
+         initialEnd:(CGPoint)end hasEnd:(BOOL)hasEnd
          completion:(void (^)(NSDictionary *))completion
              cancel:(void (^)(void))cancel
 {
     [self teardown];
 
     _mode = mode;
+    _restoreStart = start;
+    _hasRestoreStart = hasStart;
+    _restoreEnd = end;
+    _hasRestoreEnd = hasEnd;
     _completion = [completion copy];
     _cancelHandler = [cancel copy];
     _hasRect = NO;
@@ -985,10 +1007,26 @@ static PickOverlay *_pkShared = nil;
     [self updateImageFrame];
 
     if (_mode == FlowPickModePath) {
-        if (_start.x <= 0 && _start.y <= 0) {
+        if (_hasRestoreStart) {
+            _start = [self viewPointFromIndicator:_restoreStart];
+            _end = _hasRestoreEnd ? [self viewPointFromIndicator:_restoreEnd] : _start;
+        } else if (_start.x <= 0 && _start.y <= 0) {
             _start = CGPointMake(b.size.width * 0.35f, b.size.height * 0.5f);
             _end = CGPointMake(b.size.width * 0.65f, b.size.height * 0.5f);
         }
+    } else if (_mode == FlowPickModeRect || _mode == FlowPickModeTemplate) {
+        if (_hasRestoreStart && _hasRestoreEnd) {
+            _rectStart = [self viewPointFromIndicator:_restoreStart];
+            _rectEnd = [self viewPointFromIndicator:_restoreEnd];
+            _pickedRectView = CGRectStandardize(CGRectMake(_rectStart.x, _rectStart.y,
+                                                           _rectEnd.x - _rectStart.x,
+                                                           _rectEnd.y - _rectStart.y));
+            _hasRect = YES;
+            _canvas.pickedRect = _pickedRectView;
+            _canvas.hasRect = _hasRect;
+        }
+    } else if (_hasRestoreStart) {
+        _crosshair = [self viewPointFromIndicator:_restoreStart];
     } else if (_crosshair.x <= 0 && _crosshair.y <= 0) {
         _crosshair = CGPointMake(CGRectGetMidX(b), CGRectGetMidY(b));
     }
@@ -1006,6 +1044,15 @@ static PickOverlay *_pkShared = nil;
     if (f.size.width <= 0 || f.size.height <= 0) return CGPointZero;
     return CGPointMake((p.x - f.origin.x) / f.size.width * space.width,
                        (p.y - f.origin.y) / f.size.height * space.height);
+}
+
+// 上一条的逆运算：指示器坐标 → root 坐标，用来把已保存的坐标摆回选择器上
+- (CGPoint)viewPointFromIndicator:(CGPoint)p {
+    CGSize space = [self pickSpaceSize];
+    CGRect f = _imageFrame;
+    if (f.size.width <= 0 || f.size.height <= 0 || space.width <= 0 || space.height <= 0) return CGPointZero;
+    return CGPointMake(f.origin.x + p.x / space.width * f.size.width,
+                       f.origin.y + p.y / space.height * f.size.height);
 }
 
 - (CGSize)pickSpaceSize {
