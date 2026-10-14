@@ -195,11 +195,30 @@ typedef NS_ENUM(NSInteger, FMScriptPlayState) {
     if (self.rootViewController && !CGRectEqualToRect(self.rootViewController.view.frame, self.bounds)) {
         self.rootViewController.view.frame = self.bounds;
     }
+    if (self.allowsKeyWindow && self.rootViewController) {
+        static CGRect fnLastLoggedFrame = {0, 0, 0, 0};
+        if (!CGRectEqualToRect(fnLastLoggedFrame, self.frame)) {
+            fnLastLoggedFrame = self.frame;
+            NSMutableString *subs = [NSMutableString string];
+            for (UIView *v in self.rootViewController.view.subviews) {
+                [subs appendFormat:@"%@%@ ", NSStringFromClass([v class]), NSStringFromCGRect(v.frame)];
+            }
+            ZXPanelDbg([NSString stringWithFormat:@"layout win=%@ bounds=%@ root=%@ screen=%@ scene=%@ subs=[%@]",
+                        NSStringFromCGRect(self.frame), NSStringFromCGRect(self.bounds),
+                        NSStringFromCGRect(self.rootViewController.view.frame),
+                        NSStringFromCGRect([UIScreen mainScreen].bounds),
+                        self.windowScene ? NSStringFromCGRect(self.windowScene.coordinateSpace.bounds) : @"nil", subs]);
+        }
+    }
 }
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     // 窗口藏起来时（面板收起 / 单步调试遮罩）一律不接管触摸
     if (self.hidden || self.alpha < 0.01f || !self.userInteractionEnabled) {
+        if (self.allowsKeyWindow) {
+            ZXPanelDbg([NSString stringWithFormat:@"hitTest REJECT hidden=%d alpha=%.2f uie=%d p=%.1f,%.1f",
+                        (int)self.hidden, self.alpha, (int)self.userInteractionEnabled, point.x, point.y]);
+        }
         return nil;
     }
     // 只有面板类窗口才吞掉空白点击；圆点 / 脚本悬浮球这类窗口必须放行，
@@ -210,10 +229,22 @@ typedef NS_ENUM(NSInteger, FMScriptPlayState) {
     }
     // 面板展开中：压在脚本悬浮球上的那一点仍然放行，否则悬浮球拖不动
     if (ZXScriptFloatHitTestWindowPoint(point, self)) {
+        if (self.allowsKeyWindow) {
+            ZXPanelDbg([NSString stringWithFormat:@"hitTest SF_PASS p=%.1f,%.1f frame=%@ ret=nil",
+                        point.x, point.y, NSStringFromCGRect(self.frame)]);
+        }
         return nil;
     }
     UIView *hit = [super hitTest:point withEvent:event];
-    return hit ? hit : self;
+    UIView *result = hit ? hit : self;
+    if (self.allowsKeyWindow) {
+        ZXPanelDbg([NSString stringWithFormat:@"hitTest p=%.1f,%.1f frame=%@ bounds=%@ hidden=%d alpha=%.2f allow=%d swallow=%d super=%@ ret=%@",
+                    point.x, point.y, NSStringFromCGRect(self.frame), NSStringFromCGRect(self.bounds),
+                    (int)self.hidden, self.alpha, (int)self.allowsKeyWindow, (int)self.swallowTouches,
+                    hit ? NSStringFromClass([hit class]) : @"nil",
+                    (result == self) ? @"SELF" : NSStringFromClass([result class])]);
+    }
+    return result;
 }
 
 // 面板里要能输入文字：输入框所在的 window 必须是 key window，系统键盘才会出来（Apple QA1813）。

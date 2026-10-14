@@ -647,8 +647,25 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     return CGSizeMake(w, h);
 }
 
+- (void)syncPanelWindowFrame {
+    if (!_window) return;
+    UIWindowScene *scene = _window.windowScene;
+    CGRect target = scene ? scene.coordinateSpace.bounds : CGRectZero;
+    if (CGRectIsEmpty(target)) target = [UIScreen mainScreen].bounds;
+    if (CGRectIsEmpty(target)) return;
+    if (CGRectIsEmpty(_window.bounds) && !CGRectIsEmpty(target)) _window.frame = target;
+    UIView *root = _window.rootViewController.view;
+    if (root && !CGRectEqualToRect(root.frame, _window.bounds)) root.frame = _window.bounds;
+    if (_backdrop && root && !CGRectEqualToRect(_backdrop.frame, root.bounds)) _backdrop.frame = root.bounds;
+    ZXPanelDbg([NSString stringWithFormat:@"sync win=%@ bounds=%@ root=%@ backdrop=%@ screen=%@ target=%@",
+                NSStringFromCGRect(_window.frame), NSStringFromCGRect(_window.bounds),
+                NSStringFromCGRect(root.frame), NSStringFromCGRect(_backdrop.frame),
+                NSStringFromCGRect([UIScreen mainScreen].bounds), NSStringFromCGRect(target)]);
+}
+
 - (void)layoutCard {
     if (!_window || !_cardView) return;
+    [self syncPanelWindowFrame];
     CGFloat screenW = _window.bounds.size.width;
     CGFloat screenH = _window.bounds.size.height;
     if (screenW <= 0) screenW = [UIScreen mainScreen].bounds.size.width;
@@ -1860,12 +1877,17 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 
 // 点主卡片之外：整个面板（含所有子浮窗）一起收。hide() 自己会收子浮窗
 - (void)handleBackdropTap {
+    ZXPanelDbg([NSString stringWithFormat:@"backdropTap shown=%d sub=%d", (int)_shown, (int)[[FlowWindow shared] isSubShown]]);
     if ([[FlowWindow shared] isSubShown]) return;
     [self hide];
 }
 
 // 窗口级兜底：只要这一击落在卡片外就关面板（遮罩按钮没接到触摸时也生效）
 - (void)handleWindowTap:(UITapGestureRecognizer *)g {
+    BOOL inCard = (_cardView != nil) && [_cardView pointInside:[g locationInView:_cardView] withEvent:nil];
+    ZXPanelDbg([NSString stringWithFormat:@"windowTap shown=%d win=%d card=%d inCard=%d sub=%d",
+                (int)_shown, (int)(_window != nil), (int)(_cardView != nil), (int)inCard,
+                (int)[[FlowWindow shared] isSubShown]]);
     if (!_shown || !_window || !_cardView) return;
     if ([[FlowWindow shared] isSubShown]) return;
     if ([_cardView pointInside:[g locationInView:_cardView] withEvent:nil]) return;
@@ -1960,6 +1982,11 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
         [self applyPanelBackground];     // 背景色/背景图/透明度由 App 的「控制按钮悬浮窗」参数决定
         ((FMPassthroughWindow *)self->_window).swallowTouches = YES;
         self->_window.hidden = NO;
+        ZXPanelDbg([NSString stringWithFormat:@"show win=%@ bounds=%@ root=%@ backdrop=%@ card=%@",
+                    NSStringFromCGRect(self->_window.frame), NSStringFromCGRect(self->_window.bounds),
+                    NSStringFromCGRect(self->_window.rootViewController.view.frame),
+                    NSStringFromCGRect(self->_backdrop.frame),
+                    NSStringFromCGRect(self->_cardView.frame)]);
         // 同上：不在 show 时 makeKeyWindow，避免破坏 SpringBoard 触摸路由。
         // 输入框编辑时由 ZXMakeWindowKeyIfNeeded 按需变 key。
 
@@ -1987,6 +2014,7 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 // 关闭面板。「保存」走 saveAndHide；✕ 直接调这里，不额外存盘
 - (void)hide {
     _shown = NO;
+    ZXPanelDbg(@"hide called");
     ZXRecordSetSuppressAll(@"functionWindow", NO);
     [[FlowWindow shared] hideOverlays];   // 编辑器弹的半屏「添加步骤」挂在窗口根上，不跟着卡片一起消失
     ZXSafeMainAsync(^{

@@ -100,6 +100,7 @@ NSDictionary *ZXInstallSummary(void);
  block through ZXSafeMainAsync turns that crash into a log entry instead.
 */
 void ZXLogUIException(NSException *exception);
+void ZXPanelDbg(NSString *message);
 
 /*
  输入框开始编辑前，保证它所在的窗口是 key window。
