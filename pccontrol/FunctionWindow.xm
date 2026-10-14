@@ -2131,10 +2131,11 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
         UITouch *touch = [event.allTouches anyObject];
         if (touch && touch.phase == UITouchPhaseBegan) {
             CGPoint local = [touch locationInView:self];
-            ZXPanelDbg([NSString stringWithFormat:@"EV cls=%@ lvl=%.0f hid=%d al=%.2f f=%@ b=%@ inSelf=%.1f,%.1f inWin=%.1f,%.1f",
+            CGPoint scr = [self convertPoint:local toCoordinateSpace:[UIScreen mainScreen].coordinateSpace];
+            ZXPanelDbg([NSString stringWithFormat:@"EV cls=%@ lvl=%.0f hid=%d al=%.2f f=%@ b=%@ inSelf=%.1f,%.1f scr=%.1f,%.1f",
                         NSStringFromClass([self class]), (double)self.windowLevel, (int)self.hidden, self.alpha,
                         NSStringFromCGRect(self.frame), NSStringFromCGRect(self.bounds),
-                        local.x, local.y, [touch locationInWindow].x, [touch locationInWindow].y]);
+                        local.x, local.y, scr.x, scr.y]);
             ZXPanelDumpWinList((UIWindow *)self);
         }
     }
