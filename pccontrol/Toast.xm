@@ -11,7 +11,7 @@ static UIWindow *_window;
 void showToastFromRawData(UInt8 *eventData, NSError **error)
 {
     @autoreleasepool{
-        NSArray *data = [[NSString stringWithFormat:@"%s", eventData] componentsSeparatedByString:@";;"];
+        NSArray *data = [[NSString stringWithUTF8String:(const char *)eventData] componentsSeparatedByString:@";;"];
         if ([data count] < 3)
         {
             *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;数据格式应为 \"type;;content;;duration(in seconds)[];;position(0: 顶部, 1: 底部, 2: 左侧, 3: 右侧)]\"（类型;;内容;;持续时间(秒)[];;位置）。例如：0;;success;;1.5;;0\r\n"}];

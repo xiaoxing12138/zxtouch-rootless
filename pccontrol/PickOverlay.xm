@@ -469,7 +469,7 @@ static PickOverlay *_pkShared = nil;
     UIImage  *_rawFrame;        // 未转正的原始竖屏帧（独立位图，不受之后抓屏影响）
     UIImage  *_shownFrame;      // 转正后显示用的图（像素坐标 = 指示器坐标）
     CGRect    _imageFrame;      // 显示图在 root 坐标系里的位置
-    UInt8    *_pixels;          // _shownFrame 的 BGRA 拷贝：冻屏后取色 / 预览都读它
+    UInt8    *_pixels;          // _rawFrame 的 BGRA 拷贝：冻屏后取色读它，按下标换算与运行时同一份
     size_t    _pixelW, _pixelH, _pixelStride;
 
     CGPoint   _crosshair;       // Point / Color 模式的准心（root 坐标）
@@ -1380,8 +1380,12 @@ static PickOverlay *_pkShared = nil;
 // 冻帧上某颗像素的 0xRRGGBB
 - (NSUInteger)pixelAtIndicator:(CGPoint)indicator {
     if (!_pixels) return NSNotFound;
-    NSInteger x = (NSInteger)llround(indicator.x), y = (NSInteger)llround(indicator.y);
-    if (x < 0 || y < 0 || x >= (NSInteger)_pixelW || y >= (NSInteger)_pixelH) return NSNotFound;
+    CGPoint frame = ZXFramePointFromIndicatorPoint(indicator);
+    NSInteger x = (NSInteger)lround(frame.x), y = (NSInteger)lround(frame.y);
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x >= (NSInteger)_pixelW) x = (NSInteger)_pixelW - 1;
+    if (y >= (NSInteger)_pixelH) y = (NSInteger)_pixelH - 1;
     const UInt8 *p = _pixels + (size_t)y * _pixelStride + (size_t)x * 4;
     return ((NSUInteger)p[2] << 16) | ((NSUInteger)p[1] << 8) | p[0];   // BGRA
 }
@@ -1420,7 +1424,7 @@ static PickOverlay *_pkShared = nil;
     if (!_shownFrame) _shownFrame = raw;
 
     free(_pixels);
-    _pixels = PKCopyPixels(_shownFrame, &_pixelW, &_pixelH, &_pixelStride);
+    _pixels = PKCopyPixels(_rawFrame, &_pixelW, &_pixelH, &_pixelStride);
     if (!_pixels) return NO;
 
     _freezeView.image = _shownFrame;
@@ -1448,9 +1452,6 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
         free(buf);
         return NULL;
     }
-    // 位图上下文也是 Quartz 坐标：同样要翻，否则像素缓冲上下颠倒、取色读到错位的点
-    CGContextTranslateCTM(ctx, 0, h);
-    CGContextScaleCTM(ctx, 1, -1);
     CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), cg);
     CGContextRelease(ctx);
 

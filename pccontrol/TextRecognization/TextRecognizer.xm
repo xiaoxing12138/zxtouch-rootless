@@ -13,7 +13,7 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
         return nil;
     }
 
-    NSArray *data = [[NSString stringWithFormat:@"%s", eventData] componentsSeparatedByString:@";;"];
+    NSArray *data = [[NSString stringWithUTF8String:(const char *)eventData] componentsSeparatedByString:@";;"];
     if ([data count] == 0)
     {
         NSLog(@"com.zjx.springboard: Data not in good format.");

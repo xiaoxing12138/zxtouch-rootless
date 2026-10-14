@@ -155,7 +155,9 @@ static NSString *fwSimValue(id value)
 
         FlowStepType *wait = [self type:kFlowWait title:@"等待" symbol:@"clock.fill" condition:NO];
         wait.category = kCatFlow;
-        wait.fields = @[ [FlowFieldSpec numKey:@"Seconds" title:@"等几秒" integer:NO def:@"0.5"] ];
+        FlowFieldSpec *waitSeconds = [FlowFieldSpec numKey:@"Seconds" title:@"等几秒" integer:NO def:@"0.5"];
+        waitSeconds.stepperStep = 1;
+        wait.fields = @[ waitSeconds ];
 
         FlowStepType *toast = [self type:kFlowToast title:@"提示" symbol:@"text.bubble.fill" condition:NO];
         toast.category = kCatFlow;
@@ -1080,7 +1082,9 @@ static NSString *fwSimValue(id value)
     } else if ([kind isEqualToString:kFlowToast]) {
         NSString *text = [NSString stringWithFormat:@"%@", step[@"Text"] ?: @""];
         text = [text stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
-        line = [NSString stringWithFormat:@"设备.show_toast(TOAST_MESSAGE, \"%@\", %@)", text, [self textForValue:step[@"Seconds"]]];
+        NSString *toastSeconds = [self textForValue:step[@"Seconds"]];
+        if (toastSeconds.length == 0) toastSeconds = @"2";
+        line = [NSString stringWithFormat:@"设备.show_toast(TOAST_MESSAGE, \"%@\", %@)", text, toastSeconds];
     } else if ([kind isEqualToString:kFlowAppSwitch]) {
         NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"open";
         NSString *bundle = [NSString stringWithFormat:@"%@", step[@"Bundle"] ?: @""];

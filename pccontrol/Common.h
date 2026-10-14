@@ -114,6 +114,9 @@ void ZXMakeWindowKeyIfNeeded(UIWindow *window);
 */
 UIView *ZXMakeNumberStepper(UITextField *field, BOOL integer);
 
+/// 同上，但固定步长（step > 0 时每次加减都走这个值），用于「等几秒」这类要按整秒调的字段
+UIView *ZXMakeNumberStepperStep(UITextField *field, BOOL integer, double step);
+
 /// 键盘上方工具条：左边实时显示「title：当前输入值」，右边「完成」。返回值直接赋给 textField.inputAccessoryView
 UIView *ZXFieldKeyboardAccessory(UITextField *field, NSString *title);
 

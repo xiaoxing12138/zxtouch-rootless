@@ -56,6 +56,8 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 @property (nonatomic, copy) NSString *title;        // 弹窗上的标签
 @property (nonatomic) BOOL integer;                 // 只用整数键盘
 @property (nonatomic) BOOL numeric;                 // 纯数值（含小数）：输入框后面会挂上下箭头步进器
+/// > 0 = 步进器固定按这个值加减（如「等几秒」按 1）；0 = 按当前值量级自动
+@property (nonatomic) double stepperStep;
 @property (nonatomic, copy) NSString *defaultValue;
 /// 非空 = 这一行是「分段选择」（如 包含 / 等于 / 不包含），不是输入框
 @property (nonatomic, copy, nullable) NSArray<NSString *> *choiceTitles;

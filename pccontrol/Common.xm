@@ -444,11 +444,13 @@ void ZXMakeWindowKeyIfNeeded(UIWindow *window)
 }
 
 // 点一下箭头：按当前值的量级选步长，改完触发 EditingChanged 让调用方落盘
-static void ZXStepNumberField(UITextField *field, BOOL integer, NSInteger direction)
+static void ZXStepNumberField(UITextField *field, BOOL integer, double fixedStep, NSInteger direction)
 {
     double value = field.text.doubleValue;
     double step;
-    if (integer) {
+    if (fixedStep > 0) {
+        step = fixedStep;
+    } else if (integer) {
         step = 1.0;
     } else {
         double magnitude = fabs(value);
@@ -464,7 +466,7 @@ static void ZXStepNumberField(UITextField *field, BOOL integer, NSInteger direct
     [field sendActionsForControlEvents:UIControlEventEditingChanged];
 }
 
-UIView *ZXMakeNumberStepper(UITextField *field, BOOL integer)
+UIView *ZXMakeNumberStepperStep(UITextField *field, BOOL integer, double step)
 {
     if (!field) return nil;
     const CGFloat width = 24.0f, half = 15.0f;
@@ -482,11 +484,16 @@ UIView *ZXMakeNumberStepper(UITextField *field, BOOL integer)
              forState:UIControlStateNormal];
         NSInteger direction = (i == 0) ? 1 : -1;
         [btn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-            ZXStepNumberField(field, integer, direction);
+            ZXStepNumberField(field, integer, step, direction);
         }] forControlEvents:UIControlEventTouchUpInside];
         [box addSubview:btn];
     }
     return box;
+}
+
+UIView *ZXMakeNumberStepper(UITextField *field, BOOL integer)
+{
+    return ZXMakeNumberStepperStep(field, integer, 0);
 }
 
 // 键盘上方工具条：左侧实时显示「字段名: 当前值」（游戏式，浮窗被键盘挡住也能看见输入内容），

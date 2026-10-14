@@ -85,9 +85,13 @@
         {
             request.revision = 1;
         }
-        else
+        else if (SYSTEM_VERSION_LESS_THAN(@"18.0"))
         {
             request.revision = 2;
+        }
+        else
+        {
+            request.revision = 3;
         }
     }
     return self;

@@ -1010,14 +1010,16 @@ static FlowWindow *_fwShared = nil;
                    width:(CGFloat)w
                 onChange:(void (^)(NSString *text))onChange
 {
-    return [self makeValueRow:title value:value integer:integer stepper:NO width:w onChange:onChange];
+    return [self makeValueRow:title value:value integer:integer stepper:NO stepValue:0 width:w onChange:onChange];
 }
 
-// stepper = YES 时输入框右边挂一对上下箭头，点一下按当前值的量级加减
+// stepper = YES 时输入框右边挂一对上下箭头，点一下按当前值的量级加减；
+// stepValue > 0 时改为固定按这个值加减
 - (UIView *)makeValueRow:(NSString *)title
                    value:(id)value
                  integer:(BOOL)integer
                  stepper:(BOOL)stepper
+               stepValue:(double)stepValue
                    width:(CGFloat)w
                 onChange:(void (^)(NSString *text))onChange
 {
@@ -1058,7 +1060,7 @@ static FlowWindow *_fwShared = nil;
     }] forControlEvents:UIControlEventEditingChanged];
     [row addSubview:field];
     if (stepper) {
-        UIView *box = ZXMakeNumberStepper(field, integer);
+        UIView *box = ZXMakeNumberStepperStep(field, integer, stepValue);
         box.frame = CGRectMake(w - 12.0f - 24.0f, 6.0f + (fieldH - 30.0f) / 2.0f, 24.0f, 30.0f);
         [row addSubview:box];
     }
@@ -1197,7 +1199,10 @@ static FlowWindow *_fwShared = nil;
     if (!host || !_subBuilder) return;
 
     UIView *oldDim = _subDim;
-    if (oldDim) [oldDim removeFromSuperview];
+    if (oldDim) {
+        [oldDim endEditing:YES];
+        @try { [oldDim removeFromSuperview]; } @catch (NSException *e) {}
+    }
     _subDim = nil; _subCard = nil; _subTitleBar = nil; _subTitleLabel = nil;
     _subTitleField = nil; _subExecBtn = nil; _subCloseBtn = nil; _subGrip = nil; _subScroll = nil;
     _kbShift = 0;
@@ -1580,9 +1585,10 @@ static FlowWindow *_fwShared = nil;
     _subExec = nil;
     _kbShift = 0;
     if (!dim) return;
+    [dim endEditing:YES];
     if (!animated) {
         _subDim = nil;
-        [dim removeFromSuperview];
+        @try { [dim removeFromSuperview]; } @catch (NSException *e) {}
         return;
     }
     __weak typeof(self) weakSelf = self;
@@ -1591,7 +1597,7 @@ static FlowWindow *_fwShared = nil;
         card.layer.transform = CATransform3DMakeRotation(M_PI_2, 0.0, 1.0, 0.0);
         card.alpha = 0.0f;
     } completion:^(BOOL finished) {
-        [dim removeFromSuperview];
+        @try { [dim removeFromSuperview]; } @catch (NSException *e) {}
         FlowWindow *s = weakSelf;
         if (s && s->_subDim == dim) s->_subDim = nil;
     }];
@@ -2699,7 +2705,8 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                     NSString *key = spec.key;
                     NSString *kind = type.kind;
                     BOOL integer = spec.integer;
-                    row = [strongSelf makeValueRow:spec.title value:current integer:integer stepper:spec.numeric width:w
+                    row = [strongSelf makeValueRow:spec.title value:current integer:integer stepper:spec.numeric
+                                         stepValue:spec.stepperStep width:w
                                          onChange:^(NSString *text) {
                                              setDefault(kind, key, [FlowScript valueFromText:text integer:integer]);
                                          }];
@@ -2763,7 +2770,8 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         }];
     }
 
-    return [self makeValueRow:spec.title value:step[key] integer:integer stepper:spec.numeric width:w
+    return [self makeValueRow:spec.title value:step[key] integer:integer stepper:spec.numeric
+                    stepValue:spec.stepperStep width:w
                      onChange:^(NSString *text) {
                          step[key] = [FlowScript valueFromText:text integer:integer];
                          [weakSelf autosave];   // 每敲一个字都落盘
