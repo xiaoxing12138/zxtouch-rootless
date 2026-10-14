@@ -395,33 +395,6 @@ void ZXLogUIException(NSException *exception)
     }
 }
 
-void ZXPanelDbg(NSString *message)
-{
-    @try {
-        NSString *line = [NSString stringWithFormat:@"PANELDBG %@ %@\n", [NSDate date], message ?: @""];
-        NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
-        NSArray<NSString *> *paths = @[
-            @"/var/mobile/Library/ZXTouch/logs/panel-debug.log",
-            @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output"
-        ];
-        NSFileManager *fm = [NSFileManager defaultManager];
-        for (NSString *path in paths) {
-            [fm createDirectoryAtPath:[path stringByDeletingLastPathComponent]
-          withIntermediateDirectories:YES attributes:nil error:NULL];
-            NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
-            if (handle) {
-                [handle seekToEndOfFile];
-                [handle writeData:data];
-                [handle closeFile];
-            } else {
-                [data writeToFile:path atomically:NO];
-            }
-        }
-    }
-    @catch (NSException *ignored) {
-    }
-}
-
 #pragma mark - 键盘避让 / 数值步进器
 
 // 键盘顶边（屏幕坐标）；<=0 表示键盘没出来

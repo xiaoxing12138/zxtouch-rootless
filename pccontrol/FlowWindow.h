@@ -41,6 +41,12 @@
 /// 子浮窗（添加步骤 / 编辑参数 / 设置 / 关于）当前是否开着
 - (BOOL)isSubShown;
 
+/// 子浮窗卡片在屏幕坐标空间里的矩形；没开子浮窗时是 CGRectNull
+- (CGRect)subCardScreenRect;
+
+/// 收起子浮窗（带动画），主面板保留
+- (void)dismissSubOverlay;
+
 /// 顶栏「设置」：弹出运行方式（循环次数/间隔）+ 定时启动/结束 的子浮窗
 - (void)showSettings;
 

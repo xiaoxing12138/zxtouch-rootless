@@ -1601,6 +1601,16 @@ static FlowWindow *_fwShared = nil;
     return _subDim != nil;
 }
 
+- (CGRect)subCardScreenRect {
+    if (!_subCard) return CGRectNull;
+    return [_subCard convertRect:_subCard.bounds toCoordinateSpace:[UIScreen mainScreen].coordinateSpace];
+}
+
+- (void)dismissSubOverlay {
+    if (!_subDim) return;
+    [self dismissSubAnimated:YES];
+}
+
 // 面板整体收起（点 ✕ / 隐藏）时把子浮窗一起收掉，否则它会飘在游戏上
 - (void)hideOverlays {
     [self dismissSubAnimated:NO];

@@ -12,60 +12,17 @@
 #import "ScriptFloat.h"      // 面板遮罩要放行落在脚本悬浮球上的触摸
 #import <UIKit/UIKit.h>
 
-static void ZXPanelDumpWinList(UIWindow *panel)
+static BOOL fnTouchOnUpperWindow(CGPoint point, CGFloat panelLevel)
 {
-    NSMutableString *line = [NSMutableString string];
-    NSArray<UIWindow *> *wins = [UIApplication sharedApplication].windows;
-    for (UIWindow *w in wins) {
-        [line appendFormat:@" [%@ lvl=%.0f hid=%d al=%.2f f=%@ scr=%d same=%d]",
-                          NSStringFromClass([w class]), (double)w.windowLevel, (int)w.hidden, w.alpha,
-                          NSStringFromCGRect(w.frame), (w.screen == [UIScreen mainScreen]) ? 1 : 0,
-                          (w.windowScene == panel.windowScene) ? 1 : 0];
+    UIScreen *screen = [UIScreen mainScreen];
+    NSArray<UIWindow *> *windows = [[UIApplication sharedApplication].windows reverseObjectEnumerator].allObjects;
+    for (UIWindow *win in windows) {
+        if (win.windowLevel <= panelLevel) continue;
+        if (win.hidden || win.alpha < 0.01f || !win.userInteractionEnabled) continue;
+        CGPoint local = [win convertPoint:point fromCoordinateSpace:screen.coordinateSpace];
+        if ([win hitTest:local withEvent:nil]) return YES;
     }
-    ZXPanelDbg([NSString stringWithFormat:@"WINLIST n=%lu%@", (unsigned long)wins.count, line]);
-}
-
-static void ZXPanelDumpSceneList(UIWindow *panel)
-{
-    UIWindow *kw = [UIApplication sharedApplication].keyWindow;
-    ZXPanelDbg([NSString stringWithFormat:@"KEYWIN cls=%@ scene=%p same=%d",
-                kw ? NSStringFromClass([kw class]) : @"nil", kw.windowScene,
-                (kw && kw.windowScene == panel.windowScene) ? 1 : 0]);
-    UIWindowScene *pref = [FloatingMenu preferredWindowScene];
-    ZXPanelDbg([NSString stringWithFormat:@"PREFSCENE %p same=%d", pref, (pref == panel.windowScene) ? 1 : 0]);
-    for (UIScene *sc in [UIApplication sharedApplication].connectedScenes) {
-        if (![sc isKindOfClass:[UIWindowScene class]]) {
-            ZXPanelDbg([NSString stringWithFormat:@"SCENE %@ %p", NSStringFromClass([sc class]), sc]);
-            continue;
-        }
-        UIWindowScene *ws = (UIWindowScene *)sc;
-        ZXPanelDbg([NSString stringWithFormat:@"SCENE %p role=%@ state=%ld ori=%ld cs=%@ n=%lu self=%d",
-                    ws, ws.session.role, (long)ws.activationState, (long)ws.interfaceOrientation,
-                    NSStringFromCGRect(ws.coordinateSpace.bounds), (unsigned long)ws.windows.count,
-                    (ws == panel.windowScene) ? 1 : 0]);
-    }
-}
-
-static void ZXPanelDumpGeometry(UIWindow *panel)
-{
-    if (!panel) return;
-    UIScreen *scr = panel.screen ?: [UIScreen mainScreen];
-    CGRect sb = scr.coordinateSpace.bounds;
-    CGRect b = panel.bounds;
-    CGRect winInScreen = [panel convertRect:b toCoordinateSpace:scr.coordinateSpace];
-    CGRect screenInWin = [panel convertRect:sb fromCoordinateSpace:scr.coordinateSpace];
-    CGPoint p0 = [panel convertPoint:CGPointMake(0, 0) fromCoordinateSpace:scr.coordinateSpace];
-    CGPoint p1 = [panel convertPoint:CGPointMake(sb.size.width, 0) fromCoordinateSpace:scr.coordinateSpace];
-    CGPoint p2 = [panel convertPoint:CGPointMake(0, sb.size.height) fromCoordinateSpace:scr.coordinateSpace];
-    CGPoint p3 = [panel convertPoint:CGPointMake(sb.size.width, sb.size.height) fromCoordinateSpace:scr.coordinateSpace];
-    ZXPanelDbg([NSString stringWithFormat:@"GEO screen=%@ winFrame=%@ winBounds=%@ winInScreen=%@ screenInWin=%@ p00=%.1f,%.1f%s p10=%.1f,%.1f%s p01=%.1f,%.1f%s p11=%.1f,%.1f%s lvl=%.0f",
-                NSStringFromCGRect(sb), NSStringFromCGRect(panel.frame), NSStringFromCGRect(b),
-                NSStringFromCGRect(winInScreen), NSStringFromCGRect(screenInWin),
-                p0.x, p0.y, CGRectContainsPoint(b, p0) ? "Y" : "N",
-                p1.x, p1.y, CGRectContainsPoint(b, p1) ? "Y" : "N",
-                p2.x, p2.y, CGRectContainsPoint(b, p2) ? "Y" : "N",
-                p3.x, p3.y, CGRectContainsPoint(b, p3) ? "Y" : "N",
-                (double)panel.windowLevel]);
+    return NO;
 }
 
 #define FN_TOP_H     49.0f
@@ -306,6 +263,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 - (void)handleResizePan:(UIPanGestureRecognizer *)pan;
 - (void)handleBackdropTap;
 - (void)handleWindowTap:(UITapGestureRecognizer *)g;
+- (void)observeTouchEvent:(UIEvent *)event inWindow:(UIWindow *)window;
 @end
 
 @implementation FunctionWindow
@@ -348,6 +306,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 
     BOOL                        _execMasking;          // 单步调试临时遮罩中
     BOOL                        _wasHiddenBeforeMask;
+    BOOL                        _sysTouchPending;
 }
 
 + (instancetype)shared {
@@ -703,27 +662,11 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     return CGSizeMake(w, h);
 }
 
-- (void)syncPanelWindowFrame {
-    if (!_window) return;
-    UIWindowScene *scene = _window.windowScene;
-    CGRect target = scene ? scene.coordinateSpace.bounds : CGRectZero;
-    if (CGRectIsEmpty(target)) target = [UIScreen mainScreen].bounds;
-    if (CGRectIsEmpty(target)) return;
-    if (!CGRectIsEmpty(target) && !CGRectEqualToRect(_window.frame, target)) _window.frame = target;
+- (void)layoutCard {
+    if (!_window || !_cardView) return;
     UIView *root = _window.rootViewController.view;
     if (root && !CGRectEqualToRect(root.frame, _window.bounds)) root.frame = _window.bounds;
     if (_backdrop && root && !CGRectEqualToRect(_backdrop.frame, root.bounds)) _backdrop.frame = root.bounds;
-    ZXPanelDbg([NSString stringWithFormat:@"sync win=%@ bounds=%@ root=%@ backdrop=%@ screen=%@ target=%@ sceneOri=%ld active=%ld",
-                NSStringFromCGRect(_window.frame), NSStringFromCGRect(_window.bounds),
-                NSStringFromCGRect(root.frame), NSStringFromCGRect(_backdrop.frame),
-                NSStringFromCGRect([UIScreen mainScreen].bounds), NSStringFromCGRect(target),
-                (long)(scene ? scene.interfaceOrientation : 0), (long)(scene ? scene.activationState : -1)]);
-    ZXPanelDumpGeometry(_window);
-}
-
-- (void)layoutCard {
-    if (!_window || !_cardView) return;
-    [self syncPanelWindowFrame];
     CGFloat screenW = _window.bounds.size.width;
     CGFloat screenH = _window.bounds.size.height;
     if (screenW <= 0) screenW = [UIScreen mainScreen].bounds.size.width;
@@ -1935,17 +1878,12 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 
 // 点主卡片之外：整个面板（含所有子浮窗）一起收。hide() 自己会收子浮窗
 - (void)handleBackdropTap {
-    ZXPanelDbg([NSString stringWithFormat:@"backdropTap shown=%d sub=%d", (int)_shown, (int)[[FlowWindow shared] isSubShown]]);
     if ([[FlowWindow shared] isSubShown]) return;
     [self hide];
 }
 
 // 窗口级兜底：只要这一击落在卡片外就关面板（遮罩按钮没接到触摸时也生效）
 - (void)handleWindowTap:(UITapGestureRecognizer *)g {
-    BOOL inCard = (_cardView != nil) && [_cardView pointInside:[g locationInView:_cardView] withEvent:nil];
-    ZXPanelDbg([NSString stringWithFormat:@"windowTap shown=%d win=%d card=%d inCard=%d sub=%d",
-                (int)_shown, (int)(_window != nil), (int)(_cardView != nil), (int)inCard,
-                (int)[[FlowWindow shared] isSubShown]]);
     if (!_shown || !_window || !_cardView) return;
     if ([[FlowWindow shared] isSubShown]) return;
     if ([_cardView pointInside:[g locationInView:_cardView] withEvent:nil]) return;
@@ -2040,14 +1978,6 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
         [self applyPanelBackground];     // 背景色/背景图/透明度由 App 的「控制按钮悬浮窗」参数决定
         ((FMPassthroughWindow *)self->_window).swallowTouches = YES;
         self->_window.hidden = NO;
-        ZXPanelDbg([NSString stringWithFormat:@"show win=%@ bounds=%@ root=%@ backdrop=%@ card=%@",
-                    NSStringFromCGRect(self->_window.frame), NSStringFromCGRect(self->_window.bounds),
-                    NSStringFromCGRect(self->_window.rootViewController.view.frame),
-                    NSStringFromCGRect(self->_backdrop.frame),
-                    NSStringFromCGRect(self->_cardView.frame)]);
-        ZXPanelDumpWinList(self->_window);
-        ZXPanelDumpSceneList(self->_window);
-        ZXPanelDumpGeometry(self->_window);
         // 同上：不在 show 时 makeKeyWindow，避免破坏 SpringBoard 触摸路由。
         // 输入框编辑时由 ZXMakeWindowKeyIfNeeded 按需变 key。
 
@@ -2075,7 +2005,7 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 // 关闭面板。「保存」走 saveAndHide；✕ 直接调这里，不额外存盘
 - (void)hide {
     _shown = NO;
-    ZXPanelDbg(@"hide called");
+    _sysTouchPending = NO;
     ZXRecordSetSuppressAll(@"functionWindow", NO);
     [[FlowWindow shared] hideOverlays];   // 编辑器弹的半屏「添加步骤」挂在窗口根上，不跟着卡片一起消失
     ZXSafeMainAsync(^{
@@ -2115,6 +2045,42 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
     else dispatch_sync(dispatch_get_main_queue(), work);
 }
 
+- (void)observeTouchEvent:(UIEvent *)event inWindow:(UIWindow *)window {
+    if (!_shown || !_window) return;
+    if (window == _window) {
+        _sysTouchPending = NO;
+        return;
+    }
+    if (![NSStringFromClass([window class]) hasPrefix:@"_UISystemGesture"]) return;
+    if (_execMasking || !_cardView || _cardView.hidden) return;
+    UITouch *touch = [event.allTouches anyObject];
+    if (!touch || touch.phase != UITouchPhaseBegan) return;
+    if (ZXEventIsScriptInjection(event)) return;
+
+    UIScreen *screen = [UIScreen mainScreen];
+    CGPoint point = [window convertPoint:[touch locationInView:window] toCoordinateSpace:screen.coordinateSpace];
+    if (fnTouchOnUpperWindow(point, _window.windowLevel)) return;
+
+    FlowWindow *flow = [FlowWindow shared];
+    if ([flow isSubShown]) {
+        CGRect sub = [flow subCardScreenRect];
+        if (!CGRectIsNull(sub) && CGRectContainsPoint(sub, point)) return;
+    } else {
+        CGRect card = [_cardView convertRect:_cardView.bounds toCoordinateSpace:screen.coordinateSpace];
+        if (CGRectContainsPoint(card, point)) return;
+    }
+
+    _sysTouchPending = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        FunctionWindow *strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf->_shown || !strongSelf->_sysTouchPending) return;
+        strongSelf->_sysTouchPending = NO;
+        if ([[FlowWindow shared] isSubShown]) [[FlowWindow shared] dismissSubOverlay];
+        else [strongSelf hide];
+    });
+}
+
 - (void)setAppearanceMode:(NSInteger)mode {
     _appearanceMode = mode;
     ZXSafeMainAsync(^{
@@ -2127,17 +2093,8 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 %hook UIWindow
 
 - (void)sendEvent:(UIEvent *)event {
-    if (event.type == UIEventTypeTouches && [[FunctionWindow shared] isShown]) {
-        UITouch *touch = [event.allTouches anyObject];
-        if (touch && touch.phase == UITouchPhaseBegan) {
-            CGPoint local = [touch locationInView:self];
-            CGPoint scr = [self convertPoint:local toCoordinateSpace:[UIScreen mainScreen].coordinateSpace];
-            ZXPanelDbg([NSString stringWithFormat:@"EV cls=%@ lvl=%.0f hid=%d al=%.2f f=%@ b=%@ inSelf=%.1f,%.1f scr=%.1f,%.1f",
-                        NSStringFromClass([self class]), (double)self.windowLevel, (int)self.hidden, self.alpha,
-                        NSStringFromCGRect(self.frame), NSStringFromCGRect(self.bounds),
-                        local.x, local.y, scr.x, scr.y]);
-            ZXPanelDumpWinList((UIWindow *)self);
-        }
+    if (event.type == UIEventTypeTouches) {
+        [[FunctionWindow shared] observeTouchEvent:event inWindow:self];
     }
     %orig;
 }
