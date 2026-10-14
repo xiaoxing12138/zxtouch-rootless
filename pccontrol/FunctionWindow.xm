@@ -307,6 +307,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     BOOL                        _execMasking;          // 单步调试临时遮罩中
     BOOL                        _wasHiddenBeforeMask;
     BOOL                        _sysTouchPending;
+    BOOL                        _kbdUp;
 }
 
 + (instancetype)shared {
@@ -537,11 +538,16 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 // 键盘弹出：先滚内容，再按需把卡片整体上移
 - (void)handleKeyboardFrame:(NSNotification *)note {
     if (!_window || !_cardView) return;
+    CGRect kbScreen = CGRectZero;
+    CGRect kbInWin = CGRectZero;
+    if (note) {
+        kbScreen = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+        kbInWin = [_window convertRect:kbScreen fromWindow:nil];
+        _kbdUp = (CGRectGetMinY(kbInWin) < CGRectGetMaxY(_window.bounds) - 1.0f);
+    }
     [self restoreCardAfterKeyboard];   // 先回原位再算，免得连续调整越叠越多
     UIView *responder = ZXFirstResponderView(_cardView);
     if (!responder || !note) return;
-    CGRect kbScreen = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
-    CGRect kbInWin = [_window convertRect:kbScreen fromWindow:nil];
     CGFloat keyboardTop = CGRectGetMinY(kbInWin);
     CGFloat overlap = ZXScrollResponderIntoView(responder, _functionScrollView, keyboardTop);
     if (overlap <= 0) return;
@@ -567,6 +573,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 
 // 键盘收起通知：跟着键盘动画滑回去
 - (void)animateCardBackWithNotification:(NSNotification *)note {
+    _kbdUp = NO;
     if (_kbShift <= 0 || !_cardView) return;
     NSTimeInterval duration = note ? [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue] : 0.25;
     CGFloat shift = _kbShift;
@@ -2006,6 +2013,7 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 - (void)hide {
     _shown = NO;
     _sysTouchPending = NO;
+    _kbdUp = NO;
     ZXRecordSetSuppressAll(@"functionWindow", NO);
     [[FlowWindow shared] hideOverlays];   // 编辑器弹的半屏「添加步骤」挂在窗口根上，不跟着卡片一起消失
     ZXSafeMainAsync(^{
@@ -2048,6 +2056,10 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 - (void)observeTouchEvent:(UIEvent *)event inWindow:(UIWindow *)window {
     if (!_shown || !_window) return;
     if (window == _window) {
+        _sysTouchPending = NO;
+        return;
+    }
+    if (_kbdUp) {
         _sysTouchPending = NO;
         return;
     }
