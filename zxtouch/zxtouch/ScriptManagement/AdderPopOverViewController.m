@@ -71,7 +71,12 @@
 
     // add plist file
     NSDictionary *scriptInfo = @{@"Entry": @"main.py", @"FrontApp": @"", @"Orientation": @"1"};
-    [scriptInfo writeToFile:[folderToAddPath stringByAppendingPathComponent:@"info.plist"] atomically:YES];
+    if (![scriptInfo writeToFile:[folderToAddPath stringByAppendingPathComponent:@"info.plist"] atomically:YES])
+    {
+        [fileManager removeItemAtPath:folderToAddPath error:nil];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法创建脚本：info.plist 写入失败。" buttonString:@"确定"];
+        return;
+    }
 
     // add python file
     NSDateFormatter *dateFormatter=[[NSDateFormatter alloc] init];
@@ -79,9 +84,9 @@
     NSString *currentDateTime = [dateFormatter stringFromDate:[NSDate date]];
     NSString *initContent = [NSString stringWithFormat:@"# 本脚本创建于 %@\n# ZXTouch 模块文档（GitHub）：https://github.com/xuan32546/IOS13-SimulateTouch/\n\nfrom zxtouch.client import zxtouch\n\n\n# 请在此处编写你的代码。", currentDateTime];
 
-    [initContent writeToFile:[folderToAddPath stringByAppendingPathComponent:@"main.py"] atomically:YES encoding:NSUTF8StringEncoding error:&err];
-    if (err)
+    if (![initContent writeToFile:[folderToAddPath stringByAppendingPathComponent:@"main.py"] atomically:YES encoding:NSUTF8StringEncoding error:&err])
     {
+        [fileManager removeItemAtPath:folderToAddPath error:nil];
         [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建脚本，原因：", err] buttonString:@"确定"];
         return;
     }

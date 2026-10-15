@@ -161,7 +161,11 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
         @{ @"title": @"终点", @"keys": @[ @"X2", @"Y2" ] },
         @{ @"title": @"滑动时长", @"keys": @[ @"Duration" ] },
     ];
-    if ([kind isEqualToString:kFlowWait]) return @[ @{ @"title": @"时间", @"keys": @[ @"Seconds" ] } ];
+    if ([kind isEqualToString:kFlowWait]) return @[
+        @{ @"title": @"延迟方式", @"keys": @[ @"Mode" ] },
+        @{ @"title": @"固定延迟", @"keys": @[ @"Seconds" ] },
+        @{ @"title": @"随机延迟", @"keys": @[ @"SecondsMin", @"SecondsMax" ] },
+    ];
     if ([kind isEqualToString:kFlowToast]) return @[ @{ @"title": @"提示", @"keys": @[ @"Text", @"Seconds" ] } ];
     if ([kind isEqualToString:kFlowColor]) return @[
         @{ @"title": @"位置", @"keys": @[ @"X", @"Y" ] },
@@ -2046,6 +2050,19 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
                 [used addObjectsFromArray:group[@"keys"]];
                 continue;
             }
+            // 等待步骤：固定延迟只显示「等几秒」，随机延迟只显示最短 / 最长两个输入框
+            if ([type.kind isEqualToString:kFlowWait]) {
+                NSString *waitMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"fixed";
+                BOOL waitRandom = [waitMode isEqualToString:@"random"];
+                if (waitRandom && [group[@"keys"] containsObject:@"Seconds"]) {
+                    [used addObjectsFromArray:group[@"keys"]];
+                    continue;
+                }
+                if (!waitRandom && [group[@"keys"] containsObject:@"SecondsMin"]) {
+                    [used addObjectsFromArray:group[@"keys"]];
+                    continue;
+                }
+            }
             NSMutableArray<FlowFieldSpec *> *specs = [NSMutableArray array];
             for (NSString *key in group[@"keys"]) {
                 if ([used containsObject:key]) continue;
@@ -2208,7 +2225,18 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         }
         fwSendTouch(TOUCH_UP, cx, cy);
     } else if ([kind isEqualToString:kFlowWait]) {
+        NSString *waitMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"fixed";
         double seconds = MAX(fwStepNumber(step, @"Seconds", 0.5), 0.0);
+        if ([waitMode isEqualToString:@"random"]) {
+            double low = MAX(fwStepNumber(step, @"SecondsMin", 0.5), 0.0);
+            double high = MAX(fwStepNumber(step, @"SecondsMax", 1), 0.0);
+            if (low > high) {
+                double swap = low;
+                low = high;
+                high = swap;
+            }
+            seconds = low + (high - low) * ((double)arc4random() / (double)UINT32_MAX);
+        }
         ZXStepRunWait(seconds);
     } else if ([kind isEqualToString:kFlowToast]) {
         NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";

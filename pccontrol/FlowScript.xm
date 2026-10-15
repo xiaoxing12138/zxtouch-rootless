@@ -155,9 +155,16 @@ static NSString *fwSimValue(id value)
 
         FlowStepType *wait = [self type:kFlowWait title:@"等待" symbol:@"clock.fill" condition:NO];
         wait.category = kCatFlow;
+        FlowFieldSpec *waitMode = [FlowFieldSpec key:@"Mode" title:@"延迟方式" integer:NO def:@"fixed"];
+        waitMode.choiceTitles = @[ @"固定延迟", @"随机延迟" ];
+        waitMode.choiceValues = @[ @"fixed", @"random" ];
         FlowFieldSpec *waitSeconds = [FlowFieldSpec numKey:@"Seconds" title:@"等几秒" integer:NO def:@"0.5"];
         waitSeconds.stepperStep = 1;
-        wait.fields = @[ waitSeconds ];
+        FlowFieldSpec *waitMin = [FlowFieldSpec numKey:@"SecondsMin" title:@"最短等几秒" integer:NO def:@"0.5"];
+        waitMin.stepperStep = 1;
+        FlowFieldSpec *waitMax = [FlowFieldSpec numKey:@"SecondsMax" title:@"最长等几秒" integer:NO def:@"1"];
+        waitMax.stepperStep = 1;
+        wait.fields = @[ waitMode, waitSeconds, waitMin, waitMax ];
 
         FlowStepType *toast = [self type:kFlowToast title:@"提示" symbol:@"text.bubble.fill" condition:NO];
         toast.category = kCatFlow;
@@ -415,6 +422,28 @@ static NSString *fwSimValue(id value)
     return [NSString stringWithFormat:@"%@", value ?: @""];
 }
 
++ (void)waitRangeForStep:(NSDictionary *)step minValue:(double *)minValue maxValue:(double *)maxValue
+{
+    NSNumber *minNumber = [step[@"SecondsMin"] isKindOfClass:[NSNumber class]] ? step[@"SecondsMin"] : @(0.5);
+    NSNumber *maxNumber = [step[@"SecondsMax"] isKindOfClass:[NSNumber class]] ? step[@"SecondsMax"] : @(1);
+    double low = MAX([minNumber doubleValue], 0);
+    double high = MAX([maxNumber doubleValue], 0);
+    if (low > high) {
+        double swap = low;
+        low = high;
+        high = swap;
+    }
+    if (minValue) *minValue = low;
+    if (maxValue) *maxValue = high;
+}
+
++ (NSString *)waitRangeTextForStep:(NSDictionary *)step
+{
+    double low = 0, high = 0;
+    [self waitRangeForStep:step minValue:&low maxValue:&high];
+    return [NSString stringWithFormat:@"%@~%@", [self textForValue:@(low)], [self textForValue:@(high)]];
+}
+
 + (NSString *)pasteModeForStep:(NSDictionary *)step
 {
     NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"";
@@ -436,6 +465,10 @@ static NSString *fwSimValue(id value)
                 [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]]];
     }
     if ([kind isEqualToString:kFlowWait]) {
+        NSString *waitMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"fixed";
+        if ([waitMode isEqualToString:@"random"]) {
+            return [NSString stringWithFormat:@"随机等待 %@ 秒", [self waitRangeTextForStep:step]];
+        }
         return [NSString stringWithFormat:@"等待 %@ 秒", [self textForValue:step[@"Seconds"]]];
     }
     if ([kind isEqualToString:kFlowToast]) {
@@ -572,12 +605,14 @@ static NSString *fwSimValue(id value)
     NSMutableDictionary *flow = [self emptyFlow];
     if (![self saveFlow:flow toBundle:bundlePath error:error]) return NO;
 
+    if (![self writeGeneratedScriptForFlow:flow toBundle:bundlePath error:error]) return NO;
+
     NSDictionary *info = @{ @"Entry": @"main.py", @"FrontApp": @"", @"Orientation": @"1" };
     if (![info writeToFile:[bundlePath stringByAppendingPathComponent:@"info.plist"] atomically:YES]) {
         if (error) *error = [self error:@"无法写入 info.plist。"];
         return NO;
     }
-    return [self writeGeneratedScriptForFlow:flow toBundle:bundlePath error:error];
+    return YES;
 }
 
 #pragma mark - 录制转可视化
@@ -839,7 +874,7 @@ static NSString *fwSimValue(id value)
     [out appendString:@"# 坐标一律填「触摸指示器」上显示的像素值：点击 / 取色 / 找色 / 识图返回的是同一套，\n"];
     [out appendString:@"# 方向换算由引擎内部完成，脚本不用管。\n"];
     [out appendString:@"\n"];
-    [out appendString:@"import time\n\n"];
+    [out appendString:@"import time\nimport random\n\n"];
     [out appendString:@"import base64\nimport hashlib\nimport hmac\nimport json\nimport urllib.parse\nimport urllib.request\n\n"];
     [out appendString:@"from zxtouch.client import zxtouch\n"];
     [out appendString:@"from zxtouch.touchtypes import TOUCH_DOWN, TOUCH_MOVE, TOUCH_UP\n"];
@@ -1078,7 +1113,15 @@ static NSString *fwSimValue(id value)
                 [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]],
                 [self textForValue:step[@"Duration"]]];
     } else if ([kind isEqualToString:kFlowWait]) {
-        line = [NSString stringWithFormat:@"time.sleep(%@)", [self textForValue:step[@"Seconds"]]];
+        NSString *waitMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"fixed";
+        if ([waitMode isEqualToString:@"random"]) {
+            double low = 0, high = 0;
+            [self waitRangeForStep:step minValue:&low maxValue:&high];
+            line = [NSString stringWithFormat:@"time.sleep(random.uniform(%@, %@))",
+                    [self textForValue:@(low)], [self textForValue:@(high)]];
+        } else {
+            line = [NSString stringWithFormat:@"time.sleep(%@)", [self textForValue:step[@"Seconds"]]];
+        }
     } else if ([kind isEqualToString:kFlowToast]) {
         NSString *text = [NSString stringWithFormat:@"%@", step[@"Text"] ?: @""];
         text = [text stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
