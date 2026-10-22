@@ -264,6 +264,8 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
 - (void)handleBackdropTap;
 - (void)handleWindowTap:(UITapGestureRecognizer *)g;
 - (void)observeTouchEvent:(UIEvent *)event inWindow:(UIWindow *)window;
+- (void)showSoundPickerForOption:(NSString *)name button:(UIButton *)btn;
+- (void)hideSoundPicker;
 @end
 
 @implementation FunctionWindow
@@ -303,6 +305,7 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     CGFloat                     _kbShift;        // 为了避让键盘把卡片上移了多少（0 = 没动）
     UIImageView                *_functionBgView; // 自定义背景图（公共配置里配了才建）
     UIView                     *_functionBgTint; // 背景图上叠的颜色层（带透明度）
+    UIView                     *_soundPicker;    // 铃声选项的选择面板（挂在窗口根视图上）
 
     BOOL                        _execMasking;          // 单步调试临时遮罩中
     BOOL                        _wasHiddenBeforeMask;
@@ -906,12 +909,23 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     [self persistAllValues];
 }
 
+static NSString *fnSoundOptionTitle(NSString *value)
+{
+    if (value.length == 0) return @"点这里选择";
+    if (![value hasPrefix:@"/"]) return value;
+    for (NSDictionary *item in ZXRingtoneItems()) {
+        if ([item[@"path"] isEqual:value]) return item[@"name"] ?: [value lastPathComponent];
+    }
+    return [[value lastPathComponent] stringByDeletingPathExtension];
+}
+
 // 一格选项：左边名称，右边按类型给控件。cellW = 这一格的宽度（选项区一行放两格）
 - (UIView *)buildOptionCell:(NSDictionary *)decl value:(NSString *)value width:(CGFloat)cellW {
     NSString *name = decl[@"name"];
     ZXOptionType type = (ZXOptionType)[decl[@"type"] integerValue];
     NSArray<NSString *> *choices = decl[@"choices"];
     NSString *initial = value.length ? value : @"";
+    __weak typeof(self) weakSelf = self;
 
     UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, cellW, 44)];
     row.backgroundColor = [UIColor secondarySystemBackgroundColor];
@@ -980,6 +994,23 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
         btn.menu = [UIMenu menuWithTitle:@"" children:items];
         btn.showsMenuAsPrimaryAction = YES;
         [row addSubview:btn];
+    } else if (type == ZXOptionTypeSound) {
+        UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+        btn.frame = CGRectMake(ctrlX, 6, ctrlW, 32);
+        btn.titleLabel.font = [UIFont systemFontOfSize:14];
+        btn.backgroundColor = [UIColor systemBackgroundColor];
+        btn.layer.cornerRadius = 8;
+        btn.layer.borderColor = [UIColor separatorColor].CGColor;
+        btn.layer.borderWidth = 1;
+        btn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        btn.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [btn setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
+        [btn setTitle:[NSString stringWithFormat:@" %@  ▾", fnSoundOptionTitle(initial)]
+            forState:UIControlStateNormal];
+        [btn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            [weakSelf showSoundPickerForOption:name button:btn];
+        }] forControlEvents:UIControlEventTouchUpInside];
+        [row addSubview:btn];
     } else {
         UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:choices];
         seg.frame = CGRectMake(ctrlX, 6, ctrlW, 32);
@@ -995,6 +1026,187 @@ typedef NS_ENUM(NSInteger, FNPanelMode) {
     }
 
     return row;
+}
+
+- (CGFloat)fillSoundListInScroll:(UIScrollView *)scroll
+                           query:(NSString *)query
+                         current:(NSString *)current
+                          onPick:(void (^)(NSString *path))onPick {
+    if (!scroll) return 0.0f;
+    for (UIView *v in [scroll.subviews copy]) [v removeFromSuperview];
+
+    CGFloat w = scroll.bounds.size.width;
+    if (w <= 0) w = 300.0f;
+    NSString *q = [query stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+
+    NSMutableArray<NSDictionary *> *user = [NSMutableArray array];
+    NSMutableArray<NSDictionary *> *system = [NSMutableArray array];
+    for (NSDictionary *item in ZXRingtoneItems()) {
+        NSString *soundName = item[@"name"] ?: @"";
+        if (q.length > 0 && ![soundName localizedCaseInsensitiveContainsString:q]) continue;
+        [( [item[@"user"] boolValue] ? user : system ) addObject:item];
+    }
+
+    __block CGFloat y = 6.0f;
+    void (^section)(NSString *) = ^(NSString *text) {
+        UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(4, y, w - 8, 24)];
+        label.text = text;
+        label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+        label.textColor = [UIColor secondaryLabelColor];
+        [scroll addSubview:label];
+        y += 26.0f;
+    };
+    void (^addRow)(NSDictionary *) = ^(NSDictionary *item) {
+        NSString *path = item[@"path"] ?: @"";
+        NSString *shown = item[@"name"] ?: [path lastPathComponent];
+        BOOL on = current.length > 0 &&
+                  ([path isEqual:current] || [path.lastPathComponent isEqual:current]);
+        if (on) shown = [@"✓ " stringByAppendingString:shown];
+
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.frame = CGRectMake(0, y, w, 38);
+        button.backgroundColor = [UIColor secondarySystemBackgroundColor];
+        button.layer.cornerRadius = 8;
+        button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        button.titleLabel.font = on ? [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold]
+                                    : [UIFont systemFontOfSize:14];
+        [button setTitle:[NSString stringWithFormat:@"  %@", shown] forState:UIControlStateNormal];
+        [button setTitleColor:on ? [UIColor systemBlueColor] : [UIColor labelColor]
+                     forState:UIControlStateNormal];
+        [button addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+            if (onPick) onPick(path);
+        }] forControlEvents:UIControlEventTouchUpInside];
+        [scroll addSubview:button];
+        y += 42.0f;
+    };
+
+    if (user.count > 0) {
+        section(@"用户铃声");
+        for (NSDictionary *item in user) addRow(item);
+    }
+    if (system.count > 0) {
+        section(@"系统铃声");
+        for (NSDictionary *item in system) addRow(item);
+    }
+    if (user.count == 0 && system.count == 0) {
+        UILabel *empty = [[UILabel alloc] initWithFrame:CGRectMake(4, y, w - 8, 40)];
+        empty.text = @"没有找到铃声";
+        empty.font = [UIFont systemFontOfSize:13];
+        empty.textColor = [UIColor secondaryLabelColor];
+        [scroll addSubview:empty];
+        y += 44.0f;
+    }
+    return y;
+}
+
+- (void)showSoundPickerForOption:(NSString *)name button:(UIButton *)btn {
+    UIView *root = _window.rootViewController.view;
+    if (!root || name.length == 0) return;
+    [self hideSoundPicker];
+    [_cardView endEditing:YES];
+
+    UIView *overlay = [[UIView alloc] initWithFrame:root.bounds];
+    overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    overlay.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.35];
+
+    UIControl *dim = [[UIControl alloc] initWithFrame:overlay.bounds];
+    dim.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [dim addTarget:self action:@selector(hideSoundPicker) forControlEvents:UIControlEventTouchUpInside];
+    [overlay addSubview:dim];
+
+    CGFloat rootW = root.bounds.size.width;
+    CGFloat rootH = root.bounds.size.height;
+    if (rootW <= 0) rootW = [UIScreen mainScreen].bounds.size.width;
+    if (rootH <= 0) rootH = [UIScreen mainScreen].bounds.size.height;
+    CGFloat panelW = MIN(340.0f, rootW - 32.0f);
+    CGFloat panelH = MIN(460.0f, rootH - 60.0f);
+
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake((rootW - panelW) / 2.0f,
+                                                             (rootH - panelH) / 2.0f,
+                                                             panelW, panelH)];
+    panel.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
+                            | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
+    panel.backgroundColor = [UIColor systemBackgroundColor];
+    panel.layer.cornerRadius = 12;
+    panel.layer.borderWidth = 1;
+    panel.layer.borderColor = [UIColor separatorColor].CGColor;
+    panel.clipsToBounds = YES;
+    [overlay addSubview:panel];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16, 0, panelW - 70, 46)];
+    title.text = @"选择铃声";
+    title.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    title.textColor = [UIColor labelColor];
+    [panel addSubview:title];
+
+    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
+    close.frame = CGRectMake(panelW - 52, 7, 40, 32);
+    close.titleLabel.font = [UIFont systemFontOfSize:18];
+    [close setTitle:@"✕" forState:UIControlStateNormal];
+    [close setTitleColor:[UIColor secondaryLabelColor] forState:UIControlStateNormal];
+    [close addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [self hideSoundPicker];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [panel addSubview:close];
+
+    UITextField *search = [[UITextField alloc] initWithFrame:CGRectMake(12, 48, panelW - 24, 34)];
+    search.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    search.placeholder = @"搜索铃声";
+    search.font = [UIFont systemFontOfSize:13];
+    search.textColor = [UIColor labelColor];
+    search.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    search.layer.cornerRadius = 8;
+    search.layer.borderWidth = 1;
+    search.layer.borderColor = [UIColor separatorColor].CGColor;
+    search.clearButtonMode = UITextFieldViewModeWhileEditing;
+    search.returnKeyType = UIReturnKeyDone;
+    search.autocorrectionType = UITextAutocorrectionTypeNo;
+    search.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    search.delegate = self;
+    UIView *padL = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 34)];
+    search.leftView = padL;
+    search.leftViewMode = UITextFieldViewModeAlways;
+    [panel addSubview:search];
+
+    UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:CGRectMake(8, 90, panelW - 16, panelH - 98)];
+    scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    scroll.showsVerticalScrollIndicator = YES;
+    scroll.alwaysBounceVertical = YES;
+    [panel addSubview:scroll];
+
+    __weak typeof(self) weakSelf = self;
+    __block NSString *current = _functionOptionValues[name] ?: @"";
+    void (^pick)(NSString *) = ^(NSString *path) {
+        FunctionWindow *s = weakSelf;
+        if (!s || path.length == 0) return;
+        s->_functionOptionValues[name] = path;
+        [btn setTitle:[NSString stringWithFormat:@" %@  ▾", fnSoundOptionTitle(path)]
+            forState:UIControlStateNormal];
+        [s persistAllValues];
+        [s hideSoundPicker];
+    };
+
+    current = _functionOptionValues[name] ?: @"";
+    CGFloat height = [self fillSoundListInScroll:scroll query:@"" current:current onPick:pick];
+    scroll.contentSize = CGSizeMake(scroll.bounds.size.width, height);
+
+    [search addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        FunctionWindow *s = weakSelf;
+        if (!s) return;
+        CGFloat h = [s fillSoundListInScroll:scroll query:search.text current:current onPick:pick];
+        scroll.contentSize = CGSizeMake(scroll.bounds.size.width, h);
+    }] forControlEvents:UIControlEventEditingChanged];
+
+    _soundPicker = overlay;
+    [root addSubview:overlay];
+}
+
+- (void)hideSoundPicker {
+    UIView *picker = _soundPicker;
+    _soundPicker = nil;
+    if (!picker) return;
+    [picker endEditing:YES];
+    [picker removeFromSuperview];
 }
 
 // 一行放两个选项（左一格右一格），最后落单的就只占左半
@@ -1885,6 +2097,7 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 
 // 点主卡片之外：整个面板（含所有子浮窗）一起收。hide() 自己会收子浮窗
 - (void)handleBackdropTap {
+    if (_soundPicker) return;
     if ([[FlowWindow shared] isSubShown]) return;
     [self hide];
 }
@@ -1892,6 +2105,7 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
 // 窗口级兜底：只要这一击落在卡片外就关面板（遮罩按钮没接到触摸时也生效）
 - (void)handleWindowTap:(UITapGestureRecognizer *)g {
     if (!_shown || !_window || !_cardView) return;
+    if (_soundPicker) return;
     if ([[FlowWindow shared] isSubShown]) return;
     if ([_cardView pointInside:[g locationInView:_cardView] withEvent:nil]) return;
     [self hide];
@@ -2015,6 +2229,7 @@ static void fnMigrateScriptConfigFromPath(NSString *oldPath, NSString *newPath) 
     _sysTouchPending = NO;
     _kbdUp = NO;
     ZXRecordSetSuppressAll(@"functionWindow", NO);
+    [self hideSoundPicker];
     [[FlowWindow shared] hideOverlays];   // 编辑器弹的半屏「添加步骤」挂在窗口根上，不跟着卡片一起消失
     ZXSafeMainAsync(^{
         if (!self->_window) return;

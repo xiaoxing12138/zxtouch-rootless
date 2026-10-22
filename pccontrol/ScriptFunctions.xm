@@ -226,6 +226,7 @@ NSArray<NSDictionary *> *ZXScriptOptionDeclarations(NSString *scriptBundlePath)
         else if ([typeText isEqualToString:@"文本"]) type = ZXOptionTypeText;
         else if ([typeText isEqualToString:@"下拉"]) type = ZXOptionTypeDropdown;
         else if ([typeText isEqualToString:@"单选"]) type = ZXOptionTypeRadio;
+        else if ([typeText isEqualToString:@"铃声"]) type = ZXOptionTypeSound;
 
         NSString *defaultValue = @"";
         NSArray<NSString *> *choices = @[];

@@ -11,14 +11,15 @@
 // 功能参数的当前值写成一个 JSON 文件，用 ZX_FUNC_PARAMS_FILE 传路径给脚本。
 //
 // 选项：入口文件里用一行 `# @选项 名称 类型 [默认=值] [候选=甲|乙|丙]` 声明，
-// 类型有 数字 / 文本 / 下拉 / 单选 四种。值按脚本路径存在同一份 plist 里，
+// 类型有 数字 / 文本 / 下拉 / 单选 / 铃声 五种。值按脚本路径存在同一份 plist 里，
 // 启动脚本时引擎把「当前值」写成一个 JSON 文件，用 ZX_OPTS_FILE 把路径传给脚本。
 
 typedef NS_ENUM(NSInteger, ZXOptionType) {
     ZXOptionTypeNumber = 0,   // 数字输入框
     ZXOptionTypeText,         // 文本输入框
     ZXOptionTypeDropdown,     // 下拉框
-    ZXOptionTypeRadio         // 单选组
+    ZXOptionTypeRadio,        // 单选组
+    ZXOptionTypeSound         // 铃声：从系统/用户铃声列表里选，值是绝对路径
 };
 
 // 解析脚本声明的功能，每项是：
