@@ -41,6 +41,7 @@ NSString * const kFlowWait = @"wait";
 NSString * const kFlowToast = @"toast";
 NSString * const kFlowColor = @"color";
 NSString * const kFlowFindColor = @"findColor";
+NSString * const kFlowCountColor = @"countColor";
 NSString * const kFlowImage = @"image";
 NSString * const kFlowOCR = @"ocr";
 NSString * const kFlowAppSwitch = @"appSwitch";
@@ -199,6 +200,25 @@ static NSString *fwSimValue(id value)
             [FlowFieldSpec key:@"Tolerance" title:@"容差（0-255）" integer:YES def:@"10"],
         ];
 
+        FlowStepType *countColor = [self type:kFlowCountColor title:@"数色" symbol:@"number.square.fill" condition:YES];
+        countColor.category = kCatCondition;
+        countColor.pickActionTitle = @"从屏幕框选区域";
+        countColor.pickMode = FlowPickModeRect;
+        countColor.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
+        FlowFieldSpec *countMode = [FlowFieldSpec key:@"Mode" title:@"判据" integer:NO def:@"atLeast"];
+        countMode.choiceTitles = @[ @"至少", @"至多" ];
+        countMode.choiceValues = @[ @"atLeast", @"atMost" ];
+        countColor.fields = @[
+            [FlowFieldSpec key:@"X1" title:@"区域左" integer:YES def:@"0"],
+            [FlowFieldSpec key:@"Y1" title:@"区域上" integer:YES def:@"0"],
+            [FlowFieldSpec key:@"X2" title:@"区域右" integer:YES def:@"1000"],
+            [FlowFieldSpec key:@"Y2" title:@"区域下" integer:YES def:@"600"],
+            [FlowFieldSpec key:@"Color" title:@"颜色（如 FF8800）" integer:NO def:@"FFFFFF"],
+            [FlowFieldSpec key:@"Tolerance" title:@"容差（0-255）" integer:YES def:@"10"],
+            [FlowFieldSpec key:@"Count" title:@"像素数量" integer:YES def:@"1000"],
+            countMode,
+        ];
+
         FlowStepType *image = [self type:kFlowImage title:@"识图" symbol:@"photo.fill" condition:YES];
         image.category = kCatCondition;
         image.pickActionTitle = @"从屏幕框选模板";
@@ -207,6 +227,10 @@ static NSString *fwSimValue(id value)
         image.fields = @[
             [FlowFieldSpec key:@"Template" title:@"模板图（用下面的按钮框选）" integer:NO def:@""],
             [FlowFieldSpec numKey:@"Threshold" title:@"相似度（0-1）" integer:NO def:@"0.8"],
+            [FlowFieldSpec key:@"X1" title:@"搜索区左（0 表示整屏）" integer:YES def:@"0"],
+            [FlowFieldSpec key:@"Y1" title:@"搜索区上" integer:YES def:@"0"],
+            [FlowFieldSpec key:@"X2" title:@"搜索区右" integer:YES def:@"0"],
+            [FlowFieldSpec key:@"Y2" title:@"搜索区下" integer:YES def:@"0"],
         ];
 
         // 识字：把框选区域里的文字/数字识别出来，只用来判断，不改变脚本流程
@@ -484,6 +508,15 @@ static NSString *fwSimValue(id value)
                 [self textForValue:step[@"X1"]], [self textForValue:step[@"Y1"]],
                 [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]],
                 step[@"Color"] ?: @"", [self textForValue:step[@"Tolerance"]]];
+    }
+    if ([kind isEqualToString:kFlowCountColor]) {
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"atLeast";
+        return [NSString stringWithFormat:@"如果 (%@,%@)-(%@,%@) 里 #%@（±%@）的像素%@ %@",
+                [self textForValue:step[@"X1"]], [self textForValue:step[@"Y1"]],
+                [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]],
+                step[@"Color"] ?: @"", [self textForValue:step[@"Tolerance"]],
+                [mode isEqualToString:@"atMost"] ? @"至多" : @"至少",
+                [self textForValue:step[@"Count"]]];
     }
     if ([kind isEqualToString:kFlowImage]) {
         NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
@@ -875,127 +908,10 @@ static NSString *fwSimValue(id value)
     [out appendString:@"# 方向换算由引擎内部完成，脚本不用管。\n"];
     [out appendString:@"\n"];
     [out appendString:@"import time\nimport random\n\n"];
-    [out appendString:@"import base64\nimport hashlib\nimport hmac\nimport json\nimport urllib.parse\nimport urllib.request\n\n"];
-    [out appendString:@"from zxtouch.client import zxtouch\n"];
-    [out appendString:@"from zxtouch.touchtypes import TOUCH_DOWN, TOUCH_MOVE, TOUCH_UP\n"];
+    [out appendString:@"from zxtouch.helpers import *\n"];
     [out appendString:@"from zxtouch.toasttypes import TOAST_MESSAGE\n\n"];
-    [out appendString:@"设备 = zxtouch(\"127.0.0.1\")\n\n"];
     [out appendString:[NSString stringWithFormat:@"循环次数 = %ld          # 0 = 一直循环，直到手动停止\n", (long)loopTimes]];
     [out appendString:[NSString stringWithFormat:@"每轮间隔 = %@      # 每轮之间歇多久（秒）\n\n", [self textForValue:@(loopInterval)]]];
-
-    [out appendString:
-     @"\n"
-     "def 点(x, y, 次数=1, 间隔=0.02, 按住=0.02):\n"
-     "    \"\"\"按下 → 按住一会儿 → 抬起 → 停「间隔」秒，连做「次数」下。\"\"\"\n"
-     "    x, y = int(round(float(x))), int(round(float(y)))\n"
-     "    for _ in range(max(1, int(float(次数)))):\n"
-     "        设备.touch(TOUCH_DOWN, 1, x, y)\n"
-     "        if 按住 > 0:\n"
-     "            time.sleep(按住)\n"
-     "        设备.touch(TOUCH_UP, 1, x, y)\n"
-     "        if 间隔 > 0:\n"
-     "            time.sleep(间隔)\n"
-     "\n"
-     "\n"
-     "def 滑(x1, y1, x2, y2, 时长=0.4):\n"
-     "    \"\"\"从起点划到终点，中间分 12 步，免得划得太快被游戏当成点击。\"\"\"\n"
-     "    x1, y1, x2, y2 = (int(round(float(v))) for v in (x1, y1, x2, y2))\n"
-     "    步数 = 12\n"
-     "    设备.touch(TOUCH_DOWN, 1, x1, y1)\n"
-     "    for i in range(1, 步数 + 1):\n"
-     "        time.sleep(float(时长) / 步数)\n"
-     "        设备.touch(TOUCH_MOVE, 1, x1 + (x2 - x1) * i / 步数, y1 + (y2 - y1) * i / 步数)\n"
-     "    设备.touch(TOUCH_UP, 1, x2, y2)\n"
-     "\n"
-     "\n"
-     "def 取色(x, y):\n"
-     "    \"\"\"读这一点的 RGB；读不到返回 -1,-1,-1。\"\"\"\n"
-     "    ok, c = 设备.pick_color(int(x), int(y))\n"
-     "    if not ok:\n"
-     "        return -1, -1, -1\n"
-     "    return int(c[\"red\"]), int(c[\"green\"]), int(c[\"blue\"])\n"
-     "\n"
-     "\n"
-     "def 是色(x, y, 色, 容差=10):\n"
-     "    \"\"\"这一点是不是指定颜色（十六进制如 FF8800）。\n"
-     "    截图是 JPEG，纯色块也有 ±2 噪声，所以不能直接用 == 比。\"\"\"\n"
-     "    目标 = str(色).lstrip(\"#\")\n"
-     "    r, g, b = 取色(x, y)\n"
-     "    return (abs(r - int(目标[0:2], 16)) <= 容差\n"
-     "            and abs(g - int(目标[2:4], 16)) <= 容差\n"
-     "            and abs(b - int(目标[4:6], 16)) <= 容差)\n"
-     "\n"
-     "\n"
-     "def 找色(x, y, 宽, 高, 色, 容差=10, 步长=1):\n"
-     "    \"\"\"在区域里找指定颜色，找到返回 (x, y)，没找到返回 None。\"\"\"\n"
-     "    目标 = str(色).lstrip(\"#\")\n"
-     "    r, g, b = int(目标[0:2], 16), int(目标[2:4], 16), int(目标[4:6], 16)\n"
-     "    ok, 结果 = 设备.search_color((int(x), int(y), int(宽), int(高)),\n"
-     "                                 max(0, r - 容差), min(255, r + 容差),\n"
-     "                                 max(0, g - 容差), min(255, g + 容差),\n"
-     "                                 max(0, b - 容差), min(255, b + 容差), int(步长))\n"
-     "    if not ok:\n"
-     "        return None\n"
-     "    return int(结果[\"x\"]), int(结果[\"y\"])\n"
-     "\n"
-     "\n"
-     "def 找图(模板, 阈值=0.8):\n"
-     "    \"\"\"全屏找模板图，找到返回图中心 (x, y)，没找到返回 None。\n"
-     "    第 3 个参数 0 = 关掉多尺度：模板是按原图 1:1 抠的，只扫一倍档，快很多。\"\"\"\n"
-     "    ok, 结果 = 设备.image_match(模板, float(阈值), 0, 0.8)\n"
-     "    if not ok:\n"
-     "        return None\n"
-     "    return (float(结果[\"x\"]) + float(结果[\"width\"]) / 2.0,\n"
-     "            float(结果[\"y\"]) + float(结果[\"height\"]) / 2.0)\n"
-     "\n"
-     "\n"
-     "def 识字(x, y, 宽, 高, 语言=\"zh-Hans,en-US\"):\n"
-     "    \"\"\"识别区域里的文字，返回识别到的全部文字拼起来的字符串；识别不到或出错时返回空字符串。\n"
-     "    语言用逗号分隔：zh-Hans = 简体中文，en-US = 英文。\"\"\"\n"
-     "    语言列表 = [s for s in str(语言).replace(\"，\", \",\").split(\",\") if s]\n"
-     "    ok, 结果 = 设备.ocr((int(x), int(y), int(宽), int(高)), languages=语言列表)\n"
-     "    if not ok:\n"
-     "        return \"\"\n"
-     "    return \"\".join(str(项.get(\"text\", \"\")) for 项 in 结果)\n"
-     "\n"
-     "\n"
-     "def 发送钉钉(webhook, 加签密钥=\"\", 内容=\"\"):\n"
-     "    \"\"\"给钉钉群机器人推一条文本；加了加签安全设置就把密钥填上，没有就留空。\"\"\"\n"
-     "    地址 = str(webhook).strip()\n"
-     "    if not 地址:\n"
-     "        return False\n"
-     "    密钥 = str(加签密钥).strip()\n"
-     "    if 密钥:\n"
-     "        时间戳 = str(int(time.time() * 1000))\n"
-     "        待签 = \"{}\\n{}\".format(时间戳, 密钥).encode(\"utf-8\")\n"
-     "        签名 = urllib.parse.quote_plus(base64.b64encode(hmac.new(密钥.encode(\"utf-8\"), 待签, hashlib.sha256).digest()))\n"
-     "        连接符 = \"&\" if \"?\" in 地址 else \"?\"\n"
-     "        地址 = \"{}{}timestamp={}&sign={}\".format(地址, 连接符, 时间戳, 签名)\n"
-     "    报文 = json.dumps({\"msgtype\": \"text\", \"text\": {\"content\": str(内容)}}).encode(\"utf-8\")\n"
-     "    请求 = urllib.request.Request(地址, data=报文, headers={\"Content-Type\": \"application/json\"})\n"
-     "    try:\n"
-     "        with urllib.request.urlopen(请求, timeout=10) as 响应:\n"
-     "            响应.read()\n"
-     "        return True\n"
-     "    except Exception:\n"
-     "        return False\n"
-     "\n"
-     "\n"
-     "def 发送企业微信(webhook, 内容=\"\"):\n"
-     "    \"\"\"给企业微信群机器人推一条文本；webhook 就是带 key 的完整地址。\"\"\"\n"
-     "    地址 = str(webhook).strip()\n"
-     "    if not 地址:\n"
-     "        return False\n"
-     "    报文 = json.dumps({\"msgtype\": \"text\", \"text\": {\"content\": str(内容)}}).encode(\"utf-8\")\n"
-     "    请求 = urllib.request.Request(地址, data=报文, headers={\"Content-Type\": \"application/json\"})\n"
-     "    try:\n"
-     "        with urllib.request.urlopen(请求, timeout=10) as 响应:\n"
-     "            响应.read()\n"
-     "        return True\n"
-     "    except Exception:\n"
-     "        return False\n"
-     "\n"
-     "\n"];
 
     [out appendString:@"轮数 = 0\n"];
     [out appendString:@"while True:\n"];
@@ -1045,10 +961,27 @@ static NSString *fwSimValue(id value)
         NSInteger w = labs(right - left), h = labs(bottom - top);
         condition = [NSString stringWithFormat:@"找色(%ld, %ld, %ld, %ld, \"%@\", %@)",
                      (long)x, (long)y, (long)MAX(w, 1), (long)MAX(h, 1), color, tolerance];
+    } else if ([kind isEqualToString:kFlowCountColor]) {
+        NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
+        NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
+        NSInteger x = MIN(left, right), y = MIN(top, bottom);
+        NSInteger w = labs(right - left), h = labs(bottom - top);
+        NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"atLeast";
+        NSString *want = [self textForValue:step[@"Count"]];
+        if (want.length == 0) want = @"0";
+        condition = [NSString stringWithFormat:@"(数色(%ld, %ld, %ld, %ld, \"%@\", %@) %@ %@)",
+                     (long)x, (long)y, (long)MAX(w, 1), (long)MAX(h, 1), color, tolerance,
+                     [mode isEqualToString:@"atMost"] ? @"<=" : @">=",
+                     want];
     } else if ([kind isEqualToString:kFlowImage]) {
         NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
         NSString *path = [kFlowTemplateFolder stringByAppendingPathComponent:name.length ? name : @"未框选.png"];
-        condition = [NSString stringWithFormat:@"找图(\"%@\", %@)", path, [self textForValue:step[@"Threshold"]]];
+        NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
+        NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
+        NSInteger x = MIN(left, right), y = MIN(top, bottom);
+        NSInteger w = labs(right - left), h = labs(bottom - top);
+        condition = [NSString stringWithFormat:@"找图(\"%@\", %@, %ld, %ld, %ld, %ld)",
+                     path, [self textForValue:step[@"Threshold"]], (long)x, (long)y, (long)w, (long)h];
     } else if ([kind isEqualToString:kFlowOCR]) {
         NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
         NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];

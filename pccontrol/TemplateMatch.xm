@@ -286,6 +286,17 @@ static float nccScoreFast(const float *img, size_t imgW,
     size_t bestTW = tmplW;
     size_t bestTH = tmplH;
 
+    size_t xMin = 0;
+    size_t yMin = 0;
+    size_t xMax = imgW;
+    size_t yMax = imgH;
+    if (_searchRegion.size.width > 0 && _searchRegion.size.height > 0) {
+        xMin = (size_t)MAX(0, _searchRegion.origin.x);
+        yMin = (size_t)MAX(0, _searchRegion.origin.y);
+        xMax = MIN(imgW, (size_t)(_searchRegion.origin.x + _searchRegion.size.width));
+        yMax = MIN(imgH, (size_t)(_searchRegion.origin.y + _searchRegion.size.height));
+    }
+
     NSMutableArray *scales = [NSMutableArray array];
     [scales addObject:@(1.0f)];
     for (int i = 0; i < _maxTryTimes; i++) {
@@ -297,7 +308,7 @@ static float nccScoreFast(const float *img, size_t imgW,
         float scale = scaleNum.floatValue;
         size_t tw = (size_t)llround((double)tmplW * scale);
         size_t th = (size_t)llround((double)tmplH * scale);
-        if (tw < 2 || th < 2 || tw >= imgW || th >= imgH) continue;
+        if (tw < 2 || th < 2 || tw > xMax - xMin || th > yMax - yMin) continue;
 
         float *tmplScaled = NULL;
         if (fabsf(scale - 1.0f) < 0.0001f) {
@@ -316,8 +327,8 @@ static float nccScoreFast(const float *img, size_t imgW,
         }
 
         size_t step = MAX((size_t)1, MIN(tw, th) / 8);
-        for (size_t y = 0; y + th <= imgH; y += step) {
-            for (size_t x = 0; x + tw <= imgW; x += step) {
+        for (size_t y = yMin; y + th <= yMax; y += step) {
+            for (size_t x = xMin; x + tw <= xMax; x += step) {
                 float score = nccScoreFast(imgGray, imgW, integral, sqIntegral, tmplCentered, tmplNorm, tw, th, x, y);
                 if (score > bestScore) {
                     bestScore = score;
@@ -338,14 +349,14 @@ static float nccScoreFast(const float *img, size_t imgW,
     // 而模板去掉均值后常常只剩尖锐边缘（平滑图标 + 纯色底），NCC 峰值极窄：
     // 实测同一张图，step=14 只能扫到 0.583，真峰在 0.9998。所以必须无条件精修一遍，
     // 不能像以前那样「分数够高才精修」——那恰好是最需要精修的时候把它跳过了。
-    if (bestTW <= imgW && bestTH <= imgH) {
+    if (bestTW > 0 && bestTH > 0) {
         size_t refineStep = MAX((size_t)1, MIN(bestTW, bestTH) / 8);
         size_t bx = (size_t)best.origin.x;
         size_t by = (size_t)best.origin.y;
-        size_t rx = (bx > refineStep) ? bx - refineStep : 0;
-        size_t ry = (by > refineStep) ? by - refineStep : 0;
-        size_t rxMax = MIN(bx + refineStep, imgW - bestTW);
-        size_t ryMax = MIN(by + refineStep, imgH - bestTH);
+        size_t rx = (bx > refineStep) ? MAX(bx - refineStep, xMin) : xMin;
+        size_t ry = (by > refineStep) ? MAX(by - refineStep, yMin) : yMin;
+        size_t rxMax = MIN(bx + refineStep, xMax - bestTW);
+        size_t ryMax = MIN(by + refineStep, yMax - bestTH);
 
         float *tmplRefine = (bestTW == tmplW && bestTH == tmplH) ? tmplGray : resizeGrayToFloat(tpl.gray, tmplW, tmplH, bestTW, bestTH);
         float tmplNorm = 0.0f;

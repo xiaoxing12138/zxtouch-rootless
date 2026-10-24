@@ -12,6 +12,7 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error);
 
 }
 + (NSString*)searchRGBFromBuffer:(const UInt8 *)buffer stride:(int)stride region:(CGRect)region redMin:(int)redMin redMax:(int)redMax greenMin:(int)greenMin greenMax:(int)greenMax blueMin:(int)blueMin blueMax:(int)blueMax skip:(int)skip;
++ (long long)countRGBFromBuffer:(const UInt8 *)buffer stride:(int)stride region:(CGRect)region redMin:(int)redMin redMax:(int)redMax greenMin:(int)greenMin greenMax:(int)greenMax blueMin:(int)blueMin blueMax:(int)blueMax skip:(int)skip;
 + (NSDictionary *)colorAtPositionFromBuffer:(const UInt8 *)buffer stride:(int)stride x:(int)x andY:(int)y;
 
 @end

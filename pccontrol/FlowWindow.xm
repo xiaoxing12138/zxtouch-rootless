@@ -111,6 +111,7 @@ static UIColor *fwTypeColor(NSString *kind)
     if ([kind isEqualToString:kFlowToast])     return fwColor(0x0E9F8A, 0x2ED3B7);
     if ([kind isEqualToString:kFlowColor])     return fwColor(0xD9551F, 0xFF8F5E);
     if ([kind isEqualToString:kFlowFindColor]) return fwColor(0xC22E7A, 0xF0559B);
+    if ([kind isEqualToString:kFlowCountColor]) return fwColor(0x8A4B00, 0xD08A2E);
     if ([kind isEqualToString:kFlowImage])     return fwColor(0x1B8F49, 0x35C46B);
     if ([kind isEqualToString:kFlowOCR])       return fwColor(0x0E7490, 0x2AA6C4);
     if ([kind isEqualToString:kFlowAppSwitch])  return fwColor(0x3F51B5, 0x7C8CF8);
@@ -175,9 +176,15 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
         @{ @"title": @"区域", @"keys": @[ @"X1", @"Y1", @"X2", @"Y2" ] },
         @{ @"title": @"颜色", @"keys": @[ @"Color", @"Tolerance" ] },
     ];
+    if ([kind isEqualToString:kFlowCountColor]) return @[
+        @{ @"title": @"区域", @"keys": @[ @"X1", @"Y1", @"X2", @"Y2" ] },
+        @{ @"title": @"颜色", @"keys": @[ @"Color", @"Tolerance" ] },
+        @{ @"title": @"数量", @"keys": @[ @"Count", @"Mode" ] },
+    ];
     if ([kind isEqualToString:kFlowImage]) return @[
         @{ @"title": @"模板", @"keys": @[ @"Template" ] },
         @{ @"title": @"匹配", @"keys": @[ @"Threshold" ] },
+        @{ @"title": @"搜索区域（全 0 表示整屏）", @"keys": @[ @"X1", @"Y1", @"X2", @"Y2" ] },
     ];
     if ([kind isEqualToString:kFlowOCR]) return @[
         @{ @"title": @"区域", @"keys": @[ @"X1", @"Y1", @"X2", @"Y2" ] },
@@ -2422,13 +2429,49 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                 }
             }
         }
+    } else if ([kind isEqualToString:kFlowCountColor]) {
+        NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
+        NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
+        NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
+        NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
+        NSInteger x = MIN(left, right), y = MIN(top, bottom);
+        NSInteger w = MAX(labs(right - left), 1), h = MAX(labs(bottom - top), 1);
+        int tr = 0, tg = 0, tb = 0;
+        int tolerance = (int)MAX(fwStepNumber(step, @"Tolerance", 10), 0);
+        if (!fwParseHexColor(step[@"Color"], &tr, &tg, &tb)) {
+            result = @"颜色填错了（应为 6 位十六进制，如 FF8800）";
+        } else {
+            NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"atLeast";
+            long long want = (long long)llround(fwStepNumber(step, @"Count", 0));
+            NSMutableData *keep = nil;
+            UInt8 *raw = fwRawBuffer([NSString stringWithFormat:@"2;;%ld;;%ld;;%ld;;%ld;;%d;;%d;;%d;;%d;;%d;;%d;;1",
+                                      (long)x, (long)y, (long)w, (long)h,
+                                      MAX(tr - tolerance, 0), MIN(tr + tolerance, 255),
+                                      MAX(tg - tolerance, 0), MIN(tg + tolerance, 255),
+                                      MAX(tb - tolerance, 0), MIN(tb + tolerance, 255)], &keep);
+            NSString *answer = searchRGBFromRawData(raw, &error);
+            if (error) {
+                result = error.localizedDescription;
+            } else {
+                long long count = [answer longLongValue];
+                BOOL atMost = [mode isEqualToString:@"atMost"];
+                BOOL hit = atMost ? (count <= want) : (count >= want);
+                result = [NSString stringWithFormat:@"区域里 #%02X%02X%02X（±%d）的像素 %lld 个，要求%@ %lld → %@",
+                          tr, tg, tb, tolerance, count, atMost ? @"至多" : @"至少", want, hit ? @"成立 ✓" : @"不成立 ✗"];
+            }
+        }
     } else if ([kind isEqualToString:kFlowImage]) {
         NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
         NSString *path = [kFlowTemplateFolder stringByAppendingPathComponent:name.length ? name : @"未框选.png"];
         double threshold = fwStepNumber(step, @"Threshold", 0.8);
+        NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
+        NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
+        NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
+        NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
+        NSInteger x = MIN(left, right), y = MIN(top, bottom);
+        NSInteger w = labs(right - left), h = labs(bottom - top);
         NSMutableData *keep = nil;
-        UInt8 *raw = fwRawBuffer([NSString stringWithFormat:@"%@;;0;;%@;;0.8",
-                                  path, [FlowScript textForValue:@(threshold)]], &keep);
+        UInt8 *raw = fwRawBuffer([NSString stringWithFormat:@"%@;;0;;%@;;0.8;;%ld;;%ld;;%ld;;%ld", path, [FlowScript textForValue:@(threshold)], (long)x, (long)y, (long)w, (long)h], &keep);
         float best = 0;
         CGRect rect = screenMatchFromRawData(raw, &error, &best);
         if (error) {

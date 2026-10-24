@@ -8,7 +8,7 @@
 CGRect screenMatchFromRawData(UInt8 *eventData, NSError **error, float *outBestScore);
 
 @interface ScreenMatch : NSObject
-+ (CGRect)matchCurrentScreenWithTemplate:(NSString*)templatePath maxTryTimes:(int)mtt acceptableValue:(float)av scaleRation:(float)sr error:(NSError**)err bestScore:(float*)outBestScore;
++ (CGRect)matchCurrentScreenWithTemplate:(NSString*)templatePath maxTryTimes:(int)mtt acceptableValue:(float)av scaleRation:(float)sr searchRect:(CGRect)searchRect error:(NSError**)err bestScore:(float*)outBestScore;
 @end
 
 #endif

@@ -4,6 +4,7 @@
 #import <mach/mach.h>
 
 #define COLOR_SEARCHER_SEARCH_SINGLE_POINT 1
+#define COLOR_SEARCHER_COUNT 2
 
 NSDictionary* getRGBFromRawData(UInt8 *eventData, NSError **error)
 {
@@ -41,7 +42,7 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
     
     int searchType = [data[0] intValue];
     
-    if (searchType == COLOR_SEARCHER_SEARCH_SINGLE_POINT)
+    if (searchType == COLOR_SEARCHER_SEARCH_SINGLE_POINT || searchType == COLOR_SEARCHER_COUNT)
     {
         
         if ([data count] < 12)
@@ -120,6 +121,12 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
             height = screenHeight - y;
         }
     
+        if (searchType == COLOR_SEARCHER_COUNT)
+        {
+            long long count = [ColorPicker countRGBFromBuffer:buffer stride:stride region:CGRectMake(x, y, width, height) redMin:redMin redMax:redMax greenMin:greenMin greenMax:greenMax blueMin:blueMin blueMax:blueMax skip:skip];
+            return [NSString stringWithFormat:@"%lld", count];
+        }
+
         NSString *result = [ColorPicker searchRGBFromBuffer:buffer stride:stride region:CGRectMake(x, y, width, height) redMin:redMin redMax:redMax greenMin:greenMin greenMax:greenMax blueMin:blueMin blueMax:blueMax skip:skip];
 
         // 命中的坐标是竖屏原始帧坐标，换回触摸指示器坐标，脚本拿到就能直接点（与点这里同一套坐标）
@@ -231,6 +238,34 @@ NSString* searchRGBFromRawData(UInt8 *eventData, NSError **error)
     return @"-1;;-1;;-1;;-1;;-1";
 }
 
++ (long long)countRGBFromBuffer:(const UInt8 *)buffer stride:(int)stride region:(CGRect)region redMin:(int)redMin redMax:(int)redMax greenMin:(int)greenMin greenMax:(int)greenMax blueMin:(int)blueMin blueMax:(int)blueMax skip:(int)skip {
+    int x = region.origin.x;
+    int y = region.origin.y;
+
+    int width = region.size.width;
+    int height = region.size.height;
+
+    long long count = 0;
+
+    for (int currentY = 0; currentY < height; currentY += skip + 1)
+    {
+        const UInt8 *row = buffer + (size_t)(y + currentY) * stride + (size_t)x * 4;
+        for (int currentX = 0; currentX < width; currentX += skip + 1)
+        {
+            const UInt8 *pixel = row + (size_t)currentX * 4;
+            unsigned char blue = pixel[0];
+            unsigned char green = pixel[1];
+            unsigned char red = pixel[2];
+
+            if (red >= redMin && red <= redMax && green >= greenMin && green <= greenMax && blue >= blueMin && blue <= blueMax)
+            {
+                count++;
+            }
+        }
+    }
+
+    return count;
+}
 
 
 

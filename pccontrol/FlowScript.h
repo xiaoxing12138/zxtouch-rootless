@@ -26,6 +26,7 @@ extern NSString * const kFlowWait;       // 等待
 extern NSString * const kFlowToast;      // 提示
 extern NSString * const kFlowColor;      // 识色（条件）
 extern NSString * const kFlowFindColor;  // 找色（条件）
+extern NSString * const kFlowCountColor; // 数色（条件）
 extern NSString * const kFlowImage;      // 识图（条件）
 extern NSString * const kFlowOCR;        // 识字（条件）
 extern NSString * const kFlowAppSwitch;  // 开关 App（打开 / 关闭）

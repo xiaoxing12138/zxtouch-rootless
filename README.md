@@ -339,7 +339,7 @@ def run_shell_command(command):
 ## 图像匹配
 
 ```python
-def image_match(template_path, acceptable_value=0.8, max_try_times=2, scaleRation=0.8):
+def image_match(template_path, acceptable_value=0.8, max_try_times=2, scaleRation=0.8, region=(0, 0, 0, 0)):
     """使用归一化互相关在屏幕上匹配模板图片
 
 	参数：
@@ -347,6 +347,7 @@ def image_match(template_path, acceptable_value=0.8, max_try_times=2, scaleRatio
     	acceptable_value: 相似度阈值（0-1）
     	scaleRation: 每次重试的缩放系数
     	max_try_times: 最多尝试的缩放版本数量
+    	region: 搜索区域 (x, y, 宽, 高)，宽或高为 0 表示整屏
 
     返回：
         结果元组。成功时 result[1] 为字典：{"x", "y", "width", "height"}

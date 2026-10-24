@@ -301,20 +301,22 @@ class zxtouch:
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_PLAY_SCRIPT_FORCE_STOP))
         return self._recv_response()
 
-    def image_match(self, template_path, acceptable_value=0.8, max_try_times=2, scaleRation=0.8):
+    def image_match(self, template_path, acceptable_value=0.8, max_try_times=2, scaleRation=0.8, region=(0, 0, 0, 0)):
         """Get the coordinate of a image
 
         :param template_path: template path on your ios device
         :param acceptable_value: for a successful match, the acceptable value
         :param max_try_times: how many times you want to try with different size of the template
         :param scaleRation: for each time you try, what the template size should be
+        :param region: (x, y, width, height) search region, width or height 0 means the whole screen
 
         :return: Result tuple: (success?, error_message/return value)
                  success 时返回的字典除 x/y/width/height 外，还含 "score"（本次扫到的最高匹配分）
                  失败时 error_message 里也已经带了「最高得分：x.xxx，要求得分：x.xxx」
         """
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_TEMPLATE_MATCH, template_path, max_try_times,
-                                                   acceptable_value, scaleRation))
+                                                   acceptable_value, scaleRation,
+                                                   region[0], region[1], region[2], region[3]))
         result = self._recv_response()
         if not result[0]:
             return False, result[1]
@@ -379,6 +381,33 @@ class zxtouch:
             return False, result[1]
 
         return True, {"x": result[1][0], "y": result[1][1], "red": result[1][2], "green": result[1][3], "blue": result[1][4]}
+
+    def count_color(self, region, red_min, red_max, green_min, green_max, blue_min, blue_max, pixel_to_skip = 0):
+        """Count pixels inside a region that fall into the given RGB range
+
+        Args:
+            region: a tuple containing start_x, start_y, width, height of the region to search. Format: (x, y, width, height)
+            red_min: min value of the red color of the point to count.
+            red_max: max value of the red color of the point to count.
+            green_min: min value of the green color of the point to count.
+            green_max: max value of the green color of the point to count.
+            blue_min: min value of the blue color of the point to count.
+            blue_max: max value of the blue color of the point to count.
+            pixel_to_skip: how many pixel to skip when counting.
+
+        Returns:
+            Result tuple: (success?, error_message/pixel count)
+        """
+        if len(region) != 4:
+            raise RuntimeError("The format of the region should be (x, y, width, height)")
+            return
+
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_COLOR_SEARCHER, colorsearchtasktypes.SEARCH_RGB_COUNT, region[0], region[1], region[2], region[3], red_min, red_max, green_min, green_max, blue_min, blue_max, pixel_to_skip))
+        result = self._recv_response()
+        if not result[0]:
+            return False, result[1]
+
+        return True, int(result[1][0])
 
 
 

@@ -75,151 +75,6 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 @interface ZXClickTestViewController : UIViewController
 @end
 
-#pragma mark - Python 依赖检测结果浮窗（加宽 / 居左 / 结论置顶 / 不显示长路径）
-
-@interface ZXPythonCheckPanel : UIViewController
-@property (nonatomic, copy) NSString *fullReport;
-- (void)setVerdict:(NSString *)verdict usable:(BOOL)usable;
-- (void)setBodyText:(NSString *)body;
-@end
-
-@implementation ZXPythonCheckPanel
-{
-    UIView *_card;
-    UILabel *_titleLabel;
-    UILabel *_verdictLabel;
-    UIScrollView *_scroll;
-    UILabel *_bodyLabel;
-    UIButton *_copyButton;
-    UIButton *_closeButton;
-}
-
-- (instancetype)init {
-    self = [super init];
-    if (self) {
-        self.modalPresentationStyle = UIModalPresentationOverFullScreen;
-        self.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
-    }
-    return self;
-}
-
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.view.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.5];
-
-    _card = [[UIView alloc] initWithFrame:CGRectZero];
-    _card.backgroundColor = [UIColor colorWithRed:0.10 green:0.11 blue:0.14 alpha:1.0];
-    _card.layer.cornerRadius = 14.0;
-    _card.layer.masksToBounds = YES;
-    [self.view addSubview:_card];
-
-    _titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    _titleLabel.text = @"Python 依赖检测";
-    _titleLabel.font = [UIFont boldSystemFontOfSize:18];
-    _titleLabel.textColor = [UIColor whiteColor];
-    _titleLabel.textAlignment = NSTextAlignmentLeft;
-    [_card addSubview:_titleLabel];
-
-    _verdictLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    _verdictLabel.text = @"正在检测…";
-    _verdictLabel.font = [UIFont boldSystemFontOfSize:17];
-    _verdictLabel.textColor = [UIColor colorWithRed:1.0 green:0.78 blue:0.25 alpha:1.0];
-    _verdictLabel.numberOfLines = 0;
-    _verdictLabel.textAlignment = NSTextAlignmentLeft;
-    [_card addSubview:_verdictLabel];
-
-    _scroll = [[UIScrollView alloc] initWithFrame:CGRectZero];
-    _scroll.showsVerticalScrollIndicator = YES;
-    _scroll.alwaysBounceVertical = YES;
-    [_card addSubview:_scroll];
-
-    _bodyLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    _bodyLabel.text = @"正在连接 SpringBoard 进程，请稍候…";
-    _bodyLabel.font = [UIFont fontWithName:@"Menlo" size:12.5] ?: [UIFont systemFontOfSize:12.5];
-    _bodyLabel.textColor = [UIColor colorWithWhite:0.93 alpha:1.0];
-    _bodyLabel.numberOfLines = 0;
-    _bodyLabel.textAlignment = NSTextAlignmentLeft;
-    [_scroll addSubview:_bodyLabel];
-
-    _copyButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_copyButton setTitle:@"复制完整结果" forState:UIControlStateNormal];
-    [_copyButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    _copyButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
-    _copyButton.backgroundColor = [UIColor colorWithRed:0.10 green:0.52 blue:0.82 alpha:1.0];
-    _copyButton.layer.cornerRadius = 9.0;
-    _copyButton.layer.masksToBounds = YES;
-    [_copyButton addTarget:self action:@selector(copyTapped) forControlEvents:UIControlEventTouchUpInside];
-    [_card addSubview:_copyButton];
-
-    _closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_closeButton setTitle:@"关闭" forState:UIControlStateNormal];
-    [_closeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    _closeButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
-    _closeButton.backgroundColor = [UIColor colorWithWhite:0.24 alpha:1.0];
-    _closeButton.layer.cornerRadius = 9.0;
-    _closeButton.layer.masksToBounds = YES;
-    [_closeButton addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
-    [_card addSubview:_closeButton];
-}
-
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    CGSize vs = self.view.bounds.size;
-    CGFloat cardW = MIN(vs.width - 28.0, 680.0);
-    CGFloat cardH = MIN(vs.height - 56.0, 900.0);
-    _card.frame = CGRectMake((vs.width - cardW) / 2.0, (vs.height - cardH) / 2.0, cardW, cardH);
-
-    CGFloat pad = 20.0;
-    CGFloat w = cardW - pad * 2.0;
-    CGFloat cy = pad;
-
-    _titleLabel.frame = CGRectMake(pad, cy, w, 24.0);
-    cy += 30.0;
-
-    CGSize verdictSize = [_verdictLabel sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)];
-    _verdictLabel.frame = CGRectMake(pad, cy, w, ceil(verdictSize.height));
-    cy += ceil(verdictSize.height) + 12.0;
-
-    CGFloat btnH = 40.0;
-    CGFloat btnBottom = cardH - pad - btnH;
-    _closeButton.frame = CGRectMake(pad + w - 100.0, btnBottom, 100.0, btnH);
-    _copyButton.frame = CGRectMake(pad + w - 100.0 - 10.0 - 150.0, btnBottom, 150.0, btnH);
-
-    CGFloat scrollH = MAX(btnBottom - 12.0 - cy, 60.0);
-    _scroll.frame = CGRectMake(pad, cy, w, scrollH);
-    CGSize bodySize = [_bodyLabel sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)];
-    _bodyLabel.frame = CGRectMake(0.0, 0.0, w, ceil(bodySize.height));
-    _scroll.contentSize = CGSizeMake(w, ceil(bodySize.height) + 2.0);
-}
-
-- (void)setVerdict:(NSString *)verdict usable:(BOOL)usable {
-    _verdictLabel.text = verdict;
-    _verdictLabel.textColor = usable
-        ? [UIColor colorWithRed:0.20 green:0.85 blue:0.40 alpha:1.0]
-        : [UIColor colorWithRed:1.0 green:0.32 blue:0.28 alpha:1.0];
-    [_verdictLabel setNeedsLayout];
-    [self.view setNeedsLayout];
-}
-
-- (void)setBodyText:(NSString *)body {
-    _bodyLabel.text = body;
-    [_bodyLabel setNeedsLayout];
-    [self.view setNeedsLayout];
-}
-
-- (void)copyTapped {
-    NSString *text = _fullReport.length > 0 ? _fullReport : _bodyLabel.text;
-    [UIPasteboard generalPasteboard].string = text ?: @"";
-    [_copyButton setTitle:@"已复制 ✓" forState:UIControlStateNormal];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self->_copyButton setTitle:@"复制完整结果" forState:UIControlStateNormal];
-    });
-}
-
-- (void)closeTapped {
-    [self dismissViewControllerAnimated:YES completion:nil];
-}
-@end
 @implementation SettingsPageViewController
 {
     NSArray *sections;
@@ -837,6 +692,151 @@ static NSString *ZXExitText(id value) {
     return [NSString stringWithFormat:@"%@", value];
 }
 
+#pragma mark - Python 依赖检测结果浮窗（加宽 / 居左 / 结论置顶 / 不显示长路径）
+
+@interface ZXPythonCheckPanel : UIViewController
+@property (nonatomic, copy) NSString *fullReport;
+- (void)setVerdict:(NSString *)verdict usable:(BOOL)usable;
+- (void)setBodyText:(NSString *)body;
+@end
+
+@implementation ZXPythonCheckPanel
+{
+    UIView *_card;
+    UILabel *_titleLabel;
+    UILabel *_verdictLabel;
+    UIScrollView *_scroll;
+    UILabel *_bodyLabel;
+    UIButton *_copyButton;
+    UIButton *_closeButton;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        self.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        self.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+    }
+    return self;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.5];
+
+    _card = [[UIView alloc] initWithFrame:CGRectZero];
+    _card.backgroundColor = [UIColor colorWithRed:0.10 green:0.11 blue:0.14 alpha:1.0];
+    _card.layer.cornerRadius = 14.0;
+    _card.layer.masksToBounds = YES;
+    [self.view addSubview:_card];
+
+    _titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    _titleLabel.text = @"Python 依赖检测";
+    _titleLabel.font = [UIFont boldSystemFontOfSize:18];
+    _titleLabel.textColor = [UIColor whiteColor];
+    _titleLabel.textAlignment = NSTextAlignmentLeft;
+    [_card addSubview:_titleLabel];
+
+    _verdictLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    _verdictLabel.text = @"正在检测…";
+    _verdictLabel.font = [UIFont boldSystemFontOfSize:17];
+    _verdictLabel.textColor = [UIColor colorWithRed:1.0 green:0.78 blue:0.25 alpha:1.0];
+    _verdictLabel.numberOfLines = 0;
+    _verdictLabel.textAlignment = NSTextAlignmentLeft;
+    [_card addSubview:_verdictLabel];
+
+    _scroll = [[UIScrollView alloc] initWithFrame:CGRectZero];
+    _scroll.showsVerticalScrollIndicator = YES;
+    _scroll.alwaysBounceVertical = YES;
+    [_card addSubview:_scroll];
+
+    _bodyLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    _bodyLabel.text = @"正在连接 SpringBoard 进程，请稍候…";
+    _bodyLabel.font = [UIFont fontWithName:@"Menlo" size:12.5] ?: [UIFont systemFontOfSize:12.5];
+    _bodyLabel.textColor = [UIColor colorWithWhite:0.93 alpha:1.0];
+    _bodyLabel.numberOfLines = 0;
+    _bodyLabel.textAlignment = NSTextAlignmentLeft;
+    [_scroll addSubview:_bodyLabel];
+
+    _copyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_copyButton setTitle:@"复制完整结果" forState:UIControlStateNormal];
+    [_copyButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    _copyButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    _copyButton.backgroundColor = [UIColor colorWithRed:0.10 green:0.52 blue:0.82 alpha:1.0];
+    _copyButton.layer.cornerRadius = 9.0;
+    _copyButton.layer.masksToBounds = YES;
+    [_copyButton addTarget:self action:@selector(copyTapped) forControlEvents:UIControlEventTouchUpInside];
+    [_card addSubview:_copyButton];
+
+    _closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_closeButton setTitle:@"关闭" forState:UIControlStateNormal];
+    [_closeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    _closeButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    _closeButton.backgroundColor = [UIColor colorWithWhite:0.24 alpha:1.0];
+    _closeButton.layer.cornerRadius = 9.0;
+    _closeButton.layer.masksToBounds = YES;
+    [_closeButton addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
+    [_card addSubview:_closeButton];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    CGSize vs = self.view.bounds.size;
+    CGFloat cardW = MIN(vs.width - 28.0, 680.0);
+    CGFloat cardH = MIN(vs.height - 56.0, 900.0);
+    _card.frame = CGRectMake((vs.width - cardW) / 2.0, (vs.height - cardH) / 2.0, cardW, cardH);
+
+    CGFloat pad = 20.0;
+    CGFloat w = cardW - pad * 2.0;
+    CGFloat cy = pad;
+
+    _titleLabel.frame = CGRectMake(pad, cy, w, 24.0);
+    cy += 30.0;
+
+    CGSize verdictSize = [_verdictLabel sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)];
+    _verdictLabel.frame = CGRectMake(pad, cy, w, ceil(verdictSize.height));
+    cy += ceil(verdictSize.height) + 12.0;
+
+    CGFloat btnH = 40.0;
+    CGFloat btnBottom = cardH - pad - btnH;
+    _closeButton.frame = CGRectMake(pad + w - 100.0, btnBottom, 100.0, btnH);
+    _copyButton.frame = CGRectMake(pad + w - 100.0 - 10.0 - 150.0, btnBottom, 150.0, btnH);
+
+    CGFloat scrollH = MAX(btnBottom - 12.0 - cy, 60.0);
+    _scroll.frame = CGRectMake(pad, cy, w, scrollH);
+    CGSize bodySize = [_bodyLabel sizeThatFits:CGSizeMake(w, CGFLOAT_MAX)];
+    _bodyLabel.frame = CGRectMake(0.0, 0.0, w, ceil(bodySize.height));
+    _scroll.contentSize = CGSizeMake(w, ceil(bodySize.height) + 2.0);
+}
+
+- (void)setVerdict:(NSString *)verdict usable:(BOOL)usable {
+    _verdictLabel.text = verdict;
+    _verdictLabel.textColor = usable
+        ? [UIColor colorWithRed:0.20 green:0.85 blue:0.40 alpha:1.0]
+        : [UIColor colorWithRed:1.0 green:0.32 blue:0.28 alpha:1.0];
+    [_verdictLabel setNeedsLayout];
+    [self.view setNeedsLayout];
+}
+
+- (void)setBodyText:(NSString *)body {
+    _bodyLabel.text = body;
+    [_bodyLabel setNeedsLayout];
+    [self.view setNeedsLayout];
+}
+
+- (void)copyTapped {
+    NSString *text = _fullReport.length > 0 ? _fullReport : _bodyLabel.text;
+    [UIPasteboard generalPasteboard].string = text ?: @"";
+    [_copyButton setTitle:@"已复制 ✓" forState:UIControlStateNormal];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self->_copyButton setTitle:@"复制完整结果" forState:UIControlStateNormal];
+    });
+}
+
+- (void)closeTapped {
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+@end
 
 - (void)handlePythonCheckTap:(TableViewCellWithEntry*)cell {
     ZXPythonCheckPanel *panel = [[ZXPythonCheckPanel alloc] init];
