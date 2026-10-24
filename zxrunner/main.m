@@ -213,7 +213,7 @@ static int handle_ocr(int client, NSDictionary *cmd)
 
     NSMutableString *result = [NSMutableString string];
     for (VNRecognizedTextObservation *obs in req.results) {
-        VNRecognizedText *text = obs.topCandidates(1).firstObject;
+        VNRecognizedText *text = [[obs topCandidates:1] firstObject];
         if (text.string.length > 0) {
             [result appendFormat:@"%@,,%f,,%f\n", text.string, obs.boundingBox.origin.x, obs.boundingBox.origin.y];
         }
