@@ -1828,6 +1828,24 @@ void ZXWeChatSendRun(NSString *recipient, NSString *text)
         if (!intent) return;
 
         ZXWeChatLog(@"connecting\n", NO);
+        @try {
+            Class mgrCls = NSClassFromString(@"INCExtensionPlugInBundleManager");
+            SEL sharedSel = NSSelectorFromString(@"sharedManager");
+            id mgr = (mgrCls && [mgrCls respondsToSelector:sharedSel])
+                ? ((id (*)(id, SEL))objc_msgSend)(mgrCls, sharedSel) : nil;
+            BOOL prewarmed = NO;
+            BOOL loaded = NO;
+            if (mgr && [mgr respondsToSelector:NSSelectorFromString(@"loadBundleForBundleIdentifier:wasPrewarmed:")]) {
+                loaded = ((BOOL (*)(id, SEL, id, BOOL *))objc_msgSend)(mgr,
+                    NSSelectorFromString(@"loadBundleForBundleIdentifier:wasPrewarmed:"),
+                    @"com.tencent.xin.siriextension", &prewarmed);
+            }
+            ZXWeChatLog([NSString stringWithFormat:@"pluginManager=%@ loaded=%d\n",
+                         mgr ? NSStringFromClass([mgr class]) : @"nil", loaded], NO);
+        }
+        @catch (NSException *ex) {
+            ZXWeChatLog([NSString stringWithFormat:@"pluginLoad=%@ %@\n", ex.name, ex.reason], NO);
+        }
         dispatch_semaphore_t proxySem = dispatch_semaphore_create(0);
         __block id extProxy = nil;
         SEL connSel2 = NSSelectorFromString(@"initWithIntent:remoteProxyProvider:");
@@ -1878,45 +1896,6 @@ void ZXWeChatSendRun(NSString *recipient, NSString *text)
         @catch (NSException *ex) {
             ZXWeChatLog([NSString stringWithFormat:@"introspect=%@ %@\n", ex.name, ex.reason], NO);
         }
-
-        SEL connSel3 = NSSelectorFromString(@"initWithIntent:supportedExtensionTypes:remoteProxyProvider:");
-        id sweepHit = nil;
-        NSArray *masks = @[@1, @2, @3, @7, @31, @0];
-        for (NSNumber *mask in masks) {
-            if (![connCls instancesRespondToSelector:connSel3]) break;
-            dispatch_semaphore_t sweepSem = dispatch_semaphore_create(0);
-            __block id sweepProxy = nil;
-            id c2 = ((id (*)(id, SEL, id, NSInteger, id))objc_msgSend)([connCls alloc], connSel3, intent,
-                (NSInteger)mask.integerValue,
-                ^(id proxy) {
-                    sweepProxy = proxy;
-                    dispatch_semaphore_signal(sweepSem);
-                });
-            dispatch_semaphore_t sweepResume = dispatch_semaphore_create(0);
-            __block NSError *sweepErr = nil;
-            ((void (*)(id, SEL, id))objc_msgSend)(c2, NSSelectorFromString(@"resumeWithCompletionHandler:"),
-                ^(NSError *err) {
-                    sweepErr = err;
-                    dispatch_semaphore_signal(sweepResume);
-                });
-            BOOL resumed = ZXWaitSemaphore(sweepResume, 8);
-            if (!sweepProxy) ZXWaitSemaphore(sweepSem, 6);
-            NSString *txnHost = @"?";
-            @try {
-                id t2 = [c2 valueForKey:@"_transaction"];
-                id r2 = t2 ? [t2 valueForKey:@"request"] : nil;
-                id h2 = r2 ? [r2 valueForKey:@"_extensionContextHost"] : nil;
-                txnHost = h2 ? NSStringFromClass([h2 class]) : @"nil";
-            }
-            @catch (NSException *ex) {}
-            ZXWeChatLog([NSString stringWithFormat:@"mask=%ld resumed=%d err=%@ proxy=%@ host=%@\n",
-                         (long)mask.integerValue, resumed,
-                         sweepErr ? sweepErr.localizedDescription : @"nil",
-                         sweepProxy ? NSStringFromClass([sweepProxy class]) : @"nil", txnHost], NO);
-            if (sweepProxy) { sweepHit = sweepProxy; break; }
-        }
-
-        if (sweepHit && !extProxy) extProxy = sweepHit;
 
         if (!extProxy && !ZXWaitSemaphore(proxySem, 10)) {
             ZXWeChatLog(@"proxy=timeout\n", NO);
