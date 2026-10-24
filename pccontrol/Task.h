@@ -66,6 +66,8 @@
 #define TASK_SET_WIFI 53
 // 54：后台截屏存进相册（无载荷）；返回 0;;<文件路径>
 #define TASK_SAVE_SCREENSHOT 54
+// 55：诊断微信快捷指令动作（临时）；返回 0;;<JSON>
+#define TASK_INTENT_PROBE 55
 
 #define TASK_UPDATE_CACHE 90
 

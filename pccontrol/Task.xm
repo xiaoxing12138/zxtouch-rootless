@@ -13,7 +13,8 @@
 #include "UIKeyboard.h"
 #include "DeviceInfo.h"
 #include "TouchIndicator/TouchIndicatorWindow.h"
-#import <mach/mach.h>
+#import <objc/runtime.h>
+#include <mach/mach.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -50,6 +51,124 @@ static int getTaskType(UInt8* dataArray)
 		taskType += (dataArray[i] - '0')*pow(10, 1-i);
 	}
 	return taskType;
+}
+
+static NSString *ZXIntentProbeJSON(void)
+{
+    NSMutableDictionary *out = [NSMutableDictionary dictionary];
+
+    void *link = dlopen("/System/Library/PrivateFrameworks/LinkServices.framework/LinkServices", RTLD_LAZY);
+    out[@"link"] = @(link != NULL);
+    if (!link) out[@"linkErr"] = @(strerror(errno));
+    void *wf = dlopen("/System/Library/PrivateFrameworks/WorkflowKit.framework/WorkflowKit", RTLD_LAZY);
+    out[@"workflow"] = @(wf != NULL);
+    void *ai = dlopen("/System/Library/Frameworks/AppIntents.framework/AppIntents", RTLD_LAZY);
+    out[@"appintents"] = @(ai != NULL);
+    out[@"sendMessageIntent"] = @(NSClassFromString(@"INSendMessageIntent") != NULL);
+
+    NSMutableArray *cls = [NSMutableArray array];
+    int total = objc_getClassList(NULL, 0);
+    if (total > 0) {
+        Class *all = (Class *)malloc(sizeof(Class) * total);
+        total = objc_getClassList(all, total);
+        for (int i = 0; i < total && cls.count < 400; i++) {
+            NSString *n = NSStringFromClass(all[i]);
+            if ([n hasPrefix:@"LN"] || [n hasPrefix:@"WFWorkflow"] ||
+                [n hasPrefix:@"WFShortcut"] || [n hasPrefix:@"WFBackground"]) [cls addObject:n];
+        }
+        free(all);
+    }
+    out[@"classes"] = cls;
+
+    Class provider = NSClassFromString(@"LNMetadataProvider");
+    out[@"provider"] = @(provider != NULL);
+    NSMutableArray *methods = [NSMutableArray array];
+    if (provider) {
+        unsigned int n = 0;
+        Method *ms = class_copyMethodList(provider, &n);
+        for (unsigned int i = 0; i < n; i++) [methods addObject:NSStringFromSelector(method_getName(ms[i]))];
+        free(ms);
+    }
+    out[@"providerMethods"] = methods;
+
+    id p = provider ? [[provider alloc] init] : nil;
+    NSArray *actions = nil;
+    NSError *queryError = nil;
+    SEL sel = NSSelectorFromString(@"actionsForBundleIdentifier:error:");
+    if (p && [p respondsToSelector:sel]) {
+        NSMethodSignature *sig = [p methodSignatureForSelector:sel];
+        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+        inv.target = p;
+        inv.selector = sel;
+        NSString *bid = @"com.tencent.xin";
+        [inv setArgument:&bid atIndex:2];
+        [inv setArgument:&queryError atIndex:3];
+        [inv invoke];
+        [inv getReturnValue:&actions];
+    }
+    out[@"queryError"] = queryError.localizedDescription ?: @"";
+
+    NSMutableArray *acts = [NSMutableArray array];
+    for (id a in actions) {
+        NSMutableDictionary *d = [NSMutableDictionary dictionary];
+        for (NSString *key in @[@"identifier", @"title", @"bundleIdentifier", @"actionIdentifier"]) {
+            @try {
+                id v = [a valueForKey:key];
+                if ([v isKindOfClass:[NSString class]] || [v isKindOfClass:[NSNumber class]]) d[key] = v;
+            } @catch (NSException *e) {}
+        }
+        @try {
+            id list = [a valueForKey:@"parameters"];
+            if ([list isKindOfClass:[NSArray class]]) {
+                NSMutableArray *params = [NSMutableArray array];
+                for (id pm in list) {
+                    NSMutableDictionary *pd = [NSMutableDictionary dictionary];
+                    for (NSString *key in @[@"key", @"title", @"name", @"valueType"]) {
+                        @try {
+                            id v = [pm valueForKey:key];
+                            if ([v isKindOfClass:[NSString class]] || [v isKindOfClass:[NSNumber class]]) pd[key] = v;
+                        } @catch (NSException *e) {}
+                    }
+                    if (pd.count > 0) [params addObject:pd];
+                }
+                if (params.count) d[@"parameters"] = params;
+            }
+        } @catch (NSException *e) {}
+        [acts addObject:d];
+    }
+    out[@"actions"] = acts;
+    out[@"actionCount"] = @(actions.count);
+
+    NSMutableArray *plugins = [NSMutableArray array];
+    NSString *appRoot = @"/var/containers/Bundle/Application";
+    for (NSString *sub in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:appRoot error:NULL]) {
+        NSString *dir = [appRoot stringByAppendingPathComponent:sub];
+        for (NSString *app in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:NULL]) {
+            if (![app hasSuffix:@".app"]) continue;
+            NSString *appPath = [dir stringByAppendingPathComponent:app];
+            NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:
+                                   [appPath stringByAppendingPathComponent:@"Info.plist"]];
+            if (![plist[@"CFBundleIdentifier"] isEqualToString:@"com.tencent.xin"]) continue;
+            out[@"wechatPath"] = appPath;
+            NSString *plug = [appPath stringByAppendingPathComponent:@"PlugIns"];
+            for (NSString *ex in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:plug error:NULL]) {
+                NSString *ext = [plug stringByAppendingPathComponent:ex];
+                NSDictionary *ep = [NSDictionary dictionaryWithContentsOfFile:
+                                    [ext stringByAppendingPathComponent:@"Info.plist"]];
+                id pts = ep[@"NSExtension"][@"NSExtensionPointIdentifier"];
+                [plugins addObject:[NSString stringWithFormat:@"%@ | %@", ex, pts ?: @""]];
+            }
+        }
+    }
+    out[@"wechatPlugins"] = plugins;
+
+    NSData *data = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
+    NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"{}";
+    [[NSFileManager defaultManager] createDirectoryAtPath:@"/var/mobile/Library/ZXTouch"
+                              withIntermediateDirectories:YES attributes:nil error:NULL];
+    [json writeToFile:@"/var/mobile/Library/ZXTouch/intent_probe.json" atomically:YES
+              encoding:NSUTF8StringEncoding error:NULL];
+    return json;
 }
 
 /**
@@ -1220,6 +1339,13 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             } else {
                 notifyClient((UInt8*)[[NSString stringWithFormat:@"-1;;%@\r\n", err.localizedDescription ?: @"截屏失败"] UTF8String], writeStreamRef);
             }
+        }
+    }
+    else if (taskType == TASK_INTENT_PROBE)
+    {
+        @autoreleasepool {
+            NSString *json = ZXIntentProbeJSON();
+            notifyClient((UInt8*)[[@"0;;" stringByAppendingString:json] UTF8String], writeStreamRef);
         }
     }
     else if (taskType == TASK_UPDATE_CACHE)

@@ -830,6 +830,16 @@ static FlowWindow *_fwShared = nil;
     }
 }
 
+// 取点 / 框选行只有一种样式（青绿底 + 描边 + 圆圈十字），模板框选与区域框选共用
+- (UIView *)makePickRowForStep:(NSDictionary *)step mode:(FlowPickMode)mode
+                       targets:(NSArray<NSString *> *)targets title:(NSString *)title
+                         width:(CGFloat)w action:(void (^)(void))action
+{
+    return [self makeActionRow:title
+                        detail:[self pickDetailForStep:step mode:mode targets:targets]
+                         color:ZXPalette(ZXPalAccent) primary:YES symbol:@"scope" width:w action:action];
+}
+
 - (void)applyPickResult:(NSDictionary *)result toStep:(NSMutableDictionary *)step mode:(FlowPickMode)mode
                targets:(NSArray<NSString *> *)targets {
     if (targets.count == 0) return;
@@ -2056,11 +2066,9 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
         }
 
         if (type.pickMode != FlowPickModeNone) {
-            UIView *pick = [strongSelf makeActionRow:type.pickActionTitle
-                                              detail:[strongSelf pickDetailForStep:step mode:type.pickMode
-                                                                           targets:type.pickTargets]
-                                               color:ZXPalette(ZXPalAccent) primary:YES symbol:@"scope" width:w
-                                              action:^{ [strongSelf beginPickingForStep:step type:type]; }];
+            UIView *pick = [strongSelf makePickRowForStep:step mode:type.pickMode targets:type.pickTargets
+                                                    title:type.pickActionTitle width:w
+                                                   action:^{ [strongSelf beginPickingForStep:step type:type]; }];
             if (type.pickMode == FlowPickModePoint || type.pickMode == FlowPickModeColor) {
                 strongSelf->_pickDragStep = step;
                 strongSelf->_pickDragType = type;
@@ -2080,11 +2088,9 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
             }
             if (showAlt) {
                 y += 2;
-                UIView *alt = [strongSelf makeActionRow:type.pickActionTitle2
-                                                 detail:[strongSelf pickDetailForStep:step mode:type.pickMode2
-                                                                              targets:type.pickTargets2]
-                                                  color:ZXPalette(ZXPalAccent) primary:NO symbol:@"rectangle.dashed" width:w
-                                                 action:^{
+                UIView *alt = [strongSelf makePickRowForStep:step mode:type.pickMode2 targets:type.pickTargets2
+                                                       title:type.pickActionTitle2 width:w
+                                                      action:^{
                     [strongSelf beginPickingForStep:step mode:type.pickMode2 targets:type.pickTargets2];
                 }];
                 y = [strongSelf subAddRow:alt y:y];
