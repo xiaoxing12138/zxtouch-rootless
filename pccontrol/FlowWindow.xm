@@ -145,6 +145,8 @@ static UIColor *fwTypeColor(NSString *kind)
     if ([kind isEqualToString:kFlowDingTalk])  return fwColor(0x1765AD, 0x4A90D9);
     if ([kind isEqualToString:kFlowWeCom])     return fwColor(0x0FA958, 0x4DD98A);
     if ([kind isEqualToString:kFlowWeChat])    return fwColor(0x1FAE1F, 0x5CE65C);
+    if ([kind isEqualToString:kFlowHttp])      return fwColor(0x1565C0, 0x64B5F6);
+    if ([kind isEqualToString:kFlowShell])     return fwColor(0x37474F, 0x8FA3AD);
     return fwColor(0x4C8DFF, 0x6EA8FF);
 }
 
@@ -242,6 +244,13 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
     if ([kind isEqualToString:kFlowWeCom]) return @[
         @{ @"title": @"接收", @"keys": @[ @"URL" ] },
         @{ @"title": @"内容", @"keys": @[ @"Text" ] },
+    ];
+    if ([kind isEqualToString:kFlowHttp]) return @[
+        @{ @"title": @"请求", @"keys": @[ @"Method", @"URL" ] },
+        @{ @"title": @"请求选项", @"keys": @[ @"Headers", @"Body", @"Timeout", @"SaveFile" ] },
+    ];
+    if ([kind isEqualToString:kFlowShell]) return @[
+        @{ @"title": @"命令", @"keys": @[ @"Command", @"Timeout" ] },
     ];
     return @[];
 }
@@ -2380,6 +2389,41 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             return;
         }
         ZXStepRunWait(0.3);
+    } else if ([kind isEqualToString:kFlowHttp]) {
+        NSString *method = [step[@"Method"] isKindOfClass:[NSString class]] ? step[@"Method"] : @"GET";
+        NSString *url = [step[@"URL"] isKindOfClass:[NSString class]] ? step[@"URL"] : @"";
+        NSString *headers = [step[@"Headers"] isKindOfClass:[NSString class]] ? step[@"Headers"] : @"";
+        NSString *body = [step[@"Body"] isKindOfClass:[NSString class]] ? step[@"Body"] : @"";
+        NSString *saveFile = [step[@"SaveFile"] isKindOfClass:[NSString class]] ? step[@"SaveFile"] : @"";
+        double timeout = MAX(fwStepNumber(step, @"Timeout", 10), 1);
+        NSString *text = nil;
+        NSError *error = nil;
+        NSInteger status = ZXHTTPRequest(method, url, headers, body, timeout, &text, &error);
+        if (error) {
+            showAlertBox(@"URL 请求", error.localizedDescription ?: @"请求失败。", 3);
+            return;
+        }
+        if (saveFile.length > 0) {
+            [text writeToFile:saveFile atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        }
+        showAlertBox(@"URL 请求", [NSString stringWithFormat:@"%@ %@\n返回 %ld", method, url, (long)status], 2);
+        return;
+    } else if ([kind isEqualToString:kFlowShell]) {
+        NSString *command = [step[@"Command"] isKindOfClass:[NSString class]] ? step[@"Command"] : @"";
+        double timeout = MAX(fwStepNumber(step, @"Timeout", 10), 1);
+        NSString *output = nil;
+        NSError *error = nil;
+        NSInteger code = ZXRunShell(command, timeout, &output, &error);
+        if (code != 0) {
+            NSString *msg = error.localizedDescription;
+            if (msg.length == 0) {
+                msg = output.length > 0 ? output : [NSString stringWithFormat:@"退出码 %ld", (long)code];
+            }
+            showAlertBox(@"执行命令", msg, 3);
+            return;
+        }
+        showAlertBox(@"执行命令", output.length > 0 ? output : @"执行完成（无输出）", 2);
+        return;
     } else if ([kind isEqualToString:kFlowRing]) {
         NSString *sound = [step[@"Sound"] isKindOfClass:[NSString class]] ? step[@"Sound"] : @"";
         double seconds = MAX(fwStepNumber(step, @"Seconds", 3), 0.5);

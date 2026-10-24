@@ -57,6 +57,8 @@ NSString * const kFlowSMS = @"sms";
 NSString * const kFlowDingTalk = @"dingtalk";
 NSString * const kFlowWeCom = @"wecom";
 NSString * const kFlowWeChat = @"wechat";
+NSString * const kFlowHttp = @"http";
+NSString * const kFlowShell = @"shell";
 
 // 分类固定顺序：触摸 → 判断条件 → 流程 → App 与输入 → 设备 → 提醒
 static NSString * const kCatTouch = @"触摸";
@@ -373,9 +375,32 @@ static NSString *fwSimValue(id value)
         wechat.hint = @"「发微信」目前是占位步骤，放进流程里不会真正发送，后续版本再接。";
         wechat.fields = @[];
 
+        FlowStepType *http = [self type:kFlowHttp title:@"URL 请求" symbol:@"network" condition:NO];
+        http.category = kCatDevice;
+        http.hint = @"按地址发 HTTP 请求；返回 4xx / 5xx 或网络失败时提示并停止当前流程。";
+        FlowFieldSpec *httpMethod = [FlowFieldSpec key:@"Method" title:@"请求方式" integer:NO def:@"GET"];
+        httpMethod.choiceTitles = @[ @"GET", @"POST", @"PUT", @"DELETE" ];
+        httpMethod.choiceValues = @[ @"GET", @"POST", @"PUT", @"DELETE" ];
+        http.fields = @[
+            httpMethod,
+            [FlowFieldSpec key:@"URL" title:@"地址" integer:NO def:@"https://"],
+            [FlowFieldSpec key:@"Headers" title:@"请求头（K: V; K2: V2）" integer:NO def:@""],
+            [FlowFieldSpec key:@"Body" title:@"请求体（可空）" integer:NO def:@""],
+            [FlowFieldSpec numKey:@"Timeout" title:@"超时（秒）" integer:NO def:@"10"],
+            [FlowFieldSpec key:@"SaveFile" title:@"响应保存到文件（可空）" integer:NO def:@""],
+        ];
+
+        FlowStepType *shell = [self type:kFlowShell title:@"执行命令" symbol:@"terminal.fill" condition:NO];
+        shell.category = kCatDevice;
+        shell.hint = @"在设备上执行一条 shell 命令；退出码不为 0 时提示并停止当前流程。";
+        shell.fields = @[
+            [FlowFieldSpec key:@"Command" title:@"命令" integer:NO def:@""],
+            [FlowFieldSpec numKey:@"Timeout" title:@"超时（秒）" integer:NO def:@"10"],
+        ];
+
         types = @[tap, swipe, wait, toast, color, findColor, countColor, image, ocr,
                   stopAll, runScript, appSwitch, wifi, screenshot, paste, volume,
-                  ring, call, sms, dingtalk, wecom, wechat];
+                  ring, call, sms, dingtalk, wecom, wechat, http, shell];
     });
     return types;
 }
@@ -623,6 +648,17 @@ static NSString *fwSimValue(id value)
     }
     if ([kind isEqualToString:kFlowWeChat]) {
         return @"发微信（占位，暂不执行）";
+    }
+    if ([kind isEqualToString:kFlowHttp]) {
+        NSString *method = [step[@"Method"] isKindOfClass:[NSString class]] ? step[@"Method"] : @"GET";
+        NSString *url = [step[@"URL"] isKindOfClass:[NSString class]] ? step[@"URL"] : @"";
+        return [NSString stringWithFormat:@"%@ %@", method, url.length ? url : @"（没填地址）"];
+    }
+    if ([kind isEqualToString:kFlowShell]) {
+        NSString *command = [step[@"Command"] isKindOfClass:[NSString class]] ? step[@"Command"] : @"";
+        NSArray *lines = [command componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+        NSString *first = lines.count > 0 ? lines[0] : @"";
+        return [NSString stringWithFormat:@"执行命令：%@", first.length ? first : @"（没填命令）"];
     }
     return @"未知步骤";
 }
@@ -1158,6 +1194,22 @@ static NSString *fwSimValue(id value)
         line = [NSString stringWithFormat:@"设备.send_sms(\"%@\", \"%@\", \"%@\")", number, text, fwSimValue(step[@"SIM"])];
     } else if ([kind isEqualToString:kFlowWeChat]) {
         line = @"pass";
+    } else if ([kind isEqualToString:kFlowHttp]) {
+        NSString *httpTimeout = [self textForValue:step[@"Timeout"]];
+        if (httpTimeout.length == 0) httpTimeout = @"10";
+        line = [NSString stringWithFormat:@"请求(%@, %@, %@, %@, %@, %@)",
+                [self pythonString:[self textForValue:step[@"Method"]]],
+                [self pythonString:[self textForValue:step[@"URL"]]],
+                [self pythonString:[self textForValue:step[@"Headers"]]],
+                [self pythonString:[self textForValue:step[@"Body"]]],
+                httpTimeout,
+                [self pythonString:[self textForValue:step[@"SaveFile"]]]];
+    } else if ([kind isEqualToString:kFlowShell]) {
+        NSString *shellTimeout = [self textForValue:step[@"Timeout"]];
+        if (shellTimeout.length == 0) shellTimeout = @"10";
+        line = [NSString stringWithFormat:@"执行命令(%@, %@)",
+                [self pythonString:[self textForValue:step[@"Command"]]],
+                shellTimeout];
     } else {
         return;
     }
@@ -1179,6 +1231,17 @@ static NSString *fwSimValue(id value)
     text = [text stringByReplacingOccurrencesOfString:@"\r" withString:@" "];
     text = [text stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
     return text;
+}
+
++ (NSString *)pythonString:(id)value
+{
+    NSString *text = [NSString stringWithFormat:@"%@", value ?: @""];
+    text = [text stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+    text = [text stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+    text = [text stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\\n"];
+    text = [text stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
+    text = [text stringByReplacingOccurrencesOfString:@"\r" withString:@"\\n"];
+    return [NSString stringWithFormat:@"\"%@\"", text];
 }
 
 /// 颜色统一成大写十六进制、去掉 # 号：引擎与「是色」都按 6 位十六进制解析

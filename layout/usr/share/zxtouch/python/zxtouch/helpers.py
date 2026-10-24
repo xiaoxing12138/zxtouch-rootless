@@ -2,6 +2,8 @@ import base64
 import hashlib
 import hmac
 import json
+import os
+import subprocess
 import time
 import urllib.parse
 import urllib.request
@@ -122,3 +124,61 @@ def 发送企业微信(webhook, 内容=""):
         return True
     except Exception:
         return False
+
+
+def 请求(方法="GET", 地址="", 请求头="", 请求体="", 超时=10, 保存到=""):
+    方法 = str(方法 or "GET").upper()
+    地址 = str(地址 or "").strip()
+    头 = {}
+    for 行 in str(请求头 or "").replace("\n", ";").split(";"):
+        if ":" in 行:
+            键, 值 = 行.split(":", 1)
+            if 键.strip():
+                头[键.strip()] = 值.strip()
+    数据 = None
+    if 方法 not in ("GET", "HEAD") and str(请求体 or ""):
+        数据 = str(请求体).encode("utf-8")
+    try:
+        with urllib.request.urlopen(
+                urllib.request.Request(地址, data=数据, headers=头, method=方法),
+                timeout=float(超时)) as 响应:
+            文本 = 响应.read().decode("utf-8", "replace")
+            状态码 = int(响应.status)
+    except Exception as 错误:
+        设备.show_toast("请求失败：" + str(错误), 2)
+        raise RuntimeError("请求失败：" + str(错误))
+    if str(保存到 or "").strip():
+        try:
+            with open(str(保存到).strip(), "w", encoding="utf-8") as 文件:
+                文件.write(文本)
+        except Exception as 错误:
+            设备.show_toast("保存失败：" + str(错误), 2)
+            raise RuntimeError("保存失败：" + str(错误))
+    return 状态码, 文本
+
+
+def 执行命令(命令, 超时=10, 失败即停=True):
+    命令 = str(命令 or "").strip()
+    if not 命令:
+        return 0, ""
+    解释器 = "/var/jb/bin/sh"
+    if not os.path.exists(解释器):
+        解释器 = "/bin/sh"
+    try:
+        进程 = subprocess.run([解释器, "-c", 命令], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, timeout=float(超时))
+    except subprocess.TimeoutExpired:
+        设备.show_toast("命令超时", 2)
+        if 失败即停:
+            raise RuntimeError("命令超时")
+        return -1, ""
+    except Exception as 错误:
+        设备.show_toast("命令失败：" + str(错误), 2)
+        if 失败即停:
+            raise RuntimeError("命令失败：" + str(错误))
+        return -1, ""
+    输出 = 进程.stdout.decode("utf-8", "replace").strip()
+    if 进程.returncode != 0 and 失败即停:
+        设备.show_toast("命令失败：" + 输出[-80:], 2)
+        raise RuntimeError(输出 or ("退出码 %d" % 进程.returncode))
+    return 进程.returncode, 输出

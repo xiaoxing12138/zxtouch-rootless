@@ -42,6 +42,8 @@ extern NSString * const kFlowSMS;        // 发短信
 extern NSString * const kFlowDingTalk;   // 钉钉机器人推送
 extern NSString * const kFlowWeCom;      // 企业微信机器人推送
 extern NSString * const kFlowWeChat;     // 发微信（占位）
+extern NSString * const kFlowHttp;       // URL 请求
+extern NSString * const kFlowShell;      // 执行命令
 
 /// 在弹窗里追加的「从屏幕取…」动作
 typedef NS_ENUM(NSInteger, FlowPickMode) {

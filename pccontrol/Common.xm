@@ -1729,6 +1729,123 @@ BOOL ZXSendWeCom(NSString *webhook, NSString *text, NSError **error)
     return ZXPostJSON(url, payload, error);
 }
 
+NSInteger ZXHTTPRequest(NSString *method, NSString *url, NSString *headers, NSString *body,
+                        double timeout, NSString **textOut, NSError **error)
+{
+    NSString *address = ZXTrimmedText(url);
+    if (address.length == 0 || ![NSURL URLWithString:address].scheme.length) {
+        if (error) *error = ZXActionError(@"请求地址不完整，需要以 http:// 或 https:// 开头。");
+        return -1;
+    }
+    NSString *verb = ZXTrimmedText(method).uppercaseString;
+    if (verb.length == 0) verb = @"GET";
+    if (timeout <= 0) timeout = 10;
+
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:address]];
+    request.HTTPMethod = verb;
+    request.timeoutInterval = timeout;
+    for (NSString *line in [headers ?: @"" componentsSeparatedByString:@";"]) {
+        NSRange colon = [line rangeOfString:@":"];
+        if (colon.location == NSNotFound) continue;
+        NSString *key = ZXTrimmedText([line substringToIndex:colon.location]);
+        NSString *value = ZXTrimmedText([line substringFromIndex:colon.location + 1]);
+        if (key.length && value.length) [request setValue:value forHTTPHeaderField:key];
+    }
+    if (![verb isEqualToString:@"GET"] && ![verb isEqualToString:@"HEAD"] && body.length > 0) {
+        request.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
+    }
+
+    __block NSInteger status = -1;
+    __block NSString *text = @"";
+    __block NSError *netError = nil;
+    dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request
+        completionHandler:^(NSData *data, NSURLResponse *response, NSError *taskError) {
+            if ([response isKindOfClass:[NSHTTPURLResponse class]])
+                status = ((NSHTTPURLResponse *)response).statusCode;
+            if (data.length) {
+                NSString *decoded = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                text = decoded ?: @"";
+            }
+            netError = taskError;
+            dispatch_semaphore_signal(sema);
+        }];
+    [task resume];
+    if (dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, (int64_t)((timeout + 5) * NSEC_PER_SEC))) != 0) {
+        [task cancel];
+        if (error) *error = ZXActionError(@"请求超时。");
+        return -1;
+    }
+    if (netError) {
+        if (error) *error = ZXActionError([NSString stringWithFormat:@"请求失败：%@",
+                                           netError.localizedDescription ?: @"网络错误"]);
+        return -1;
+    }
+    if (status >= 400) {
+        if (error) *error = ZXActionError([NSString stringWithFormat:@"请求失败：服务器返回 %ld。", (long)status]);
+        return status;
+    }
+    if (textOut) *textOut = text;
+    return status;
+}
+
+NSInteger ZXRunShell(NSString *command, double timeout, NSString **outputOut, NSError **error)
+{
+    NSString *script = command ?: @"";
+    if (ZXTrimmedText(script).length == 0) {
+        if (error) *error = ZXActionError(@"命令不能为空。");
+        return -1;
+    }
+    const char *shellPath = zxShellPath();
+    if (!shellPath) {
+        if (error) *error = ZXActionError(@"设备上找不到可用的 sh。");
+        return -1;
+    }
+    if (timeout <= 0) timeout = 10;
+    NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:@"zx_shell_out.txt"];
+    [[NSFileManager defaultManager] removeItemAtPath:tmp error:NULL];
+    NSString *wrapped = [NSString stringWithFormat:@"{ %@\n} > '%@' 2>&1", script, tmp];
+
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    posix_spawnattr_t attrs;
+    posix_spawnattr_init(&attrs);
+    char * const argv[] = { (char *)"sh", (char *)"-c", (char *)[wrapped UTF8String], NULL };
+    extern char **environ;
+    pid_t pid = 0;
+    int spawnError = posix_spawn(&pid, shellPath, &actions, &attrs, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attrs);
+    if (spawnError != 0) {
+        if (error) *error = ZXActionError([NSString stringWithFormat:@"命令启动失败：%s", strerror(spawnError)]);
+        return -1;
+    }
+
+    int status = 0;
+    int waited = zxWaitTimeout(pid, timeout, &status);
+    if (waited == 1) {
+        kill(pid, SIGKILL);
+        zxWaitTimeout(pid, 2.0, &status);
+    } else if (waited == -1) {
+        if (error) *error = ZXActionError(@"等待命令结束失败。");
+        return -1;
+    }
+    NSString *output = [NSString stringWithContentsOfFile:tmp encoding:NSUTF8StringEncoding error:NULL] ?: @"";
+    [[NSFileManager defaultManager] removeItemAtPath:tmp error:NULL];
+    if (outputOut) *outputOut = output;
+    NSInteger code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    if (waited == 1) {
+        if (error) *error = ZXActionError(@"命令执行超时。");
+        return code;
+    }
+    if (code != 0) {
+        if (error) *error = ZXActionError([NSString stringWithFormat:@"命令退出码 %ld。%@", (long)code,
+                                           output.length > 120 ? [output substringFromIndex:output.length - 120] : output]);
+    }
+    return code;
+}
+
 // 闸门只有一个时间戳：打开时定一个窗口，只要还有被丢弃的触摸在流进来就把窗口往后顺延，
 // 直到积压排空（出现一段安静期）或撞上硬上限。不用定时器，避免积压时堆出成千上万个 block。
 static volatile double zxTouchDropDeadline = 0;
