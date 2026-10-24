@@ -61,6 +61,38 @@ static void fwSubSizeSave(CGFloat w, CGFloat h)
     [config writeToFile:path atomically:YES];
 }
 
+static NSString *fwOCRLanguageTitle(NSString *code)
+{
+    static NSDictionary<NSString *, NSString *> *names = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        names = @{ @"zh-Hans": @"简体中文", @"zh-Hant": @"繁体中文", @"en-US": @"英文",
+                   @"fr-FR": @"法语", @"it-IT": @"意大利语", @"de-DE": @"德语",
+                   @"es-ES": @"西班牙语", @"pt-BR": @"葡萄牙语" };
+    });
+    NSString *name = names[code];
+    return name.length > 0 ? name : code;
+}
+
+static NSArray<NSString *> *fwOCRSelectedLanguages(id value)
+{
+    NSString *text = [value isKindOfClass:[NSString class]] ? value : @"";
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    for (NSString *part in [text componentsSeparatedByString:@","]) {
+        NSString *code = [part stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (code.length > 0 && ![out containsObject:code]) [out addObject:code];
+    }
+    return out;
+}
+
+static NSString *fwOCRLanguageSummary(NSArray<NSString *> *codes)
+{
+    if (codes.count == 0) return @"点这里选择";
+    NSMutableArray<NSString *> *titles = [NSMutableArray array];
+    for (NSString *code in codes) [titles addObject:fwOCRLanguageTitle(code)];
+    return [titles componentsJoinedByString:@"、"];
+}
+
 // 脚本目录里所有 .bdl（含子目录），按文件名排序；选择器里存的是包的绝对路径
 static NSArray<NSDictionary *> *fwScriptItems(void)
 {
@@ -2931,6 +2963,15 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     BOOL integer = spec.integer;
     __weak typeof(self) weakSelf = self;
 
+    if ([spec.pickerKind isEqualToString:@"languages"]) {
+        NSArray<NSString *> *codes = fwOCRSelectedLanguages(step[key]);
+        return [self makeActionRow:spec.title
+                            detail:fwOCRLanguageSummary(codes)
+                             color:ZXPalette(ZXPalAccent) primary:NO
+                            symbol:@"list.bullet" width:w
+                            action:^{ [weakSelf showLanguagePickerForSpec:spec step:step]; }];
+    }
+
     // 从列表里选（已安装 App / 系统铃声 / 已安装脚本）：不手打，点开列表选
     if (spec.pickerKind.length > 0) {
         NSString *current = [step[key] isKindOfClass:[NSString class]] ? step[key] : @"";
@@ -3121,6 +3162,73 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         }] forControlEvents:UIControlEventEditingChanged];
 
         return y;
+    }];
+}
+
+- (void)showLanguagePickerForSpec:(FlowFieldSpec *)spec step:(NSMutableDictionary *)step
+{
+    NSString *key = spec.key;
+    __weak typeof(self) weakSelf = self;
+
+    [self showSubWithTitle:@"识别语言（可多选）" builder:^CGFloat(UIScrollView *content, CGFloat w) {
+        FlowWindow *s = weakSelf;
+        if (!s) return 0.0f;
+
+        CGFloat inner = w - 8.0f;
+        __block CGFloat y = 8.0f;
+
+        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(8.0f, y, inner, 18.0f)];
+        hint.text = @"勾选后点「完成」，识别中文需要勾选简体中文";
+        hint.font = [UIFont systemFontOfSize:11];
+        hint.textColor = ZXPalette(ZXPalSub);
+        [content addSubview:hint];
+        y += 18.0f + FW_GAP;
+
+        NSArray<NSString *> *supported = ZXSupportedOCRLanguages();
+        if (supported.count == 0) {
+            UILabel *empty = [[UILabel alloc] initWithFrame:CGRectMake(8.0f, y, inner, 18.0f)];
+            empty.text = @"当前系统没有返回可用的识别语言";
+            empty.font = [UIFont systemFontOfSize:12];
+            empty.textColor = ZXPalette(ZXPalSub);
+            [content addSubview:empty];
+            y += 18.0f + FW_GAP;
+        }
+
+        for (NSString *code in supported) {
+            BOOL on = [fwOCRSelectedLanguages(step[key]) containsObject:code];
+            UIView *row = [s makeActionRow:fwOCRLanguageTitle(code)
+                                    detail:code
+                                     color:on ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalText)
+                                   primary:on width:inner
+                                    action:^{
+                FlowWindow *ss = weakSelf;
+                if (!ss) return;
+                NSMutableArray<NSString *> *next = [fwOCRSelectedLanguages(step[key]) mutableCopy];
+                if ([next containsObject:code]) [next removeObject:code];
+                else [next addObject:code];
+                step[key] = [next componentsJoinedByString:@","];
+                [ss autosave];
+                [ss rebuildSubAnimated:NO];
+            }];
+            row.frame = CGRectMake(8.0f, y, inner, row.frame.size.height);
+            [content addSubview:row];
+            y += row.frame.size.height + FW_GAP;
+        }
+
+        UIView *done = [s makeActionRow:@"完成" detail:nil
+                                  color:ZXPalette(ZXPalAccent) primary:YES
+                                 symbol:nil width:inner
+                                 action:^{
+            FlowWindow *ss = weakSelf;
+            if (!ss) return;
+            [ss dismissSubAnimated:NO];
+            [ss refreshKeepingScroll];
+            [ss showParamsSubForStep:step parentSteps:nil];
+        }];
+        done.frame = CGRectMake(8.0f, y + 4.0f, inner, done.frame.size.height);
+        [content addSubview:done];
+
+        return y + done.frame.size.height + 12.0f;
     }];
 }
 

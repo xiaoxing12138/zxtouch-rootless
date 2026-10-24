@@ -254,6 +254,8 @@ static NSString *fwSimValue(id value)
         FlowFieldSpec *ocrMatch = [FlowFieldSpec key:@"Match" title:@"判据" integer:NO def:@"contains"];
         ocrMatch.choiceTitles = @[ @"包含", @"等于", @"不包含" ];
         ocrMatch.choiceValues = @[ @"contains", @"equals", @"notContains" ];
+        FlowFieldSpec *ocrLanguages = [FlowFieldSpec key:@"Languages" title:@"识别语言" integer:NO def:@"zh-Hans,en-US"];
+        ocrLanguages.pickerKind = @"languages";
         ocr.fields = @[
             [FlowFieldSpec key:@"X1" title:@"区域左" integer:YES def:@"0"],
             [FlowFieldSpec key:@"Y1" title:@"区域上" integer:YES def:@"0"],
@@ -261,7 +263,7 @@ static NSString *fwSimValue(id value)
             [FlowFieldSpec key:@"Y2" title:@"区域下" integer:YES def:@"600"],
             ocrMatch,
             [FlowFieldSpec key:@"Text" title:@"要比对的文字或数字" integer:NO def:@""],
-            [FlowFieldSpec key:@"Languages" title:@"识别语言（zh-Hans 中文 / en-US 英文）" integer:NO def:@"zh-Hans,en-US"],
+            ocrLanguages,
         ];
 
         // 开关 App：一个步骤同时管「打开」和「关闭」，用哪个由「方式」决定

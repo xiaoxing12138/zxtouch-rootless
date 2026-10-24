@@ -141,8 +141,13 @@ Return the string from a area
         }
         if (requestedLanguages.count)
         {
+            if ([request respondsToSelector:NSSelectorFromString(@"setAutomaticallyDetectsLanguage:")])
+            {
+                [request setValue:@NO forKey:@"automaticallyDetectsLanguage"];
+            }
             request.recognitionLanguages = requestedLanguages;
         }
+        NSLog(@"com.zjx.springboard: ocr rev=%d level=%d langs=%@", (int)request.revision, (int)request.recognitionLevel, request.recognitionLanguages);
 
         requestResult = nil;
         err = nil;
