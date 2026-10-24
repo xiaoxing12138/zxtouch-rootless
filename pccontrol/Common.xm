@@ -1748,6 +1748,7 @@ BOOL ZXSendWeCom(NSString *webhook, NSString *text, NSError **error)
 
 @interface INCExtensionConnection : NSObject
 - (instancetype)initWithIntent:(id)intent;
+- (instancetype)initWithIntent:(id)intent remoteProxyProvider:(void (^)(id proxy))provider;
 @property (nonatomic, readonly) id appProxy;
 - (void)resumeWithCompletionHandler:(void (^)(NSError *error))handler;
 @end
@@ -1827,7 +1828,19 @@ void ZXWeChatSendRun(NSString *recipient, NSString *text)
         if (!intent) return;
 
         ZXWeChatLog(@"connecting\n", NO);
-        id conn = ((id (*)(id, SEL, id))objc_msgSend)([connCls alloc], connSel, intent);
+        dispatch_semaphore_t proxySem = dispatch_semaphore_create(0);
+        __block id extProxy = nil;
+        SEL connSel2 = NSSelectorFromString(@"initWithIntent:remoteProxyProvider:");
+        id conn = nil;
+        if ([connCls instancesRespondToSelector:connSel2]) {
+            conn = ((id (*)(id, SEL, id, id))objc_msgSend)([connCls alloc], connSel2, intent,
+                ^(id proxy) {
+                    extProxy = proxy;
+                    dispatch_semaphore_signal(proxySem);
+                });
+        } else {
+            conn = ((id (*)(id, SEL, id))objc_msgSend)([connCls alloc], connSel, intent);
+        }
         if (!conn) {
             ZXWeChatLog(@"connection=nil\n", NO);
             return;
@@ -1847,7 +1860,14 @@ void ZXWeChatSendRun(NSString *recipient, NSString *text)
         ZXWeChatLog([NSString stringWithFormat:@"resume=%@\n",
                      resumeError ? resumeError.localizedDescription : @"ok"], NO);
 
-        id proxy = ((id (*)(id, SEL))objc_msgSend)(conn, NSSelectorFromString(@"appProxy"));
+        if (!extProxy && !ZXWaitSemaphore(proxySem, 10)) {
+            ZXWeChatLog(@"proxy=timeout\n", NO);
+            return;
+        }
+        id proxy = extProxy;
+        if (!proxy) {
+            proxy = ((id (*)(id, SEL))objc_msgSend)(conn, NSSelectorFromString(@"appProxy"));
+        }
         ZXWeChatLog([NSString stringWithFormat:@"proxy=%@\n",
                      proxy ? NSStringFromClass([proxy class]) : @"nil"], NO);
         if (!proxy) return;
