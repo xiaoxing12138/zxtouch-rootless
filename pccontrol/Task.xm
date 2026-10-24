@@ -1424,8 +1424,12 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             NSArray *parts = [data componentsSeparatedByString:@";;"];
             NSString *recipient = parts.count > 0 ? parts[0] : @"";
             NSString *text = parts.count > 1 ? parts[1] : @"";
-            NSString *log = ZXWeChatSendDiagnostics(recipient, text);
-            notifyClient((UInt8*)[[@"0;;" stringByAppendingString:(log ?: @"")] UTF8String], writeStreamRef);
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                @autoreleasepool {
+                    ZXWeChatSendRun(recipient, text);
+                }
+            });
+            notifyClient((UInt8*)[@"0;;started\r\n" UTF8String], writeStreamRef);
         }
     }
     else if (taskType == TASK_UPDATE_CACHE)

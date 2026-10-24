@@ -1770,82 +1770,110 @@ static BOOL ZXWaitSemaphore(dispatch_semaphore_t sem, double seconds)
     return dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(seconds * NSEC_PER_SEC))) == 0;
 }
 
-NSString *ZXWeChatSendDiagnostics(NSString *recipient, NSString *text)
+static NSString * const ZXWeChatLogPath = @"/var/mobile/Library/ZXTouch/wechat_send.log";
+
+static void ZXWeChatLog(NSString *line, BOOL truncate)
 {
+    [[NSFileManager defaultManager] createDirectoryAtPath:@"/var/mobile/Library/ZXTouch"
+                              withIntermediateDirectories:YES attributes:nil error:NULL];
+    NSData *data = [(line ?: @"") dataUsingEncoding:NSUTF8StringEncoding];
+    if (truncate) {
+        [data writeToFile:ZXWeChatLogPath atomically:NO];
+        return;
+    }
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:ZXWeChatLogPath];
+    if (!fh) {
+        [data writeToFile:ZXWeChatLogPath atomically:NO];
+        return;
+    }
+    [fh seekToEndOfFile];
+    [fh writeData:data];
+    [fh closeFile];
+}
+
+void ZXWeChatSendRun(NSString *recipient, NSString *text)
+{
+    ZXWeChatLog(@"", YES);
     ZXEnsureIntentsLoaded();
-    NSMutableString *log = [NSMutableString string];
 
     @try {
-    Class handleCls = NSClassFromString(@"INPersonHandle");
-    Class personCls = NSClassFromString(@"INPerson");
-    Class intentCls = NSClassFromString(@"INSendMessageIntent");
-    Class connCls = NSClassFromString(@"INCExtensionConnection");
-    if (!handleCls || !personCls || !intentCls || !connCls) {
-        return @"classes=missing";
-    }
+        Class handleCls = NSClassFromString(@"INPersonHandle");
+        Class personCls = NSClassFromString(@"INPerson");
+        Class intentCls = NSClassFromString(@"INSendMessageIntent");
+        Class connCls = NSClassFromString(@"INCExtensionConnection");
+        if (!handleCls || !personCls || !intentCls || !connCls) {
+            ZXWeChatLog(@"classes=missing\n", NO);
+            return;
+        }
 
-    SEL handleSel = NSSelectorFromString(@"initWithValue:type:");
-    SEL personSel = NSSelectorFromString(@"initWithPersonHandle:nameComponents:displayName:image:contactIdentifier:customIdentifier:");
-    SEL intentSel = NSSelectorFromString(@"initWithRecipients:content:speakableGroupName:conversationIdentifier:serviceName:sender:");
-    SEL connSel = NSSelectorFromString(@"initWithIntent:");
-    [log appendFormat:@"selectors=%d%d%d%d\n",
-        [handleCls instancesRespondToSelector:handleSel],
-        [personCls instancesRespondToSelector:personSel],
-        [intentCls instancesRespondToSelector:intentSel],
-        [connCls instancesRespondToSelector:connSel]];
+        SEL handleSel = NSSelectorFromString(@"initWithValue:type:");
+        SEL personSel = NSSelectorFromString(@"initWithPersonHandle:nameComponents:displayName:image:contactIdentifier:customIdentifier:");
+        SEL intentSel = NSSelectorFromString(@"initWithRecipients:content:speakableGroupName:conversationIdentifier:serviceName:sender:");
+        SEL connSel = NSSelectorFromString(@"initWithIntent:");
+        ZXWeChatLog([NSString stringWithFormat:@"selectors=%d%d%d%d\n",
+                     [handleCls instancesRespondToSelector:handleSel],
+                     [personCls instancesRespondToSelector:personSel],
+                     [intentCls instancesRespondToSelector:intentSel],
+                     [connCls instancesRespondToSelector:connSel]], NO);
 
-    id personHandle = ((id (*)(id, SEL, id, NSInteger))objc_msgSend)(
-        [handleCls alloc], NSSelectorFromString(@"initWithValue:type:"), recipient, 0);
-    id person = ((id (*)(id, SEL, id, id, id, id, id, id))objc_msgSend)(
-        [personCls alloc],
-        NSSelectorFromString(@"initWithPersonHandle:nameComponents:displayName:image:contactIdentifier:customIdentifier:"),
-        personHandle, nil, recipient, nil, nil, nil);
-    id intent = ((id (*)(id, SEL, id, id, id, id, id, id))objc_msgSend)(
-        [intentCls alloc],
-        NSSelectorFromString(@"initWithRecipients:content:speakableGroupName:conversationIdentifier:serviceName:sender:"),
-        person ? @[person] : @[], text ?: @"", nil, nil, nil, nil);
-    [log appendFormat:@"person=%@ intent=%@\n", person ? @"ok" : @"nil", intent ? @"ok" : @"nil"];
-    if (!intent) return log;
+        id personHandle = ((id (*)(id, SEL, id, NSInteger))objc_msgSend)(
+            [handleCls alloc], handleSel, recipient, 0);
+        id person = ((id (*)(id, SEL, id, id, id, id, id, id))objc_msgSend)(
+            [personCls alloc], personSel, personHandle, nil, recipient, nil, nil, nil);
+        id intent = ((id (*)(id, SEL, id, id, id, id, id, id))objc_msgSend)(
+            [intentCls alloc], intentSel, person ? @[person] : @[], text ?: @"", nil, nil, nil, nil);
+        ZXWeChatLog([NSString stringWithFormat:@"person=%@ intent=%@\n",
+                     person ? @"ok" : @"nil", intent ? @"ok" : @"nil"], NO);
+        if (!intent) return;
 
-    id conn = ((id (*)(id, SEL, id))objc_msgSend)([connCls alloc], NSSelectorFromString(@"initWithIntent:"), intent);
-    if (!conn) return [log stringByAppendingString:@"connection=nil"];
+        ZXWeChatLog(@"connecting\n", NO);
+        id conn = ((id (*)(id, SEL, id))objc_msgSend)([connCls alloc], connSel, intent);
+        if (!conn) {
+            ZXWeChatLog(@"connection=nil\n", NO);
+            return;
+        }
 
-    dispatch_semaphore_t resumeSem = dispatch_semaphore_create(0);
-    __block NSError *resumeError = nil;
-    ((void (*)(id, SEL, id))objc_msgSend)(conn, NSSelectorFromString(@"resumeWithCompletionHandler:"),
-        ^(NSError *err) {
-            resumeError = err;
-            dispatch_semaphore_signal(resumeSem);
-        });
-    if (!ZXWaitSemaphore(resumeSem, 10)) return [log stringByAppendingString:@"resume=timeout"];
-    [log appendFormat:@"resume=%@\n", resumeError ? resumeError.localizedDescription : @"ok"];
+        dispatch_semaphore_t resumeSem = dispatch_semaphore_create(0);
+        __block NSError *resumeError = nil;
+        ((void (*)(id, SEL, id))objc_msgSend)(conn, NSSelectorFromString(@"resumeWithCompletionHandler:"),
+            ^(NSError *err) {
+                resumeError = err;
+                dispatch_semaphore_signal(resumeSem);
+            });
+        if (!ZXWaitSemaphore(resumeSem, 20)) {
+            ZXWeChatLog(@"resume=timeout\n", NO);
+            return;
+        }
+        ZXWeChatLog([NSString stringWithFormat:@"resume=%@\n",
+                     resumeError ? resumeError.localizedDescription : @"ok"], NO);
 
-    INCExtensionProxy *proxy = ((id (*)(id, SEL))objc_msgSend)(conn, NSSelectorFromString(@"appProxy"));
-    [log appendFormat:@"proxy=%@\n", proxy ? NSStringFromClass([proxy class]) : @"nil"];
-    if (!proxy) return log;
+        id proxy = ((id (*)(id, SEL))objc_msgSend)(conn, NSSelectorFromString(@"appProxy"));
+        ZXWeChatLog([NSString stringWithFormat:@"proxy=%@\n",
+                     proxy ? NSStringFromClass([proxy class]) : @"nil"], NO);
+        if (!proxy) return;
 
-    dispatch_semaphore_t handleSem = dispatch_semaphore_create(0);
-    __block id handleResponse = nil;
-    __block NSError *handleError = nil;
-    ((void (*)(id, SEL, id))objc_msgSend)(proxy, NSSelectorFromString(@"handleIntentWithCompletionHandler:"),
-        ^(id response, NSError *err) {
-            handleResponse = response;
-            handleError = err;
-            dispatch_semaphore_signal(handleSem);
-        });
-    if (!ZXWaitSemaphore(handleSem, 20)) {
-        [log appendString:@"handle=timeout\n"];
-    } else {
+        dispatch_semaphore_t handleSem = dispatch_semaphore_create(0);
+        __block id handleResponse = nil;
+        __block NSError *handleError = nil;
+        ((void (*)(id, SEL, id))objc_msgSend)(proxy, NSSelectorFromString(@"handleIntentWithCompletionHandler:"),
+            ^(id response, NSError *err) {
+                handleResponse = response;
+                handleError = err;
+                dispatch_semaphore_signal(handleSem);
+            });
+        if (!ZXWaitSemaphore(handleSem, 30)) {
+            ZXWeChatLog(@"handle=timeout\n", NO);
+            return;
+        }
         NSInteger code = handleResponse ? ((NSInteger (*)(id, SEL))objc_msgSend)(handleResponse, NSSelectorFromString(@"code")) : -999;
-        [log appendFormat:@"handle=%@ code=%ld class=%@\n",
-            handleError ? handleError.localizedDescription : @"ok", (long)code,
-            handleResponse ? NSStringFromClass([handleResponse class]) : @"nil"];
-    }
+        ZXWeChatLog([NSString stringWithFormat:@"handle=%@ code=%ld class=%@\n",
+                     handleError ? handleError.localizedDescription : @"ok", (long)code,
+                     handleResponse ? NSStringFromClass([handleResponse class]) : @"nil"], NO);
     }
     @catch (NSException *ex) {
-        [log appendFormat:@"exception=%@ reason=%@\n", ex.name, ex.reason];
+        ZXWeChatLog([NSString stringWithFormat:@"exception=%@ reason=%@\n", ex.name, ex.reason], NO);
     }
-    return log;
+    ZXWeChatLog(@"done\n", NO);
 }
 
 NSInteger ZXHTTPRequest(NSString *method, NSString *url, NSString *headers, NSString *body,
