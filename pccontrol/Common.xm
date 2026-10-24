@@ -1860,6 +1860,27 @@ void ZXWeChatSendRun(NSString *recipient, NSString *text)
         ZXWeChatLog([NSString stringWithFormat:@"resume=%@\n",
                      resumeError ? resumeError.localizedDescription : @"ok"], NO);
 
+        @try {
+            id txn = [conn valueForKey:@"_transaction"];
+            id req = txn ? [txn valueForKey:@"request"] : nil;
+            id host = req ? [req valueForKey:@"_extensionContextHost"] : nil;
+            id aux = host ? [host valueForKey:@"_auxiliaryConnection"] : nil;
+            id principal = host ? [host valueForKey:@"_principalObject"] : nil;
+            id xpcConn = [conn valueForKey:@"_xpcConnection"];
+            id xpcObj = [conn valueForKey:@"_xpcObject"];
+            ZXWeChatLog([NSString stringWithFormat:@"txn=%@ req=%@ host=%@ aux=%@ principal=%@ xpcConn=%@ xpcObj=%@\n",
+                         txn ? NSStringFromClass([txn class]) : @"nil",
+                         req ? NSStringFromClass([req class]) : @"nil",
+                         host ? NSStringFromClass([host class]) : @"nil",
+                         aux ? NSStringFromClass([aux class]) : @"nil",
+                         principal ? NSStringFromClass([principal class]) : @"nil",
+                         xpcConn ? NSStringFromClass([xpcConn class]) : @"nil",
+                         xpcObj ? NSStringFromClass([xpcObj class]) : @"nil"], NO);
+        }
+        @catch (NSException *ex) {
+            ZXWeChatLog([NSString stringWithFormat:@"introspect=%@ %@\n", ex.name, ex.reason], NO);
+        }
+
         if (!extProxy && !ZXWaitSemaphore(proxySem, 10)) {
             ZXWeChatLog(@"proxy=timeout\n", NO);
             return;
