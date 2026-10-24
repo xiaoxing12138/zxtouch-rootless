@@ -52,7 +52,7 @@ zxrunner-bin:
 	$(ZXRUNNER_CLANG) $(ZXRUNNER_ARCH) \
 		-isysroot $(ZXRUNNER_SDK) \
 		-target arm64-apple-ios15.0 \
-		-fobjc-arc -framework Foundation \
+		-fobjc-arc -framework Foundation -framework Vision -framework CoreImage -framework CoreML \
 		$(ZXRUNNER_SRC) -o $(ZXRUNNER_BIN)
 	@echo "zxrunner built → $(ZXRUNNER_BIN)"
 	@echo "==> Signing zxrunner with ldid (roothide entitlement)..."
