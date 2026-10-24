@@ -31,6 +31,7 @@ static void ZXOcrDebugLog(NSString *text)
     CIImage *img;
     CGRect recognizeRect;
     NSArray *requestedLanguages;
+    CGFloat imageScale;
 }
 
 
@@ -53,7 +54,21 @@ static void ZXOcrDebugLog(NSString *text)
         }
 
         image = [image imageByApplyingOrientation:after];
-        
+
+        CGFloat scale = 1.0;
+        CGFloat longSide = MAX(image.extent.size.width, image.extent.size.height);
+        if (longSide > 1600.0)
+        {
+            scale = 1600.0 / longSide;
+            image = [image imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
+        }
+        imageScale = scale;
+        if (scale != 1.0)
+        {
+            aarea = CGRectMake(aarea.origin.x * scale, aarea.origin.y * scale,
+                               aarea.size.width * scale, aarea.size.height * scale);
+        }
+
         img = image;
 
         CGFloat imageWidth = image.extent.size.width;
@@ -206,12 +221,11 @@ Return the string from a area
 
         VNRectangleObservation* boundingBox = [text boundingBoxForRange:NSMakeRange(0, [textString length]) error:nil];
 
-        //test = [self drawTextRectangle:CGRectMake(100, 100, 100, 100) andText:@"test"];
-
-        float rectWidth = (boundingBox.topRight.x - boundingBox.topLeft.x) * recognizeRect.size.width;
-        float rectHeight = abs(boundingBox.topLeft.y - boundingBox.bottomLeft.y) * recognizeRect.size.height;
-        float rectx = boundingBox.topLeft.x * recognizeRect.size.width + recognizeRect.origin.x;
-        float recty = (1 - boundingBox.topLeft.y) * recognizeRect.size.height + recognizeRect.origin.y;
+        float invScale = (imageScale > 0) ? (1.0f / imageScale) : 1.0f;
+        float rectWidth = (boundingBox.topRight.x - boundingBox.topLeft.x) * recognizeRect.size.width * invScale;
+        float rectHeight = abs(boundingBox.topLeft.y - boundingBox.bottomLeft.y) * recognizeRect.size.height * invScale;
+        float rectx = (boundingBox.topLeft.x * recognizeRect.size.width + recognizeRect.origin.x) * invScale;
+        float recty = ((1 - boundingBox.topLeft.y) * recognizeRect.size.height + recognizeRect.origin.y) * invScale;
 
         NSString* outputString = [NSString stringWithFormat:@"%@,,%d,,%d,,%d,,%d", textString, (int)rectx, (int)recty, (int)rectWidth, (int)rectHeight];
 
