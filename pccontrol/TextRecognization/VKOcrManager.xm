@@ -2,6 +2,21 @@
 #import "../Screen.h"
 #include "../Common.h"
 
+static void ZXOcrDebugLog(NSString *text)
+{
+    NSString *folder = @"/var/mobile/Library/ZXTouch";
+    NSString *path = [folder stringByAppendingPathComponent:@"ocr.log"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:NULL];
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path])
+    {
+        [[NSFileManager defaultManager] createFileAtPath:path contents:nil attributes:nil];
+    }
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    [handle seekToEndOfFile];
+    [handle writeData:[text dataUsingEncoding:NSUTF8StringEncoding]];
+    [handle closeFile];
+}
+
 
 @implementation VKOcrManager
 {
@@ -148,10 +163,18 @@ Return the string from a area
             request.recognitionLanguages = requestedLanguages;
         }
         NSLog(@"com.zjx.springboard: ocr rev=%d level=%d langs=%@", (int)request.revision, (int)request.recognitionLevel, request.recognitionLanguages);
+        id autoValue = [request respondsToSelector:NSSelectorFromString(@"automaticallyDetectsLanguage")]
+                           ? [request valueForKey:@"automaticallyDetectsLanguage"] : @"n/a";
+        ZXOcrDebugLog([NSString stringWithFormat:@"before rev=%d level=%d minH=%.4f auto=%@ langs=%@\n",
+                       (int)request.revision, (int)request.recognitionLevel, request.minimumTextHeight,
+                       autoValue, request.recognitionLanguages]);
 
         requestResult = nil;
         err = nil;
         [requestHandler performRequests:@[request] error:&err];
+        ZXOcrDebugLog([NSString stringWithFormat:@"after err=%@ rev=%d langs=%@ count=%d\n",
+                       err, (int)request.revision, request.recognitionLanguages,
+                       (int)requestResult.results.count]);
 
         if (!err) break;
         NSLog(@"com.zjx.springboard: accurate ocr revision %d failed. %@", (int)[rev integerValue], err);
