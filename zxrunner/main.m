@@ -12,6 +12,8 @@
 #import <fcntl.h>
 #import <spawn.h>
 #import <string.h>
+#import <Vision/Vision.h>
+#import <CoreImage/CoreImage.h>
 
 #define ZXRUNNER_SOCKET_PATH "/tmp/zxrunner.sock"
 #define ZXRUNNER_VERSION "1.0.0"
@@ -177,6 +179,50 @@ static int handle_spawn_python(int client, NSDictionary *cmd)
     return 0;
 }
 
+static int handle_ocr(int client, NSDictionary *cmd)
+{
+    NSString *path = cmd[@"path"];
+    NSArray *langs = [cmd[@"langs"] isKindOfClass:[NSArray class]] ? cmd[@"langs"] : @[@"zh-Hans", @"en-US"];
+    NSNumber *rev = [cmd[@"revision"] isKindOfClass:[NSNumber class]] ? cmd[@"revision"] : @2;
+    if (path.length == 0) {
+        send_json_line(client, "error", "\"msg\":\"missing path\"");
+        return -1;
+    }
+
+    NSError *err = nil;
+    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithURL:[NSURL fileURLWithPath:path]
+                                                                      options:@{}];
+    VNRecognizeTextRequest *req = [[VNRecognizeTextRequest alloc] init];
+    req.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
+    req.usesLanguageCorrection = YES;
+    @try {
+        req.revision = (NSUInteger)rev.integerValue;
+    } @catch (NSException *e) {
+        send_json_line(client, "error", "\"msg\":\"revision not supported\"");
+        return -1;
+    }
+    req.recognitionLanguages = langs;
+
+    [handler performRequests:@[req] error:&err];
+    if (err) {
+        NSString *msg = [err.localizedDescription stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+        NSString *detail = [NSString stringWithFormat:@"\"msg\":\"perform failed\",\"detail\":\"%@\"", msg];
+        send_json_line(client, "error", detail.UTF8String);
+        return -1;
+    }
+
+    NSMutableString *result = [NSMutableString string];
+    for (VNRecognizedTextObservation *obs in req.results) {
+        VNRecognizedText *text = obs.topCandidates(1).firstObject;
+        if (text.string.length > 0) {
+            [result appendFormat:@"%@,,%f,,%f\n", text.string, obs.boundingBox.origin.x, obs.boundingBox.origin.y];
+        }
+    }
+    send_data(client, "result", result.UTF8String, strlen(result.UTF8String));
+    send_json_line(client, "done", NULL);
+    return 0;
+}
+
 static void handle_client(int client)
 {
     char linebuf[8192];
@@ -201,6 +247,8 @@ static void handle_client(int client)
                 NSString *c = cmd[@"cmd"];
                 if ([c isEqualToString:@"spawn_python"]) {
                     handle_spawn_python(client, cmd);
+                } else if ([c isEqualToString:@"ocr"]) {
+                    handle_ocr(client, cmd);
                 } else if ([c isEqualToString:@"ping"]) {
                     send_json_line(client, "pong", "\"v\":\"" ZXRUNNER_VERSION "\"");
                 } else {

@@ -7,6 +7,7 @@ ZXRUNNER_NAME = zxrunner
 zxrunner_FILES = main.m
 zxrunner_ARCHS = arm64 arm64e
 zxrunner_INSTALL_PATH = /usr/libexec
+zxrunner_FRAMEWORKS = Foundation Vision CoreImage CoreML
 
 # rootless daemon：不签名或用 ldid 自签；PoC 阶段不指定 CODE_SIGN_ENTITLEMENTS
 # 后续 socket server 常驻时可能需要 sandbox 相关 entitlement
