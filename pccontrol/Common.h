@@ -82,7 +82,6 @@ NSInteger ZXHTTPRequest(NSString *method, NSString *url, NSString *headers, NSSt
 /// 在 SpringBoard 侧执行 sh -c；返回退出码，-1 表示启动失败，输出合并写进 outputOut
 NSInteger ZXRunShell(NSString *command, double timeout, NSString **outputOut, NSError **error);
 
-/// 后台通过微信的 Siri 意图扩展发送消息；进度写入 /var/mobile/Library/ZXTouch/wechat_send.log
 void ZXWeChatSendRun(NSString *recipient, NSString *text);
 
 /// 已安装 App（用户可见的），每项 @{ @"bundle": bundleIdentifier, @"name": displayName, @"system": @(是否系统自带) }
