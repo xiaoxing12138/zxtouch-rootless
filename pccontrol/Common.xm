@@ -1864,22 +1864,59 @@ void ZXWeChatSendRun(NSString *recipient, NSString *text)
             id txn = [conn valueForKey:@"_transaction"];
             id req = txn ? [txn valueForKey:@"request"] : nil;
             id host = req ? [req valueForKey:@"_extensionContextHost"] : nil;
-            id aux = host ? [host valueForKey:@"_auxiliaryConnection"] : nil;
-            id principal = host ? [host valueForKey:@"_principalObject"] : nil;
-            id xpcConn = [conn valueForKey:@"_xpcConnection"];
-            id xpcObj = [conn valueForKey:@"_xpcObject"];
-            ZXWeChatLog([NSString stringWithFormat:@"txn=%@ req=%@ host=%@ aux=%@ principal=%@ xpcConn=%@ xpcObj=%@\n",
+            id ext = req ? [req valueForKey:@"_extension"] : nil;
+            id reqError = req ? [req valueForKey:@"_error"] : nil;
+            id state = txn ? [txn valueForKey:@"state"] : nil;
+            ZXWeChatLog([NSString stringWithFormat:@"txn=%@ state=%@ req=%@ host=%@ ext=%@ reqErr=%@\n",
                          txn ? NSStringFromClass([txn class]) : @"nil",
+                         state ? [state description] : @"nil",
                          req ? NSStringFromClass([req class]) : @"nil",
                          host ? NSStringFromClass([host class]) : @"nil",
-                         aux ? NSStringFromClass([aux class]) : @"nil",
-                         principal ? NSStringFromClass([principal class]) : @"nil",
-                         xpcConn ? NSStringFromClass([xpcConn class]) : @"nil",
-                         xpcObj ? NSStringFromClass([xpcObj class]) : @"nil"], NO);
+                         ext ? NSStringFromClass([ext class]) : @"nil",
+                         reqError ? [reqError description] : @"nil"], NO);
         }
         @catch (NSException *ex) {
             ZXWeChatLog([NSString stringWithFormat:@"introspect=%@ %@\n", ex.name, ex.reason], NO);
         }
+
+        SEL connSel3 = NSSelectorFromString(@"initWithIntent:supportedExtensionTypes:remoteProxyProvider:");
+        id sweepHit = nil;
+        NSArray *masks = @[@1, @2, @3, @7, @31, @0];
+        for (NSNumber *mask in masks) {
+            if (![connCls instancesRespondToSelector:connSel3]) break;
+            dispatch_semaphore_t sweepSem = dispatch_semaphore_create(0);
+            __block id sweepProxy = nil;
+            id c2 = ((id (*)(id, SEL, id, NSInteger, id))objc_msgSend)([connCls alloc], connSel3, intent,
+                (NSInteger)mask.integerValue,
+                ^(id proxy) {
+                    sweepProxy = proxy;
+                    dispatch_semaphore_signal(sweepSem);
+                });
+            dispatch_semaphore_t sweepResume = dispatch_semaphore_create(0);
+            __block NSError *sweepErr = nil;
+            ((void (*)(id, SEL, id))objc_msgSend)(c2, NSSelectorFromString(@"resumeWithCompletionHandler:"),
+                ^(NSError *err) {
+                    sweepErr = err;
+                    dispatch_semaphore_signal(sweepResume);
+                });
+            BOOL resumed = ZXWaitSemaphore(sweepResume, 8);
+            if (!sweepProxy) ZXWaitSemaphore(sweepSem, 6);
+            NSString *txnHost = @"?";
+            @try {
+                id t2 = [c2 valueForKey:@"_transaction"];
+                id r2 = t2 ? [t2 valueForKey:@"request"] : nil;
+                id h2 = r2 ? [r2 valueForKey:@"_extensionContextHost"] : nil;
+                txnHost = h2 ? NSStringFromClass([h2 class]) : @"nil";
+            }
+            @catch (NSException *ex) {}
+            ZXWeChatLog([NSString stringWithFormat:@"mask=%ld resumed=%d err=%@ proxy=%@ host=%@\n",
+                         (long)mask.integerValue, resumed,
+                         sweepErr ? sweepErr.localizedDescription : @"nil",
+                         sweepProxy ? NSStringFromClass([sweepProxy class]) : @"nil", txnHost], NO);
+            if (sweepProxy) { sweepHit = sweepProxy; break; }
+        }
+
+        if (sweepHit && !extProxy) extProxy = sweepHit;
 
         if (!extProxy && !ZXWaitSemaphore(proxySem, 10)) {
             ZXWeChatLog(@"proxy=timeout\n", NO);
