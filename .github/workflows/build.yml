@@ -1,6 +1,6 @@
 name: Build ZXTouch Package
 
-run-name: v3.1.35
+run-name: v3.1.36
 
 on:
   push:

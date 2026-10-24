@@ -1775,6 +1775,7 @@ NSString *ZXWeChatSendDiagnostics(NSString *recipient, NSString *text)
     ZXEnsureIntentsLoaded();
     NSMutableString *log = [NSMutableString string];
 
+    @try {
     Class handleCls = NSClassFromString(@"INPersonHandle");
     Class personCls = NSClassFromString(@"INPerson");
     Class intentCls = NSClassFromString(@"INSendMessageIntent");
@@ -1782,6 +1783,16 @@ NSString *ZXWeChatSendDiagnostics(NSString *recipient, NSString *text)
     if (!handleCls || !personCls || !intentCls || !connCls) {
         return @"classes=missing";
     }
+
+    SEL handleSel = NSSelectorFromString(@"initWithValue:type:");
+    SEL personSel = NSSelectorFromString(@"initWithPersonHandle:nameComponents:displayName:image:contactIdentifier:customIdentifier:");
+    SEL intentSel = NSSelectorFromString(@"initWithRecipients:content:speakableGroupName:conversationIdentifier:serviceName:sender:");
+    SEL connSel = NSSelectorFromString(@"initWithIntent:");
+    [log appendFormat:@"selectors=%d%d%d%d\n",
+        [handleCls instancesRespondToSelector:handleSel],
+        [personCls instancesRespondToSelector:personSel],
+        [intentCls instancesRespondToSelector:intentSel],
+        [connCls instancesRespondToSelector:connSel]];
 
     id personHandle = ((id (*)(id, SEL, id, NSInteger))objc_msgSend)(
         [handleCls alloc], NSSelectorFromString(@"initWithValue:type:"), recipient, 0);
@@ -1829,6 +1840,10 @@ NSString *ZXWeChatSendDiagnostics(NSString *recipient, NSString *text)
         [log appendFormat:@"handle=%@ code=%ld class=%@\n",
             handleError ? handleError.localizedDescription : @"ok", (long)code,
             handleResponse ? NSStringFromClass([handleResponse class]) : @"nil"];
+    }
+    }
+    @catch (NSException *ex) {
+        [log appendFormat:@"exception=%@ reason=%@\n", ex.name, ex.reason];
     }
     return log;
 }
