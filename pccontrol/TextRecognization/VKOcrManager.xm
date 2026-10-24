@@ -123,6 +123,15 @@ Return the string from a area
     NSError *err = nil;
     [requestHandler performRequests:@[request] error:&err];
 
+    if (err && request.recognitionLevel != VNRequestTextRecognitionLevelFast)
+    {
+        NSLog(@"com.zjx.springboard: accurate ocr failed, retry with fast level. %@", err);
+        request.recognitionLevel = VNRequestTextRecognitionLevelFast;
+        requestResult = nil;
+        err = nil;
+        [requestHandler performRequests:@[request] error:&err];
+    }
+
     if (err)
     {
         NSLog(@"com.zjx.springboard: error happened while performing ocr. %@", err);
