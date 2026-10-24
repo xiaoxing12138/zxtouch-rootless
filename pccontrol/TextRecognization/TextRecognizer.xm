@@ -4,6 +4,25 @@
 #include "../Common.h"
 #include "../AlertBox.h"
 
+NSArray<NSString *> *ZXSupportedOCRLanguages(void)
+{
+    NSError *err = nil;
+    NSArray *languages = nil;
+    if (SYSTEM_VERSION_LESS_THAN(@"14.0"))
+    {
+        languages = [VNRecognizeTextRequest supportedRecognitionLanguagesForTextRecognitionLevel:VNRequestTextRecognitionLevelAccurate revision:1 error:&err];
+    }
+    else
+    {
+        languages = [VNRecognizeTextRequest supportedRecognitionLanguagesForTextRecognitionLevel:VNRequestTextRecognitionLevelAccurate revision:2 error:&err];
+        if (languages.count == 0)
+        {
+            languages = [VNRecognizeTextRequest supportedRecognitionLanguagesForTextRecognitionLevel:VNRequestTextRecognitionLevelAccurate revision:1 error:&err];
+        }
+    }
+    return languages ?: @[];
+}
+
 NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error)
 {
     if (SYSTEM_VERSION_LESS_THAN(@"13.0"))

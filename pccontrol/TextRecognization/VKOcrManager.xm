@@ -15,6 +15,7 @@
 
     CIImage *img;
     CGRect recognizeRect;
+    NSArray *requestedLanguages;
 }
 
 
@@ -127,9 +128,9 @@ Return the string from a area
         if (![revisions containsObject:rev]) [revisions addObject:rev];
     }
 
-    request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
     for (NSNumber *rev in revisions)
     {
+        request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
         @try
         {
             request.revision = (NSUInteger)[rev integerValue];
@@ -137,6 +138,10 @@ Return the string from a area
         @catch (NSException *e)
         {
             continue;
+        }
+        if (requestedLanguages.count)
+        {
+            request.recognitionLanguages = requestedLanguages;
         }
 
         requestResult = nil;
@@ -332,7 +337,7 @@ Return area that contain text
 }
 
 - (void)setLanguages:(NSArray*)languages {
-    request.recognitionLanguages = languages;
+    requestedLanguages = [languages copy];
 }
 
 - (void)setCorrection:(BOOL)correct {
