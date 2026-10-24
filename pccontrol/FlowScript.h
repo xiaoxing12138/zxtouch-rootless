@@ -29,10 +29,11 @@ extern NSString * const kFlowFindColor;  // 找色（条件）
 extern NSString * const kFlowCountColor; // 数色（条件）
 extern NSString * const kFlowImage;      // 识图（条件）
 extern NSString * const kFlowOCR;        // 识字（条件）
+extern NSString * const kFlowRunScript;  // 运行其他脚本
 extern NSString * const kFlowAppSwitch;  // 开关 App（打开 / 关闭）
 extern NSString * const kFlowWiFi;       // 开关 WiFi
 extern NSString * const kFlowScreenshot; // 截屏保存到相册
-extern NSString * const kFlowPaste;      // 粘贴
+extern NSString * const kFlowPaste;      // 输入（自定义文字 / 剪贴板）
 extern NSString * const kFlowRing;       // 响铃
 extern NSString * const kFlowVolume;     // 调整设备音量
 extern NSString * const kFlowStopAll;    // 停止所有脚本
@@ -81,6 +82,13 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 @property (nonatomic, copy) NSString *pickActionTitle;  // 空串 = 这个类型没有取点动作
 @property (nonatomic) FlowPickMode pickMode;
 @property (nonatomic, copy) NSArray<NSString *> *pickTargets;
+/// 同一个步骤里的第二个取点动作（例如识图：先选模板，再框选搜索区域）
+@property (nonatomic) FlowPickMode pickMode2;
+@property (nonatomic, copy) NSString *pickActionTitle2;
+@property (nonatomic, copy) NSArray<NSString *> *pickTargets2;
+/// 第二个取点动作只在某个字段等于某个值时才显示（空 = 一直显示）
+@property (nonatomic, copy, nullable) NSString *pick2GateKey;
+@property (nonatomic, copy, nullable) NSString *pick2GateValue;
 @property (nonatomic, copy) NSArray<FlowFieldSpec *> *fields;
 @end
 
@@ -105,7 +113,7 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 + (NSString *)summaryForStep:(NSDictionary *)step;
 /// 列表里那一行的小字（条件的成立/不成立动作数）；不需要就返回 nil
 + (nullable NSString *)detailForStep:(NSDictionary *)step;
-/// 粘贴步骤实际生效的方式：老脚本没有 Mode 键时，按「有文字=自定义文字，无文字=剪贴板」推断
+/// 输入步骤实际生效的方式（text / clipboard）
 + (NSString *)pasteModeForStep:(NSDictionary *)step;
 
 + (NSMutableDictionary *)emptyFlow;

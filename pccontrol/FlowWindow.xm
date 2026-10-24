@@ -20,6 +20,7 @@
 #import "TextRecognization/TextRecognizer.h"
 #import "Process.h"
 #import "UIKeyboard.h"
+#import "Play.h"
 
 #import <math.h>   // llround / fabs
 #import <stdio.h>  // snprintf
@@ -58,6 +59,23 @@ static void fwSubSizeSave(CGFloat w, CGFloat h)
     [[NSFileManager defaultManager] createDirectoryAtPath:[path stringByDeletingLastPathComponent]
                              withIntermediateDirectories:YES attributes:nil error:NULL];
     [config writeToFile:path atomically:YES];
+}
+
+// 脚本目录里所有 .bdl（含子目录），按文件名排序；选择器里存的是包的绝对路径
+static NSArray<NSDictionary *> *fwScriptItems(void)
+{
+    NSString *root = getScriptsFolder();
+    NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
+    NSDirectoryEnumerator *e = [[NSFileManager defaultManager] enumeratorAtPath:root];
+    for (NSString *rel in e) {
+        if (![rel.pathExtension isEqualToString:@"bdl"]) continue;
+        [items addObject:@{ @"name": rel.lastPathComponent,
+                            @"folder": rel.stringByDeletingLastPathComponent ?: @"",
+                            @"path": [root stringByAppendingPathComponent:rel] }];
+    }
+    return [items sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [a[@"name"] localizedCompare:b[@"name"]];
+    }];
 }
 
 static NSString * const kSubPosXKey = @"flow_sub_x";
@@ -121,6 +139,7 @@ static UIColor *fwTypeColor(NSString *kind)
     if ([kind isEqualToString:kFlowRing])      return fwColor(0xB8860B, 0xF0C24B);
     if ([kind isEqualToString:kFlowVolume])    return fwColor(0x00838F, 0x4DD0E1);
     if ([kind isEqualToString:kFlowStopAll])   return fwColor(0x8E24AA, 0xC77DFF);
+    if ([kind isEqualToString:kFlowRunScript]) return fwColor(0x00695C, 0x4DB6AC);
     if ([kind isEqualToString:kFlowCall])      return fwColor(0x2E7D32, 0x66BB6A);
     if ([kind isEqualToString:kFlowSMS])       return fwColor(0x0277BD, 0x4FC3F7);
     if ([kind isEqualToString:kFlowDingTalk])  return fwColor(0x1765AD, 0x4A90D9);
@@ -184,7 +203,8 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
     if ([kind isEqualToString:kFlowImage]) return @[
         @{ @"title": @"模板", @"keys": @[ @"Template" ] },
         @{ @"title": @"匹配", @"keys": @[ @"Threshold" ] },
-        @{ @"title": @"搜索区域（全 0 表示整屏）", @"keys": @[ @"X1", @"Y1", @"X2", @"Y2" ] },
+        @{ @"title": @"搜索范围", @"keys": @[ @"Mode" ] },
+        @{ @"title": @"区域", @"keys": @[ @"X1", @"Y1", @"X2", @"Y2" ] },
     ];
     if ([kind isEqualToString:kFlowOCR]) return @[
         @{ @"title": @"区域", @"keys": @[ @"X1", @"Y1", @"X2", @"Y2" ] },
@@ -197,9 +217,10 @@ static NSArray<NSDictionary<NSString *, id> *> *fwGroupsForKind(NSString *kind)
     ];
     if ([kind isEqualToString:kFlowWiFi]) return @[ @{ @"title": @"方式", @"keys": @[ @"Mode" ] } ];
     if ([kind isEqualToString:kFlowPaste]) return @[
-        @{ @"title": @"方式", @"keys": @[ @"Mode" ] },
+        @{ @"title": @"输入方式", @"keys": @[ @"Mode" ] },
         @{ @"title": @"自定义文字", @"keys": @[ @"Text" ] },
     ];
+    if ([kind isEqualToString:kFlowRunScript]) return @[ @{ @"title": @"脚本", @"keys": @[ @"Script" ] } ];
     if ([kind isEqualToString:kFlowRing]) return @[
         @{ @"title": @"铃声", @"keys": @[ @"Sound" ] },
         @{ @"title": @"时长", @"keys": @[ @"Seconds" ] },
@@ -735,6 +756,11 @@ static FlowWindow *_fwShared = nil;
 
 // 取点器要盖在游戏上，面板和子浮窗都先让开；取完再放回来
 - (void)beginPickingForStep:(NSMutableDictionary *)step type:(FlowStepType *)type {
+    [self beginPickingForStep:step mode:type.pickMode targets:type.pickTargets];
+}
+
+- (void)beginPickingForStep:(NSMutableDictionary *)step mode:(FlowPickMode)mode
+                    targets:(NSArray<NSString *> *)targets {
     [_scroll endEditing:YES];
     [_subScroll endEditing:YES];
     [_host flowHostSetCardHidden:YES];
@@ -744,32 +770,30 @@ static FlowWindow *_fwShared = nil;
     // 打开取点器时把这一步已保存的坐标带上：选择器一出现就落在上次保存的位置，不用重新找
     CGPoint pickStart = CGPointZero, pickEnd = CGPointZero;
     BOOL hasPickStart = NO, hasPickEnd = NO;
-    NSArray<NSString *> *pickTargets = type.pickTargets;
-    if ((type.pickMode == FlowPickModePoint || type.pickMode == FlowPickModeColor) && pickTargets.count >= 2) {
-        NSNumber *x = fwStepCoordNumber(step, pickTargets[0]);
-        NSNumber *y = fwStepCoordNumber(step, pickTargets[1]);
+    if ((mode == FlowPickModePoint || mode == FlowPickModeColor) && targets.count >= 2) {
+        NSNumber *x = fwStepCoordNumber(step, targets[0]);
+        NSNumber *y = fwStepCoordNumber(step, targets[1]);
         if (x && y) { pickStart = CGPointMake(x.doubleValue, y.doubleValue); hasPickStart = YES; }
-    } else if ((type.pickMode == FlowPickModePath || type.pickMode == FlowPickModeRect) && pickTargets.count >= 4) {
-        NSNumber *x1 = fwStepCoordNumber(step, pickTargets[0]);
-        NSNumber *y1 = fwStepCoordNumber(step, pickTargets[1]);
-        NSNumber *x2 = fwStepCoordNumber(step, pickTargets[2]);
-        NSNumber *y2 = fwStepCoordNumber(step, pickTargets[3]);
+    } else if ((mode == FlowPickModePath || mode == FlowPickModeRect) && targets.count >= 4) {
+        NSNumber *x1 = fwStepCoordNumber(step, targets[0]);
+        NSNumber *y1 = fwStepCoordNumber(step, targets[1]);
+        NSNumber *x2 = fwStepCoordNumber(step, targets[2]);
+        NSNumber *y2 = fwStepCoordNumber(step, targets[3]);
         if (x1 && y1) { pickStart = CGPointMake(x1.doubleValue, y1.doubleValue); hasPickStart = YES; }
         if (x2 && y2) { pickEnd = CGPointMake(x2.doubleValue, y2.doubleValue); hasPickEnd = YES; }
     }
-    [PickOverlay presentWithMode:type.pickMode
+    [PickOverlay presentWithMode:mode
                     initialStart:pickStart hasStart:hasPickStart
                       initialEnd:pickEnd hasEnd:hasPickEnd
                       completion:^(NSDictionary *result) {
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return;
-        [strongSelf applyPickResult:result toStep:step type:type];
+        [strongSelf applyPickResult:result toStep:step mode:mode targets:targets];
         [strongSelf autosave];
         [strongSelf->_host flowHostSetCardHidden:NO];
         strongSelf->_subDim.hidden = NO;
+        [strongSelf rebuildSubAnimated:NO];
         [strongSelf refreshKeepingScroll];
-        // 取完坐标就把参数子浮窗关掉，回到步骤列表；点「取消」不走这里，子浮窗留着
-        [strongSelf dismissSubAnimated:YES];
     } cancel:^{
         FlowWindow *strongSelf = weakSelf;
         if (!strongSelf) return;
@@ -786,13 +810,15 @@ static FlowWindow *_fwShared = nil;
     CGPoint point = [g locationInView:nil];
     if (g.state == UIGestureRecognizerStateBegan) {
         __weak typeof(self) weakSelf = self;
-        [PickOverlay beginFollowWithMode:type.pickMode completion:^(NSDictionary *result) {
+        NSArray<NSString *> *targets = type.pickTargets;
+        FlowPickMode mode = type.pickMode;
+        [PickOverlay beginFollowWithMode:mode completion:^(NSDictionary *result) {
             FlowWindow *s = weakSelf;
             if (!s) return;
-            [s applyPickResult:result toStep:step type:type];
+            [s applyPickResult:result toStep:step mode:mode targets:targets];
             [s autosave];
+            [s rebuildSubAnimated:NO];
             [s refreshKeepingScroll];
-            [s dismissSubAnimated:YES];
         } cancel:^{}];
         [PickOverlay updateFollowAtWindowPoint:point];
     } else if (g.state == UIGestureRecognizerStateChanged) {
@@ -804,12 +830,12 @@ static FlowWindow *_fwShared = nil;
     }
 }
 
-- (void)applyPickResult:(NSDictionary *)result toStep:(NSMutableDictionary *)step type:(FlowStepType *)type {
-    NSArray<NSString *> *targets = type.pickTargets;
+- (void)applyPickResult:(NSDictionary *)result toStep:(NSMutableDictionary *)step mode:(FlowPickMode)mode
+               targets:(NSArray<NSString *> *)targets {
     if (targets.count == 0) return;
 
-    if (type.pickMode == FlowPickModePoint || type.pickMode == FlowPickModePath ||
-        type.pickMode == FlowPickModeRect) {
+    if (mode == FlowPickModePoint || mode == FlowPickModePath ||
+        mode == FlowPickModeRect) {
         // 起点 / 终点分开写：滑动要的是方向，不能被外接矩形抹掉
         CGPoint start = [result[kPickStart] CGPointValue];
         CGPoint end = [result[kPickEnd] CGPointValue];
@@ -818,23 +844,23 @@ static FlowWindow *_fwShared = nil;
         for (NSUInteger i = 0; i < targets.count && i < values.count; i++) {
             step[targets[i]] = values[i];
         }
-    } else if (type.pickMode == FlowPickModeColor) {
+    } else if (mode == FlowPickModeColor) {
         CGPoint point = [result[kPickStart] CGPointValue];
         step[targets[0]] = @(llround(point.x));
         if (targets.count > 1) step[targets[1]] = @(llround(point.y));
         if ([result[kPickHex] length] > 0) step[@"Color"] = result[kPickHex];
-    } else if (type.pickMode == FlowPickModeTemplate) {
+    } else if (mode == FlowPickModeTemplate) {
         if ([result[kPickTemplate] length] > 0) step[targets[0]] = result[kPickTemplate];
     }
 }
 
 // 取点按钮右侧的回显：已经取到的值
-- (NSString *)pickDetailForStep:(NSDictionary *)step type:(FlowStepType *)type {
-    NSArray<NSString *> *t = type.pickTargets;
+- (NSString *)pickDetailForStep:(NSDictionary *)step mode:(FlowPickMode)mode
+                        targets:(NSArray<NSString *> *)t {
     NSString *(^v)(NSUInteger) = ^NSString *(NSUInteger i) {
         return (i < t.count) ? [FlowScript textForValue:step[t[i]]] : @"";
     };
-    switch (type.pickMode) {
+    switch (mode) {
         case FlowPickModePoint:
             return [NSString stringWithFormat:@"%@, %@", v(0), v(1)];
         case FlowPickModeColor:
@@ -2031,7 +2057,8 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
 
         if (type.pickMode != FlowPickModeNone) {
             UIView *pick = [strongSelf makeActionRow:type.pickActionTitle
-                                              detail:[strongSelf pickDetailForStep:step type:type]
+                                              detail:[strongSelf pickDetailForStep:step mode:type.pickMode
+                                                                           targets:type.pickTargets]
                                                color:ZXPalette(ZXPalAccent) primary:YES symbol:@"scope" width:w
                                               action:^{ [strongSelf beginPickingForStep:step type:type]; }];
             if (type.pickMode == FlowPickModePoint || type.pickMode == FlowPickModeColor) {
@@ -2045,12 +2072,32 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
             y = [strongSelf subAddRow:pick y:y];
         }
 
+        if (type.pickMode2 != FlowPickModeNone) {
+            BOOL showAlt = YES;
+            if (type.pick2GateKey.length > 0) {
+                id gate = step[type.pick2GateKey];
+                showAlt = [gate isKindOfClass:[NSString class]] && [gate isEqualToString:type.pick2GateValue];
+            }
+            if (showAlt) {
+                y += 2;
+                UIView *alt = [strongSelf makeActionRow:type.pickActionTitle2
+                                                 detail:[strongSelf pickDetailForStep:step mode:type.pickMode2
+                                                                              targets:type.pickTargets2]
+                                                  color:ZXPalette(ZXPalAccent) primary:NO symbol:@"rectangle.dashed" width:w
+                                                 action:^{
+                    [strongSelf beginPickingForStep:step mode:type.pickMode2 targets:type.pickTargets2];
+                }];
+                y = [strongSelf subAddRow:alt y:y];
+            }
+        }
+
         NSArray<NSDictionary<NSString *, id> *> *groups = fwGroupsForKind(step[@"Kind"]);
         NSMutableSet<NSString *> *used = [NSMutableSet set];
         // 取点行已经承载了这些字段（坐标 / 模板名），下面不再重复铺输入框
         [used addObjectsFromArray:type.pickTargets];
+        [used addObjectsFromArray:type.pickTargets2];
         for (NSDictionary<NSString *, id> *group in groups) {
-            // 粘贴步骤：方式选「剪贴板」时不显示「自定义文字」输入框
+            // 输入步骤：方式选「剪贴板」时不显示「自定义文字」输入框
             if ([type.kind isEqualToString:kFlowPaste] &&
                 [group[@"keys"] containsObject:@"Text"] &&
                 ![[FlowScript pasteModeForStep:step] isEqualToString:@"text"]) {
@@ -2308,7 +2355,22 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         NSError *error = nil;
         inputTextFromRawData(raw, &error);
         if (error) {
-            showAlertBox(@"粘贴", error.localizedDescription ?: @"执行失败。", 2);
+            showAlertBox(@"输入", error.localizedDescription ?: @"执行失败。", 2);
+            return;
+        }
+        ZXStepRunWait(0.3);
+    } else if ([kind isEqualToString:kFlowRunScript]) {
+        NSString *path = [step[@"Script"] isKindOfClass:[NSString class]] ? step[@"Script"] : @"";
+        if (path.length == 0) {
+            showAlertBox(@"运行其他脚本", @"还没有选择要运行的脚本。", 2);
+            return;
+        }
+        NSMutableData *keep = nil;
+        UInt8 *raw = fwRawBuffer(path, &keep);
+        NSError *error = nil;
+        playScript(raw, &error);
+        if (error) {
+            showAlertBox(@"运行其他脚本", error.localizedDescription ?: @"执行失败。", 2);
             return;
         }
         ZXStepRunWait(0.3);
@@ -2464,12 +2526,16 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
         NSString *path = [kFlowTemplateFolder stringByAppendingPathComponent:name.length ? name : @"未框选.png"];
         double threshold = fwStepNumber(step, @"Threshold", 0.8);
-        NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
-        NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
-        NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
-        NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
-        NSInteger x = MIN(left, right), y = MIN(top, bottom);
-        NSInteger w = labs(right - left), h = labs(bottom - top);
+        NSInteger x = 0, y = 0, w = 0, h = 0;
+        NSString *imageMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"full";
+        if ([imageMode isEqualToString:@"area"]) {
+            NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
+            NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
+            NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
+            NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
+            x = MIN(left, right); y = MIN(top, bottom);
+            w = labs(right - left); h = labs(bottom - top);
+        }
         NSMutableData *keep = nil;
         UInt8 *raw = fwRawBuffer([NSString stringWithFormat:@"%@;;0;;%@;;0.8;;%ld;;%ld;;%ld;;%ld", path, [FlowScript textForValue:@(threshold)], (long)x, (long)y, (long)w, (long)h], &keep);
         float best = 0;
@@ -2815,9 +2881,10 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     BOOL integer = spec.integer;
     __weak typeof(self) weakSelf = self;
 
-    // 从列表里选（已安装 App / 系统铃声）：不手打，点开列表选
+    // 从列表里选（已安装 App / 系统铃声 / 已安装脚本）：不手打，点开列表选
     if (spec.pickerKind.length > 0) {
         NSString *current = [step[key] isKindOfClass:[NSString class]] ? step[key] : @"";
+        if ([spec.pickerKind isEqualToString:@"script"]) current = current.lastPathComponent ?: @"";
         return [self makeActionRow:spec.title
                             detail:(current.length > 0 ? current : @"点这里选择")
                              color:ZXPalette(ZXPalAccent) primary:NO
@@ -2855,8 +2922,10 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 {
     NSString *key = spec.key;
     BOOL isApp = [spec.pickerKind isEqualToString:@"app"];
+    BOOL isScript = [spec.pickerKind isEqualToString:@"script"];
     NSArray<NSDictionary *> *apps = isApp ? ZXInstalledApplications() : nil;
-    NSArray<NSDictionary *> *sounds = isApp ? nil : ZXRingtoneItems();
+    NSArray<NSDictionary *> *sounds = (!isApp && !isScript) ? ZXRingtoneItems() : nil;
+    NSArray<NSDictionary *> *scripts = isScript ? fwScriptItems() : nil;
 
     __weak typeof(self) weakSelf = self;
     NSString *title = [NSString stringWithFormat:@"选择%@", spec.title ?: @"项目"];
@@ -2925,6 +2994,22 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                 for (NSDictionary *app in system) addRow(app[@"name"], app[@"bundle"], app[@"bundle"]);
             }
             if (user.count == 0 && system.count == 0) addRow(@"没有找到 App", nil, @"");
+        } else if (isScript) {
+            NSMutableArray *matched = [NSMutableArray array];
+            for (NSDictionary *item in scripts) {
+                NSString *name = item[@"name"] ?: @"";
+                if (q.length > 0 && ![name localizedCaseInsensitiveContainsString:q]) continue;
+                [matched addObject:item];
+            }
+            if (matched.count > 0) {
+                section(@"脚本");
+                for (NSDictionary *item in matched) {
+                    NSString *folder = item[@"folder"] ?: @"";
+                    addRow(item[@"name"], folder.length ? folder : nil, item[@"path"]);
+                }
+            } else {
+                addRow(@"没有找到脚本", nil, @"");
+            }
         } else {
             NSMutableArray *user = [NSMutableArray array];
             NSMutableArray *system = [NSMutableArray array];
@@ -2954,7 +3039,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         CGFloat y = 8.0f;
 
         UITextField *search = [[UITextField alloc] initWithFrame:CGRectMake(8.0f, y, inner, 34.0f)];
-        search.placeholder = isApp ? @"搜索 App" : @"搜索铃声";
+        search.placeholder = isApp ? @"搜索 App" : (isScript ? @"搜索脚本" : @"搜索铃声");
         search.font = [UIFont systemFontOfSize:13];
         search.textColor = ZXPalette(ZXPalText);
         search.backgroundColor = ZXPalette(ZXPalField);

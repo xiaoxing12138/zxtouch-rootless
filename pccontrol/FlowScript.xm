@@ -44,6 +44,7 @@ NSString * const kFlowFindColor = @"findColor";
 NSString * const kFlowCountColor = @"countColor";
 NSString * const kFlowImage = @"image";
 NSString * const kFlowOCR = @"ocr";
+NSString * const kFlowRunScript = @"runScript";
 NSString * const kFlowAppSwitch = @"appSwitch";
 NSString * const kFlowWiFi = @"wifi";
 NSString * const kFlowScreenshot = @"screenshot";
@@ -224,13 +225,22 @@ static NSString *fwSimValue(id value)
         image.pickActionTitle = @"从屏幕框选模板";
         image.pickMode = FlowPickModeTemplate;
         image.pickTargets = @[@"Template"];
+        image.pickActionTitle2 = @"从屏幕框选识别区域";
+        image.pickMode2 = FlowPickModeRect;
+        image.pickTargets2 = @[@"X1", @"Y1", @"X2", @"Y2"];
+        image.pick2GateKey = @"Mode";
+        image.pick2GateValue = @"area";
+        FlowFieldSpec *imageMode = [FlowFieldSpec key:@"Mode" title:@"搜索范围" integer:NO def:@"full"];
+        imageMode.choiceTitles = @[ @"全屏", @"自定义区域" ];
+        imageMode.choiceValues = @[ @"full", @"area" ];
         image.fields = @[
             [FlowFieldSpec key:@"Template" title:@"模板图（用下面的按钮框选）" integer:NO def:@""],
             [FlowFieldSpec numKey:@"Threshold" title:@"相似度（0-1）" integer:NO def:@"0.8"],
-            [FlowFieldSpec key:@"X1" title:@"搜索区左（0 表示整屏）" integer:YES def:@"0"],
-            [FlowFieldSpec key:@"Y1" title:@"搜索区上" integer:YES def:@"0"],
-            [FlowFieldSpec key:@"X2" title:@"搜索区右" integer:YES def:@"0"],
-            [FlowFieldSpec key:@"Y2" title:@"搜索区下" integer:YES def:@"0"],
+            imageMode,
+            [FlowFieldSpec key:@"X1" title:@"区域左" integer:YES def:@"0"],
+            [FlowFieldSpec key:@"Y1" title:@"区域上" integer:YES def:@"0"],
+            [FlowFieldSpec key:@"X2" title:@"区域右" integer:YES def:@"0"],
+            [FlowFieldSpec key:@"Y2" title:@"区域下" integer:YES def:@"0"],
         ];
 
         // 识字：把框选区域里的文字/数字识别出来，只用来判断，不改变脚本流程
@@ -277,12 +287,12 @@ static NSString *fwSimValue(id value)
         screenshot.hint = @"「截屏保存」在后台截当前屏幕并存进相册，不会弹出系统截图预览。";
         screenshot.fields = @[];
 
-        // 粘贴：从剪贴板粘贴，或输入自定义文字，由「方式」决定
-        FlowStepType *paste = [self type:kFlowPaste title:@"粘贴" symbol:@"doc.on.clipboard" condition:NO];
+        // 输入：从剪贴板粘贴，或输入自定义文字，由「输入方式」决定
+        FlowStepType *paste = [self type:kFlowPaste title:@"输入" symbol:@"keyboard.fill" condition:NO];
         paste.category = kCatApp;
-        FlowFieldSpec *pasteMode = [FlowFieldSpec key:@"Mode" title:@"方式" integer:NO def:@"clipboard"];
-        pasteMode.choiceTitles = @[ @"剪贴板", @"自定义文字" ];
-        pasteMode.choiceValues = @[ @"clipboard", @"text" ];
+        FlowFieldSpec *pasteMode = [FlowFieldSpec key:@"Mode" title:@"输入方式" integer:NO def:@"text"];
+        pasteMode.choiceTitles = @[ @"自定义文字", @"剪贴板" ];
+        pasteMode.choiceValues = @[ @"text", @"clipboard" ];
         paste.fields = @[
             pasteMode,
             [FlowFieldSpec key:@"Text" title:@"自定义文字" integer:NO def:@""],
@@ -313,6 +323,14 @@ static NSString *fwSimValue(id value)
         FlowStepType *stopAll = [self type:kFlowStopAll title:@"停止所有脚本" symbol:@"stop.circle.fill" condition:NO];
         stopAll.category = kCatFlow;
         stopAll.fields = @[];
+
+        // 运行其他脚本：选一个已安装的脚本，启动它（不会等它跑完）
+        FlowStepType *runScript = [self type:kFlowRunScript title:@"运行其他脚本" symbol:@"play.circle.fill" condition:NO];
+        runScript.category = kCatFlow;
+        runScript.hint = @"启动选中的脚本后立刻继续执行当前流程，不会等它跑完。";
+        FlowFieldSpec *runScriptPicker = [FlowFieldSpec key:@"Script" title:@"要运行的脚本" integer:NO def:@""];
+        runScriptPicker.pickerKind = @"script";
+        runScript.fields = @[ runScriptPicker ];
 
         // 打电话 / 发短信：号码 + 正文 + 用哪张卡
         FlowStepType *call = [self type:kFlowCall title:@"打电话" symbol:@"phone.fill" condition:NO];
@@ -355,8 +373,8 @@ static NSString *fwSimValue(id value)
         wechat.hint = @"「发微信」目前是占位步骤，放进流程里不会真正发送，后续版本再接。";
         wechat.fields = @[];
 
-        types = @[tap, swipe, wait, toast, color, findColor, image, ocr,
-                  stopAll, appSwitch, wifi, screenshot, paste, volume,
+        types = @[tap, swipe, wait, toast, color, findColor, countColor, image, ocr,
+                  stopAll, runScript, appSwitch, wifi, screenshot, paste, volume,
                   ring, call, sms, dingtalk, wecom, wechat];
     });
     return types;
@@ -379,6 +397,9 @@ static NSString *fwSimValue(id value)
     type.pickActionTitle = @"";
     type.pickMode = FlowPickModeNone;
     type.pickTargets = @[];
+    type.pickMode2 = FlowPickModeNone;
+    type.pickActionTitle2 = @"";
+    type.pickTargets2 = @[];
     type.fields = @[];
     return type;
 }
@@ -471,9 +492,7 @@ static NSString *fwSimValue(id value)
 + (NSString *)pasteModeForStep:(NSDictionary *)step
 {
     NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"";
-    if (mode.length > 0) return mode;
-    NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
-    return text.length > 0 ? @"text" : @"clipboard";
+    return mode.length > 0 ? mode : @"text";
 }
 
 + (NSString *)summaryForStep:(NSDictionary *)step
@@ -520,8 +539,15 @@ static NSString *fwSimValue(id value)
     }
     if ([kind isEqualToString:kFlowImage]) {
         NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
-        return [NSString stringWithFormat:@"如果画面里有模板「%@」（≥%@）",
-                name.length ? name : @"未框选", [self textForValue:step[@"Threshold"]]];
+        NSString *imageMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"full";
+        NSString *where = @"全屏";
+        if ([imageMode isEqualToString:@"area"]) {
+            where = [NSString stringWithFormat:@"(%@,%@)-(%@,%@)",
+                     [self textForValue:step[@"X1"]], [self textForValue:step[@"Y1"]],
+                     [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]]];
+        }
+        return [NSString stringWithFormat:@"如果 %@ 里有模板「%@」（≥%@）",
+                where, name.length ? name : @"未框选", [self textForValue:step[@"Threshold"]]];
     }
     if ([kind isEqualToString:kFlowOCR]) {
         NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
@@ -572,6 +598,11 @@ static NSString *fwSimValue(id value)
     }
     if ([kind isEqualToString:kFlowStopAll]) {
         return @"停止所有脚本";
+    }
+    if ([kind isEqualToString:kFlowRunScript]) {
+        NSString *path = [step[@"Script"] isKindOfClass:[NSString class]] ? step[@"Script"] : @"";
+        return [NSString stringWithFormat:@"运行脚本「%@」",
+                path.length ? path.lastPathComponent.stringByDeletingPathExtension : @"（未选择）"];
     }
     if ([kind isEqualToString:kFlowCall]) {
         NSString *number = [step[@"Number"] isKindOfClass:[NSString class]] ? step[@"Number"] : @"";
@@ -976,10 +1007,14 @@ static NSString *fwSimValue(id value)
     } else if ([kind isEqualToString:kFlowImage]) {
         NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
         NSString *path = [kFlowTemplateFolder stringByAppendingPathComponent:name.length ? name : @"未框选.png"];
-        NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
-        NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
-        NSInteger x = MIN(left, right), y = MIN(top, bottom);
-        NSInteger w = labs(right - left), h = labs(bottom - top);
+        NSString *imageMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"full";
+        NSInteger x = 0, y = 0, w = 0, h = 0;
+        if ([imageMode isEqualToString:@"area"]) {
+            NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
+            NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
+            x = MIN(left, right); y = MIN(top, bottom);
+            w = labs(right - left); h = labs(bottom - top);
+        }
         condition = [NSString stringWithFormat:@"找图(\"%@\", %@, %ld, %ld, %ld, %ld)",
                      path, [self textForValue:step[@"Threshold"]], (long)x, (long)y, (long)w, (long)h];
     } else if ([kind isEqualToString:kFlowOCR]) {
@@ -1084,7 +1119,7 @@ static NSString *fwSimValue(id value)
     } else if ([kind isEqualToString:kFlowPaste]) {
         NSString *mode = [self pasteModeForStep:step];
         NSString *text = [NSString stringWithFormat:@"%@", step[@"Text"] ?: @""];
-        if ([mode isEqualToString:@"text"] && text.length > 0) {
+        if ([mode isEqualToString:@"text"]) {
             text = [text stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
             line = [NSString stringWithFormat:@"设备.insert_text(\"%@\")", text];
         } else {
@@ -1107,6 +1142,10 @@ static NSString *fwSimValue(id value)
         }
     } else if ([kind isEqualToString:kFlowStopAll]) {
         line = @"设备.stop_all_scripts()";
+    } else if ([kind isEqualToString:kFlowRunScript]) {
+        NSString *path = [NSString stringWithFormat:@"%@", step[@"Script"] ?: @""];
+        path = [path stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+        line = [NSString stringWithFormat:@"设备.play_script(\"%@\")", path];
     } else if ([kind isEqualToString:kFlowCall]) {
         NSString *number = [NSString stringWithFormat:@"%@", step[@"Number"] ?: @""];
         number = [number stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
