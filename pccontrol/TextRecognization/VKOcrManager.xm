@@ -101,7 +101,7 @@ static void ZXOcrDebugLog(NSString *text)
         {
             request.revision = 1;
         }
-        else if (SYSTEM_VERSION_LESS_THAN(@"18.0"))
+        else if (SYSTEM_VERSION_LESS_THAN(@"16.0"))
         {
             request.revision = 2;
         }
