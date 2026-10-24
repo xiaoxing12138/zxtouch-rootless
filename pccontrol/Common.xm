@@ -1729,6 +1729,110 @@ BOOL ZXSendWeCom(NSString *webhook, NSString *text, NSError **error)
     return ZXPostJSON(url, payload, error);
 }
 
+@interface INPersonHandle : NSObject
+- (instancetype)initWithValue:(NSString *)value type:(NSInteger)type;
+@end
+
+@interface INPerson : NSObject
+- (instancetype)initWithPersonHandle:(id)handle nameComponents:(id)components
+                         displayName:(NSString *)displayName image:(id)image
+                   contactIdentifier:(NSString *)contactIdentifier
+                    customIdentifier:(NSString *)customIdentifier;
+@end
+
+@interface INSendMessageIntent : NSObject
+- (instancetype)initWithRecipients:(NSArray *)recipients content:(NSString *)content
+                speakableGroupName:(id)groupName conversationIdentifier:(NSString *)conversationIdentifier
+                        serviceName:(NSString *)serviceName sender:(id)sender;
+@end
+
+@interface INCExtensionConnection : NSObject
+- (instancetype)initWithIntent:(id)intent;
+@property (nonatomic, readonly) id appProxy;
+- (void)resumeWithCompletionHandler:(void (^)(NSError *error))handler;
+@end
+
+@interface INCExtensionProxy : NSObject
+- (void)handleIntentWithCompletionHandler:(void (^)(id response, NSError *error))handler;
+@end
+
+static void ZXEnsureIntentsLoaded(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        dlopen("/System/Library/Frameworks/Intents.framework/Intents", RTLD_NOW);
+        dlopen("/System/Library/PrivateFrameworks/IntentsCore.framework/IntentsCore", RTLD_NOW);
+    });
+}
+
+static BOOL ZXWaitSemaphore(dispatch_semaphore_t sem, double seconds)
+{
+    return dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(seconds * NSEC_PER_SEC))) == 0;
+}
+
+NSString *ZXWeChatSendDiagnostics(NSString *recipient, NSString *text)
+{
+    ZXEnsureIntentsLoaded();
+    NSMutableString *log = [NSMutableString string];
+
+    Class handleCls = NSClassFromString(@"INPersonHandle");
+    Class personCls = NSClassFromString(@"INPerson");
+    Class intentCls = NSClassFromString(@"INSendMessageIntent");
+    Class connCls = NSClassFromString(@"INCExtensionConnection");
+    if (!handleCls || !personCls || !intentCls || !connCls) {
+        return @"classes=missing";
+    }
+
+    id personHandle = ((id (*)(id, SEL, id, NSInteger))objc_msgSend)(
+        [handleCls alloc], NSSelectorFromString(@"initWithValue:type:"), recipient, 0);
+    id person = ((id (*)(id, SEL, id, id, id, id, id, id))objc_msgSend)(
+        [personCls alloc],
+        NSSelectorFromString(@"initWithPersonHandle:nameComponents:displayName:image:contactIdentifier:customIdentifier:"),
+        personHandle, nil, recipient, nil, nil, nil);
+    id intent = ((id (*)(id, SEL, id, id, id, id, id, id))objc_msgSend)(
+        [intentCls alloc],
+        NSSelectorFromString(@"initWithRecipients:content:speakableGroupName:conversationIdentifier:serviceName:sender:"),
+        person ? @[person] : @[], text ?: @"", nil, nil, nil, nil);
+    [log appendFormat:@"person=%@ intent=%@\n", person ? @"ok" : @"nil", intent ? @"ok" : @"nil"];
+    if (!intent) return log;
+
+    id conn = ((id (*)(id, SEL, id))objc_msgSend)([connCls alloc], NSSelectorFromString(@"initWithIntent:"), intent);
+    if (!conn) return [log stringByAppendingString:@"connection=nil"];
+
+    dispatch_semaphore_t resumeSem = dispatch_semaphore_create(0);
+    __block NSError *resumeError = nil;
+    ((void (*)(id, SEL, id))objc_msgSend)(conn, NSSelectorFromString(@"resumeWithCompletionHandler:"),
+        ^(NSError *err) {
+            resumeError = err;
+            dispatch_semaphore_signal(resumeSem);
+        });
+    if (!ZXWaitSemaphore(resumeSem, 10)) return [log stringByAppendingString:@"resume=timeout"];
+    [log appendFormat:@"resume=%@\n", resumeError ? resumeError.localizedDescription : @"ok"];
+
+    INCExtensionProxy *proxy = ((id (*)(id, SEL))objc_msgSend)(conn, NSSelectorFromString(@"appProxy"));
+    [log appendFormat:@"proxy=%@\n", proxy ? NSStringFromClass([proxy class]) : @"nil"];
+    if (!proxy) return log;
+
+    dispatch_semaphore_t handleSem = dispatch_semaphore_create(0);
+    __block id handleResponse = nil;
+    __block NSError *handleError = nil;
+    ((void (*)(id, SEL, id))objc_msgSend)(proxy, NSSelectorFromString(@"handleIntentWithCompletionHandler:"),
+        ^(id response, NSError *err) {
+            handleResponse = response;
+            handleError = err;
+            dispatch_semaphore_signal(handleSem);
+        });
+    if (!ZXWaitSemaphore(handleSem, 20)) {
+        [log appendString:@"handle=timeout\n"];
+    } else {
+        NSInteger code = handleResponse ? ((NSInteger (*)(id, SEL))objc_msgSend)(handleResponse, NSSelectorFromString(@"code")) : -999;
+        [log appendFormat:@"handle=%@ code=%ld class=%@\n",
+            handleError ? handleError.localizedDescription : @"ok", (long)code,
+            handleResponse ? NSStringFromClass([handleResponse class]) : @"nil"];
+    }
+    return log;
+}
+
 NSInteger ZXHTTPRequest(NSString *method, NSString *url, NSString *headers, NSString *body,
                         double timeout, NSString **textOut, NSError **error)
 {

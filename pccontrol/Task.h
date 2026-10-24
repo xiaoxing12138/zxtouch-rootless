@@ -70,6 +70,8 @@
 #define TASK_INTENT_PROBE 55
 // 56：读取 55 落盘的探测结果（无载荷）
 #define TASK_INTENT_PROBE_READ 56
+// 57：后台发微信（载荷 收件人;;内容）
+#define TASK_WECHAT_SEND 57
 
 #define TASK_UPDATE_CACHE 90
 

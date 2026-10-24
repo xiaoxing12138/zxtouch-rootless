@@ -104,7 +104,7 @@ static NSString *ZXIntentProbeJSON(void)
 
     id p = provider ? [[provider alloc] init] : nil;
     NSArray *actions = nil;
-    NSError *queryError = nil;
+    NSString *queryError = nil;
     out[@"queryStarted"] = @(p != nil);
 
     if (p)
@@ -1415,6 +1415,17 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             NSString *path = @"/var/mobile/Library/ZXTouch/intent_probe.json";
             NSString *json = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL];
             notifyClient((UInt8*)[[@"0;;" stringByAppendingString:(json ?: @"{}")] UTF8String], writeStreamRef);
+        }
+    }
+    else if (taskType == TASK_WECHAT_SEND)
+    {
+        @autoreleasepool {
+            NSString *data = eventData ? [NSString stringWithUTF8String:(const char *)eventData] : @"";
+            NSArray *parts = [data componentsSeparatedByString:@";;"];
+            NSString *recipient = parts.count > 0 ? parts[0] : @"";
+            NSString *text = parts.count > 1 ? parts[1] : @"";
+            NSString *log = ZXWeChatSendDiagnostics(recipient, text);
+            notifyClient((UInt8*)[[@"0;;" stringByAppendingString:(log ?: @"")] UTF8String], writeStreamRef);
         }
     }
     else if (taskType == TASK_UPDATE_CACHE)
