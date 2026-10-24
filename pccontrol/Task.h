@@ -68,6 +68,8 @@
 #define TASK_SAVE_SCREENSHOT 54
 // 55：诊断微信快捷指令动作（临时）；返回 0;;<JSON>
 #define TASK_INTENT_PROBE 55
+// 56：读取 55 落盘的探测结果（无载荷）
+#define TASK_INTENT_PROBE_READ 56
 
 #define TASK_UPDATE_CACHE 90
 

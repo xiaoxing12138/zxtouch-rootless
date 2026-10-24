@@ -53,6 +53,17 @@ static int getTaskType(UInt8* dataArray)
 	return taskType;
 }
 
+static NSString *ZXProbeWrite(NSDictionary *out)
+{
+    NSData *data = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
+    NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"{}";
+    [[NSFileManager defaultManager] createDirectoryAtPath:@"/var/mobile/Library/ZXTouch"
+                              withIntermediateDirectories:YES attributes:nil error:NULL];
+    [json writeToFile:@"/var/mobile/Library/ZXTouch/intent_probe.json" atomically:YES
+              encoding:NSUTF8StringEncoding error:NULL];
+    return json;
+}
+
 static NSString *ZXIntentProbeJSON(void)
 {
     NSMutableDictionary *out = [NSMutableDictionary dictionary];
@@ -94,19 +105,60 @@ static NSString *ZXIntentProbeJSON(void)
     id p = provider ? [[provider alloc] init] : nil;
     NSArray *actions = nil;
     NSError *queryError = nil;
-    SEL sel = NSSelectorFromString(@"actionsForBundleIdentifier:error:");
-    if (p && [p respondsToSelector:sel]) {
-        NSMethodSignature *sig = [p methodSignatureForSelector:sel];
-        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-        inv.target = p;
-        inv.selector = sel;
-        NSString *bid = @"com.tencent.xin";
-        [inv setArgument:&bid atIndex:2];
-        [inv setArgument:&queryError atIndex:3];
-        [inv invoke];
-        [inv getReturnValue:&actions];
+    out[@"queryStarted"] = @(p != nil);
+
+    if (p)
+    {
+        dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+        __block NSArray *found = nil;
+        __block NSString *failed = nil;
+
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            @autoreleasepool {
+                SEL sel = NSSelectorFromString(@"actionsForBundleIdentifier:error:");
+                if ([p respondsToSelector:sel])
+                {
+                    @try
+                    {
+                        NSMethodSignature *sig = [p methodSignatureForSelector:sel];
+                        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                        inv.target = p;
+                        inv.selector = sel;
+                        NSString *bid = @"com.tencent.xin";
+                        NSError *e = nil;
+                        [inv setArgument:&bid atIndex:2];
+                        [inv setArgument:&e atIndex:3];
+                        [inv invoke];
+                        NSArray *ret = nil;
+                        [inv getReturnValue:&ret];
+                        found = ret;
+                        failed = e.localizedDescription;
+                    }
+                    @catch (NSException *ex)
+                    {
+                        failed = ex.reason ?: @"exception";
+                    }
+                }
+                else
+                {
+                    failed = @"selector missing";
+                }
+                dispatch_semaphore_signal(sem);
+            }
+        });
+
+        if (dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC))) != 0)
+        {
+            out[@"queryTimeout"] = @YES;
+        }
+        else
+        {
+            actions = found;
+            queryError = failed;
+        }
     }
-    out[@"queryError"] = queryError.localizedDescription ?: @"";
+
+    out[@"queryError"] = queryError ?: @"";
 
     NSMutableArray *acts = [NSMutableArray array];
     for (id a in actions) {
@@ -156,19 +208,28 @@ static NSString *ZXIntentProbeJSON(void)
                 NSDictionary *ep = [NSDictionary dictionaryWithContentsOfFile:
                                     [ext stringByAppendingPathComponent:@"Info.plist"]];
                 id pts = ep[@"NSExtension"][@"NSExtensionPointIdentifier"];
-                [plugins addObject:[NSString stringWithFormat:@"%@ | %@", ex, pts ?: @""]];
+                id intents = ep[@"NSExtension"][@"NSExtensionAttributes"][@"INIntentsSupported"];
+                id intentDefs = ep[@"NSExtension"][@"NSExtensionAttributes"][@"IntentsSupported"];
+                [plugins addObject:[NSString stringWithFormat:@"%@ | %@ | intents=%@ | defs=%@",
+                                    ex, pts ?: @"", intents ?: @"", intentDefs ?: @""]];
             }
+
+            NSMutableArray *meta = [NSMutableArray array];
+            NSDirectoryEnumerator *walk = [[NSFileManager defaultManager] enumeratorAtPath:appPath];
+            for (NSString *rel in walk) {
+                if ([rel.pathExtension isEqualToString:@"appintents"] ||
+                    [rel.pathExtension isEqualToString:@"intentdefinition"] ||
+                    [rel.lastPathComponent isEqualToString:@"Metadata.appintents"]) {
+                    [meta addObject:rel];
+                    if (meta.count >= 60) break;
+                }
+            }
+            out[@"wechatIntentMeta"] = meta;
         }
     }
     out[@"wechatPlugins"] = plugins;
 
-    NSData *data = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
-    NSString *json = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"{}";
-    [[NSFileManager defaultManager] createDirectoryAtPath:@"/var/mobile/Library/ZXTouch"
-                              withIntermediateDirectories:YES attributes:nil error:NULL];
-    [json writeToFile:@"/var/mobile/Library/ZXTouch/intent_probe.json" atomically:YES
-              encoding:NSUTF8StringEncoding error:NULL];
-    return json;
+    return ZXProbeWrite(out);
 }
 
 /**
@@ -1346,6 +1407,14 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
         @autoreleasepool {
             NSString *json = ZXIntentProbeJSON();
             notifyClient((UInt8*)[[@"0;;" stringByAppendingString:json] UTF8String], writeStreamRef);
+        }
+    }
+    else if (taskType == TASK_INTENT_PROBE_READ)
+    {
+        @autoreleasepool {
+            NSString *path = @"/var/mobile/Library/ZXTouch/intent_probe.json";
+            NSString *json = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL];
+            notifyClient((UInt8*)[[@"0;;" stringByAppendingString:(json ?: @"{}")] UTF8String], writeStreamRef);
         }
     }
     else if (taskType == TASK_UPDATE_CACHE)

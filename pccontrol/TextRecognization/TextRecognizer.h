@@ -7,6 +7,7 @@
 #define TASK_GET_SUPPORTED_LANGUAGE_LIST 2
 
 NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error);
+NSArray<NSString *> *ZXSupportedOCRLanguages(void);
 
 #endif
 

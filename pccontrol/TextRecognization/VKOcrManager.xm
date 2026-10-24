@@ -121,21 +121,46 @@ Return the string from a area
     inProgress = true;
 
     NSError *err = nil;
-    [requestHandler performRequests:@[request] error:&err];
-
-    if (err && request.recognitionLevel != VNRequestTextRecognitionLevelFast)
+    NSMutableArray<NSNumber *> *revisions = [NSMutableArray array];
+    for (NSNumber *rev in @[@(request.revision), @2, @1])
     {
-        NSLog(@"com.zjx.springboard: accurate ocr failed, retry with fast level. %@", err);
+        if (![revisions containsObject:rev]) [revisions addObject:rev];
+    }
+
+    request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
+    for (NSNumber *rev in revisions)
+    {
+        @try
+        {
+            request.revision = (NSUInteger)[rev integerValue];
+        }
+        @catch (NSException *e)
+        {
+            continue;
+        }
+
+        requestResult = nil;
+        err = nil;
+        [requestHandler performRequests:@[request] error:&err];
+
+        if (!err) break;
+        NSLog(@"com.zjx.springboard: accurate ocr revision %d failed. %@", (int)[rev integerValue], err);
+    }
+
+    if (err)
+    {
         request.recognitionLevel = VNRequestTextRecognitionLevelFast;
         requestResult = nil;
         err = nil;
         [requestHandler performRequests:@[request] error:&err];
+        NSLog(@"com.zjx.springboard: accurate ocr failed, retried with fast level. %@", err);
     }
 
     if (err)
     {
         NSLog(@"com.zjx.springboard: error happened while performing ocr. %@", err);
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;执行文字识别（OCR）时出错，错误信息：%@\r\n", err]}];
+        inProgress = false;
         return nil;
     }
     
