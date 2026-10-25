@@ -82,8 +82,6 @@ NSInteger ZXHTTPRequest(NSString *method, NSString *url, NSString *headers, NSSt
 /// 在 SpringBoard 侧执行 sh -c；返回退出码，-1 表示启动失败，输出合并写进 outputOut
 NSInteger ZXRunShell(NSString *command, double timeout, NSString **outputOut, NSError **error);
 
-void ZXWeChatSendRun(NSString *recipient, NSString *text);
-
 /// 已安装 App（用户可见的），每项 @{ @"bundle": bundleIdentifier, @"name": displayName, @"system": @(是否系统自带) }
 NSArray<NSDictionary *> *ZXInstalledApplications(void);
 /// 全部铃声（用户导入的 + 系统自带的），每项 @{ @"name": 显示名, @"path": 绝对路径, @"user": @(是否用户导入) }

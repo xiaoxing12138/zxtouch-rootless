@@ -66,13 +66,6 @@
 #define TASK_SET_WIFI 53
 // 54：后台截屏存进相册（无载荷）；返回 0;;<文件路径>
 #define TASK_SAVE_SCREENSHOT 54
-// 55：诊断微信快捷指令动作（临时）；返回 0;;<JSON>
-#define TASK_INTENT_PROBE 55
-// 56：读取 55 落盘的探测结果（无载荷）
-#define TASK_INTENT_PROBE_READ 56
-// 57：后台发微信（载荷 收件人;;内容）
-#define TASK_WECHAT_SEND 57
-
 #define TASK_UPDATE_CACHE 90
 
 #define TASK_TEST 99

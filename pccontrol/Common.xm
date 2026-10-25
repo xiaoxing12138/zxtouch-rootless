@@ -1729,32 +1729,6 @@ BOOL ZXSendWeCom(NSString *webhook, NSString *text, NSError **error)
     return ZXPostJSON(url, payload, error);
 }
 
-static NSString * const ZXWeChatLogPath = @"/var/mobile/Library/ZXTouch/wechat_send.log";
-
-static void ZXWeChatLog(NSString *line, BOOL truncate)
-{
-    [[NSFileManager defaultManager] createDirectoryAtPath:@"/var/mobile/Library/ZXTouch"
-                              withIntermediateDirectories:YES attributes:nil error:NULL];
-    NSData *data = [(line ?: @"") dataUsingEncoding:NSUTF8StringEncoding];
-    if (truncate) {
-        [data writeToFile:ZXWeChatLogPath atomically:NO];
-        return;
-    }
-    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:ZXWeChatLogPath];
-    if (!fh) {
-        [data writeToFile:ZXWeChatLogPath atomically:NO];
-        return;
-    }
-    [fh seekToEndOfFile];
-    [fh writeData:data];
-    [fh closeFile];
-}
-
-void ZXWeChatSendRun(NSString *recipient, NSString *text)
-{
-    ZXWeChatLog([NSString stringWithFormat:@"微信发送暂未开放（%@）\n", recipient ?: @""], YES);
-}
-
 NSInteger ZXHTTPRequest(NSString *method, NSString *url, NSString *headers, NSString *body,
                         double timeout, NSString **textOut, NSError **error)
 {
