@@ -111,11 +111,6 @@ static void ZXOcrDebugLog(NSString *text)
             errorResult = error;
         }];
 
-        if ([request respondsToSelector:NSSelectorFromString(@"setUsesCPUOnly:")])
-        {
-            [request setValue:@YES forKey:@"usesCPUOnly"];
-        }
-
         // may cause crash
         if (SYSTEM_VERSION_LESS_THAN(@"14.0"))
         {
