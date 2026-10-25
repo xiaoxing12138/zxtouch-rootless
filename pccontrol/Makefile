@@ -43,7 +43,7 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 # ── zxrunner 守护进程 PoC（直接 clang 编译，不走 Theos program.mk）──
 ZXRUNNER_SRC = $(THEOS_PROJECT_DIR)/zxrunner/main.m
 ZXRUNNER_BIN = $(THEOS_OBJ_DIR)/zxrunner
-ZXRUNNER_ARCH = -arch arm64 -arch arm64e
+ZXRUNNER_ARCH = -arch arm64
 ZXRUNNER_CLANG = $(shell if command -v ccache >/dev/null 2>&1; then echo "ccache $(shell xcrun --find clang)"; else xcrun --find clang; fi)
 ZXRUNNER_SDK   = $(shell xcrun --sdk iphoneos --show-sdk-path)
 
