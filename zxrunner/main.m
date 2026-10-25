@@ -12,11 +12,160 @@
 #import <fcntl.h>
 #import <spawn.h>
 #import <string.h>
+#import <dlfcn.h>
 #import <Vision/Vision.h>
 #import <CoreImage/CoreImage.h>
 
 #define ZXRUNNER_SOCKET_PATH "/tmp/zxrunner.sock"
-#define ZXRUNNER_VERSION "1.0.0"
+#define ZXRUNNER_VERSION "1.1.0"
+
+#define ZXTESS_MAX_SLOTS 4
+
+typedef struct
+{
+    char *langs;
+    void *api;
+} ZXTessSlot;
+
+static ZXTessSlot g_tessSlots[ZXTESS_MAX_SLOTS];
+static int g_tessSlotCount = 0;
+static int g_tessLoadState = 0;
+static char g_tessError[256] = {0};
+
+static void *(*p_tessCreate)(void);
+static int (*p_tessInit3)(void *, const char *, const char *);
+static int (*p_tessSetVariable)(void *, const char *, const char *);
+static void (*p_tessSetPsm)(void *, int);
+static void (*p_tessSetImage2)(void *, void *);
+static char *(*p_tessGetText)(void *);
+static void (*p_tessDeleteText)(char *);
+static void (*p_tessDelete)(void *);
+static void *(*p_pixRead)(const char *);
+static void (*p_pixDestroy)(void **);
+
+static const char *zx_first_readable(const char *a, const char *b)
+{
+    if (access(a, R_OK) == 0) return a;
+    if (access(b, R_OK) == 0) return b;
+    return NULL;
+}
+
+static int zx_tess_load(void)
+{
+    if (g_tessLoadState != 0) return g_tessLoadState == 1 ? 0 : -1;
+    g_tessLoadState = -1;
+
+    const char *leptPath = zx_first_readable("/var/jb/usr/lib/liblept.5.dylib", "/usr/lib/liblept.5.dylib");
+    const char *tessPath = zx_first_readable("/var/jb/usr/lib/libtesseract.5.dylib", "/usr/lib/libtesseract.5.dylib");
+    if (!leptPath || !tessPath)
+    {
+        snprintf(g_tessError, sizeof(g_tessError), "OCR engine is not installed");
+        return -1;
+    }
+
+    void *lept = dlopen(leptPath, RTLD_NOW | RTLD_GLOBAL);
+    if (!lept)
+    {
+        snprintf(g_tessError, sizeof(g_tessError), "dlopen liblept failed");
+        return -1;
+    }
+    void *tess = dlopen(tessPath, RTLD_NOW | RTLD_LOCAL);
+    if (!tess)
+    {
+        snprintf(g_tessError, sizeof(g_tessError), "dlopen libtesseract failed");
+        return -1;
+    }
+
+    p_pixRead = (void *(*)(const char *))dlsym(lept, "pixRead");
+    p_pixDestroy = (void (*)(void **))dlsym(lept, "pixDestroy");
+    p_tessCreate = (void *(*)(void))dlsym(tess, "TessBaseAPICreate");
+    p_tessInit3 = (int (*)(void *, const char *, const char *))dlsym(tess, "TessBaseAPIInit3");
+    p_tessSetVariable = (int (*)(void *, const char *, const char *))dlsym(tess, "TessBaseAPISetVariable");
+    p_tessSetPsm = (void (*)(void *, int))dlsym(tess, "TessBaseAPISetPageSegMode");
+    p_tessSetImage2 = (void (*)(void *, void *))dlsym(tess, "TessBaseAPISetImage2");
+    p_tessGetText = (char *(*)(void *))dlsym(tess, "TessBaseAPIGetUTF8Text");
+    p_tessDeleteText = (void (*)(char *))dlsym(tess, "TessDeleteText");
+    p_tessDelete = (void (*)(void *))dlsym(tess, "TessBaseAPIDelete");
+
+    if (!p_pixRead || !p_pixDestroy || !p_tessCreate || !p_tessInit3 || !p_tessSetPsm ||
+        !p_tessSetImage2 || !p_tessGetText || !p_tessDeleteText || !p_tessDelete)
+    {
+        snprintf(g_tessError, sizeof(g_tessError), "missing OCR engine symbols");
+        return -1;
+    }
+
+    g_tessLoadState = 1;
+    return 0;
+}
+
+static void *zx_tess_api(const char *langs)
+{
+    for (int i = 0; i < g_tessSlotCount; i++)
+    {
+        if (strcmp(g_tessSlots[i].langs, langs) == 0) return g_tessSlots[i].api;
+    }
+
+    if (g_tessSlotCount >= ZXTESS_MAX_SLOTS)
+    {
+        p_tessDelete(g_tessSlots[0].api);
+        free(g_tessSlots[0].langs);
+        for (int i = 1; i < g_tessSlotCount; i++) g_tessSlots[i - 1] = g_tessSlots[i];
+        g_tessSlotCount--;
+    }
+
+    const char *dataPath = zx_first_readable("/var/jb/usr/share/tesseract-ocr/5/tessdata",
+                                            "/usr/share/tesseract-ocr/5/tessdata");
+    if (!dataPath)
+    {
+        snprintf(g_tessError, sizeof(g_tessError), "OCR language data is missing");
+        return NULL;
+    }
+
+    void *api = p_tessCreate();
+    if (!api)
+    {
+        snprintf(g_tessError, sizeof(g_tessError), "cannot create OCR engine");
+        return NULL;
+    }
+    if (p_tessInit3(api, dataPath, langs) != 0)
+    {
+        p_tessDelete(api);
+        snprintf(g_tessError, sizeof(g_tessError), "cannot load language data %s", langs);
+        return NULL;
+    }
+    if (p_tessSetVariable) p_tessSetVariable(api, "user_defined_dpi", "300");
+
+    g_tessSlots[g_tessSlotCount].langs = strdup(langs);
+    g_tessSlots[g_tessSlotCount].api = api;
+    g_tessSlotCount++;
+    return api;
+}
+
+static int send_json_object(int fd, NSDictionary *obj)
+{
+    NSData *data = [NSJSONSerialization dataWithJSONObject:obj options:0 error:NULL];
+    if (!data) return -1;
+
+    NSMutableData *out = [NSMutableData dataWithData:data];
+    [out appendBytes:"\r\n" length:2];
+
+    const uint8_t *p = out.bytes;
+    size_t left = out.length;
+    int total = 0;
+    while (left > 0)
+    {
+        ssize_t n = write(fd, p, left);
+        if (n <= 0)
+        {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        p += n;
+        left -= (size_t)n;
+        total += (int)n;
+    }
+    return total;
+}
 
 static int send_json_line(int fd, const char *type, const char *extra_json)
 {
@@ -223,6 +372,67 @@ static int handle_ocr(int client, NSDictionary *cmd)
     return 0;
 }
 
+static int handle_ocr_tess(int client, NSDictionary *cmd)
+{
+    NSString *path = cmd[@"path"];
+    NSString *langs = [cmd[@"langs"] isKindOfClass:[NSString class]] ? cmd[@"langs"] : @"";
+    int psm = [cmd[@"psm"] isKindOfClass:[NSNumber class]] ? [cmd[@"psm"] intValue] : 6;
+
+    if (path.length == 0)
+    {
+        send_json_object(client, @{ @"type": @"error", @"msg": @"missing path" });
+        return -1;
+    }
+    if (langs.length == 0) langs = @"chi_sim+eng";
+
+    if (zx_tess_load() != 0)
+    {
+        send_json_object(client, @{ @"type": @"error",
+                                    @"msg": [NSString stringWithUTF8String:g_tessError] });
+        return -1;
+    }
+
+    void *api = zx_tess_api(langs.UTF8String);
+    if (!api)
+    {
+        send_json_object(client, @{ @"type": @"error",
+                                    @"msg": [NSString stringWithUTF8String:g_tessError] });
+        return -1;
+    }
+
+    void *pix = p_pixRead(path.fileSystemRepresentation);
+    if (!pix)
+    {
+        send_json_object(client, @{ @"type": @"error", @"msg": @"cannot read image" });
+        return -1;
+    }
+
+    p_tessSetPsm(api, psm);
+    p_tessSetImage2(api, pix);
+    char *text = p_tessGetText(api);
+    p_pixDestroy(&pix);
+
+    if (!text)
+    {
+        send_json_object(client, @{ @"type": @"error", @"msg": @"ocr returned nothing" });
+        return -1;
+    }
+
+    NSString *utf8 = [NSString stringWithUTF8String:text] ?: @"";
+    p_tessDeleteText(text);
+
+    NSMutableArray *lines = [NSMutableArray array];
+    for (NSString *line in [utf8 componentsSeparatedByString:@"\n"])
+    {
+        NSString *trimmed = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (trimmed.length > 0) [lines addObject:trimmed];
+    }
+
+    send_json_object(client, @{ @"type": @"lines", @"data": lines });
+    send_json_object(client, @{ @"type": @"done" });
+    return 0;
+}
+
 static void handle_client(int client)
 {
     char linebuf[8192];
@@ -249,6 +459,8 @@ static void handle_client(int client)
                     handle_spawn_python(client, cmd);
                 } else if ([c isEqualToString:@"ocr"]) {
                     handle_ocr(client, cmd);
+                } else if ([c isEqualToString:@"ocr_tess"]) {
+                    handle_ocr_tess(client, cmd);
                 } else if ([c isEqualToString:@"ping"]) {
                     send_json_line(client, "pong", "\"v\":\"" ZXRUNNER_VERSION "\"");
                 } else {

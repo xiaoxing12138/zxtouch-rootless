@@ -11,33 +11,6 @@
 
 static BOOL sVisionUnavailable = NO;
 
-static NSString *ZXTesseractBinaryPath(void)
-{
-    static NSString *cached;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        for (NSString *candidate in @[@"/var/jb/usr/bin/tesseract", @"/usr/bin/tesseract"])
-        {
-            if (access(candidate.fileSystemRepresentation, X_OK) == 0)
-            {
-                cached = candidate;
-                break;
-            }
-        }
-        if (!cached) cached = @"/var/jb/usr/bin/tesseract";
-    });
-    return cached;
-}
-
-static NSString *ZXTessdataPrefix(void)
-{
-    if ([ZXTesseractBinaryPath() hasPrefix:@"/var/jb"])
-    {
-        return @"/var/jb/usr/share/tesseract-ocr/5/tessdata";
-    }
-    return @"/usr/share/tesseract-ocr/5/tessdata";
-}
-
 static CIContext *ZXOcrCIContext(void)
 {
     static CIContext *ctx;
@@ -48,13 +21,15 @@ static CIContext *ZXOcrCIContext(void)
     return ctx;
 }
 
-static int ZXRunnerRun(NSString *binary, NSArray *args, NSString *cwd, NSDictionary *env, NSString **errorText)
+static NSArray *ZXRunnerRequest(NSDictionary *command, NSString **errorText)
 {
+    if (errorText) *errorText = nil;
+
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
     {
         if (errorText) *errorText = @"无法创建本地套接字";
-        return -1;
+        return nil;
     }
 
     struct sockaddr_un addr = {0};
@@ -64,42 +39,41 @@ static int ZXRunnerRun(NSString *binary, NSArray *args, NSString *cwd, NSDiction
     {
         close(fd);
         if (errorText) *errorText = @"无法连接 zxrunner 守护进程，请重启设备后重试";
-        return -1;
+        return nil;
     }
 
-    NSDictionary *cmd = @{
-        @"cmd": @"spawn_python",
-        @"path": binary ?: @"",
-        @"script": @"",
-        @"cwd": cwd ?: @"",
-        @"env": env ?: @{},
-        @"args": args ?: @[]
-    };
-    NSError *jsonErr = nil;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:cmd options:0 error:&jsonErr];
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:command options:0 error:NULL];
     if (!jsonData)
     {
         close(fd);
-        if (errorText) *errorText = jsonErr.localizedDescription;
-        return -1;
+        if (errorText) *errorText = @"无法编码文字识别请求";
+        return nil;
     }
 
     NSMutableData *payload = [NSMutableData dataWithData:jsonData];
     [payload appendBytes:"\r\n" length:2];
-    if (write(fd, payload.bytes, payload.length) != (ssize_t)payload.length)
+    const uint8_t *wp = payload.bytes;
+    size_t wleft = payload.length;
+    while (wleft > 0)
     {
-        close(fd);
-        if (errorText) *errorText = @"向守护进程写入命令失败";
-        return -1;
+        ssize_t n = write(fd, wp, wleft);
+        if (n <= 0)
+        {
+            if (errno == EINTR) continue;
+            close(fd);
+            if (errorText) *errorText = @"向守护进程写入命令失败";
+            return nil;
+        }
+        wp += n;
+        wleft -= (size_t)n;
     }
 
-    char lineBuf[16384];
-    int linePos = 0;
-    NSMutableString *stream = [NSMutableString string];
-    int code = -1;
-    BOOL finished = NO;
+    NSMutableArray *responses = [NSMutableArray array];
+    NSMutableData *pending = [NSMutableData data];
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:30.0];
+    BOOL finished = NO;
 
+    char buf[4096];
     while (!finished)
     {
         if ([deadline timeIntervalSinceNow] < 0)
@@ -116,51 +90,57 @@ static int ZXRunnerRun(NSString *binary, NSArray *args, NSString *cwd, NSDiction
         if (ret < 0 && errno == EINTR) continue;
         if (ret <= 0) continue;
 
-        char ch;
-        ssize_t nr = read(fd, &ch, 1);
+        ssize_t nr = read(fd, buf, sizeof(buf));
         if (nr <= 0) break;
+        [pending appendBytes:buf length:(NSUInteger)nr];
 
-        if (ch == '\n')
+        while (!finished)
         {
-            if (linePos > 0 && lineBuf[linePos - 1] == '\r') linePos--;
-            lineBuf[linePos] = '\0';
-            NSData *lineData = [NSData dataWithBytes:lineBuf length:linePos];
-            NSDictionary *resp = [NSJSONSerialization JSONObjectWithData:lineData options:0 error:NULL];
-            if ([resp isKindOfClass:[NSDictionary class]])
+            const uint8_t *bytes = pending.bytes;
+            NSUInteger len = pending.length;
+            NSUInteger cut = 0;
+            BOOL found = NO;
+
+            for (NSUInteger i = 0; i < len; i++)
             {
-                NSString *type = resp[@"type"];
-                if ([type isEqualToString:@"stdout"] || [type isEqualToString:@"stderr"])
+                if (bytes[i] != '\n') continue;
+                NSUInteger lineLen = i;
+                if (lineLen > 0 && bytes[lineLen - 1] == '\r') lineLen--;
+                cut = i + 1;
+                found = YES;
+                if (lineLen > 0)
                 {
-                    [stream appendString:(resp[@"data"] ?: @"")];
+                    NSData *lineData = [NSData dataWithBytes:bytes length:lineLen];
+                    NSDictionary *resp = [NSJSONSerialization JSONObjectWithData:lineData options:0 error:NULL];
+                    if ([resp isKindOfClass:[NSDictionary class]])
+                    {
+                        [responses addObject:resp];
+                        NSString *type = resp[@"type"];
+                        if ([type isEqualToString:@"done"] || [type isEqualToString:@"exit"])
+                        {
+                            finished = YES;
+                        }
+                        else if ([type isEqualToString:@"error"])
+                        {
+                            if (errorText) *errorText = resp[@"msg"] ?: @"守护进程返回错误";
+                            finished = YES;
+                        }
+                    }
                 }
-                else if ([type isEqualToString:@"exit"])
-                {
-                    code = [resp[@"code"] intValue];
-                    finished = YES;
-                }
-                else if ([type isEqualToString:@"error"])
-                {
-                    if (errorText) *errorText = resp[@"msg"] ?: @"守护进程返回错误";
-                    finished = YES;
-                }
+                break;
             }
-            linePos = 0;
-        }
-        else if (linePos < (int)sizeof(lineBuf) - 1)
-        {
-            lineBuf[linePos++] = ch;
+
+            if (found) [pending replaceBytesInRange:NSMakeRange(0, cut) withBytes:NULL length:0];
+            else break;
         }
     }
 
     close(fd);
 
-    if (code != 0 && errorText && (*errorText).length == 0)
-    {
-        NSString *trimmed = [stream stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        *errorText = trimmed.length ? trimmed : @"文字识别引擎执行失败";
-    }
-
-    return code;
+    if (errorText && (*errorText).length > 0) return nil;
+    if (!finished && errorText) *errorText = @"守护进程连接中断";
+    if (errorText && (*errorText).length > 0) return nil;
+    return responses;
 }
 
 static void ZXOcrDebugLog(NSString *text)
@@ -483,11 +463,9 @@ Return the string from a area
 
     NSString *tag = [NSString stringWithFormat:@"ocr_%d_%u", (int)getpid(), arc4random()];
     NSString *imagePath = [folder stringByAppendingPathComponent:[tag stringByAppendingString:@".jpg"]];
-    NSString *outBase = [folder stringByAppendingPathComponent:tag];
-    NSString *tsvPath = [outBase stringByAppendingString:@".tsv"];
 
     CGRect area = sourceRect;
-    CGFloat upscale = (area.size.height > 0 && area.size.height <= 120.0) ? 2.0 : 1.0;
+    CGFloat upscale = (area.size.height > 0 && area.size.height <= 50.0) ? 2.0 : 1.0;
 
     CGFloat sourceHeight = sourceImage.extent.size.height;
     CGRect cropRect = CGRectMake(area.origin.x, sourceHeight - area.origin.y - area.size.height,
@@ -517,81 +495,35 @@ Return the string from a area
         return nil;
     }
 
-    NSDictionary *env = @{
-        @"PATH": @"/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin",
-        @"TESSDATA_PREFIX": ZXTessdataPrefix(),
-        @"HOME": @"/var/mobile"
-    };
-    NSArray *args = @[@"-l", [self tesseractLanguages], @"--psm", @"6", imagePath, outBase, @"tsv"];
-
     NSString *execError = nil;
-    int code = ZXRunnerRun(ZXTesseractBinaryPath(), args, ZXTessdataPrefix(), env, &execError);
-    NSData *tsvData = (code == 0) ? [NSData dataWithContentsOfFile:tsvPath] : nil;
+    NSArray *responses = ZXRunnerRequest(@{
+        @"cmd": @"ocr_tess",
+        @"path": imagePath,
+        @"langs": [self tesseractLanguages],
+        @"psm": @6
+    }, &execError);
 
     [[NSFileManager defaultManager] removeItemAtPath:imagePath error:NULL];
-    [[NSFileManager defaultManager] removeItemAtPath:tsvPath error:NULL];
 
-    if (code != 0 || !tsvData)
+    if (!responses)
     {
         NSString *reason = execError.length ? execError : @"未获得识别结果";
-        ZXOcrDebugLog([NSString stringWithFormat:@"tesseract failed code=%d reason=%@\n", code, reason]);
+        ZXOcrDebugLog([NSString stringWithFormat:@"tesseract failed reason=%@\n", reason]);
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;文字识别（OCR）失败：%@\r\n", reason]}];
         return nil;
     }
 
-    NSString *tsv = [[NSString alloc] initWithData:tsvData encoding:NSUTF8StringEncoding];
     NSMutableArray *result = [NSMutableArray array];
-    NSString *lineKey = nil;
-    NSMutableString *lineText = nil;
-    CGRect lineBounds = CGRectZero;
-
-    for (NSString *row in [tsv componentsSeparatedByString:@"\n"])
+    for (NSDictionary *resp in responses)
     {
-        NSArray *columns = [row componentsSeparatedByString:@"\t"];
-        if (columns.count != 12 || ![columns[0] isEqualToString:@"5"]) continue;
-
-        NSString *word = columns[11];
-        if (word.length == 0 || [columns[10] doubleValue] < 30.0) continue;
-
-        CGFloat left = [columns[6] doubleValue] / upscale + area.origin.x;
-        CGFloat top = [columns[7] doubleValue] / upscale + area.origin.y;
-        CGFloat width = [columns[8] doubleValue] / upscale;
-        CGFloat height = [columns[9] doubleValue] / upscale;
-
-        NSString *key = [NSString stringWithFormat:@"%@-%@-%@", columns[1], columns[3], columns[4]];
-        if (lineKey && ![key isEqualToString:lineKey])
+        if (![resp[@"type"] isEqualToString:@"lines"]) continue;
+        NSArray *lines = resp[@"data"];
+        if (![lines isKindOfClass:[NSArray class]]) continue;
+        for (id item in lines)
         {
-            [result addObject:[NSString stringWithFormat:@"%@,,%d,,%d,,%d,,%d", lineText,
-                               (int)lineBounds.origin.x, (int)lineBounds.origin.y,
-                               (int)lineBounds.size.width, (int)lineBounds.size.height]];
-            lineKey = nil;
-            lineText = nil;
-            lineBounds = CGRectZero;
+            if (![item isKindOfClass:[NSString class]] || [item length] == 0) continue;
+            [result addObject:[NSString stringWithFormat:@"%@,,0,,0,,0,,0", item]];
         }
-        if (!lineKey)
-        {
-            lineKey = key;
-            lineText = [NSMutableString string];
-        }
-        if (lineText.length > 0)
-        {
-            unichar previous = [lineText characterAtIndex:lineText.length - 1];
-            unichar current = [word characterAtIndex:0];
-            if (previous < 0x2E80 || current < 0x2E80) [lineText appendString:@" "];
-        }
-        [lineText appendString:word];
-
-        CGRect wordRect = CGRectMake(left, top, width, height);
-        lineBounds = (lineBounds.size.width == 0 && lineBounds.size.height == 0)
-                         ? wordRect
-                         : CGRectUnion(lineBounds, wordRect);
-    }
-
-    if (lineText.length > 0)
-    {
-        [result addObject:[NSString stringWithFormat:@"%@,,%d,,%d,,%d,,%d", lineText,
-                           (int)lineBounds.origin.x, (int)lineBounds.origin.y,
-                           (int)lineBounds.size.width, (int)lineBounds.size.height]];
     }
 
     return [result componentsJoinedByString:@";;"];
