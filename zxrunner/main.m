@@ -52,27 +52,30 @@ static const char *zx_first_readable(const char *a, const char *b)
 
 static int zx_tess_load(void)
 {
-    if (g_tessLoadState != 0) return g_tessLoadState == 1 ? 0 : -1;
-    g_tessLoadState = -1;
+    if (g_tessLoadState == 1) return 0;
+    if (g_tessLoadState == -1) return -1;
 
     const char *leptPath = zx_first_readable("/var/jb/usr/lib/liblept.5.dylib", "/usr/lib/liblept.5.dylib");
     const char *tessPath = zx_first_readable("/var/jb/usr/lib/libtesseract.5.dylib", "/usr/lib/libtesseract.5.dylib");
     if (!leptPath || !tessPath)
     {
         snprintf(g_tessError, sizeof(g_tessError), "OCR engine is not installed");
+        g_tessLoadState = -2;
         return -1;
     }
 
     void *lept = dlopen(leptPath, RTLD_NOW | RTLD_GLOBAL);
     if (!lept)
     {
-        snprintf(g_tessError, sizeof(g_tessError), "dlopen liblept failed");
+        snprintf(g_tessError, sizeof(g_tessError), "dlopen liblept failed: %s", dlerror());
+        g_tessLoadState = -1;
         return -1;
     }
     void *tess = dlopen(tessPath, RTLD_NOW | RTLD_LOCAL);
     if (!tess)
     {
-        snprintf(g_tessError, sizeof(g_tessError), "dlopen libtesseract failed");
+        snprintf(g_tessError, sizeof(g_tessError), "dlopen libtesseract failed: %s", dlerror());
+        g_tessLoadState = -1;
         return -1;
     }
 
@@ -91,6 +94,7 @@ static int zx_tess_load(void)
         !p_tessSetImage2 || !p_tessGetText || !p_tessDeleteText || !p_tessDelete)
     {
         snprintf(g_tessError, sizeof(g_tessError), "missing OCR engine symbols");
+        g_tessLoadState = -1;
         return -1;
     }
 
@@ -514,6 +518,22 @@ static int run_server(void)
     }
 
     NSLog(@"[zxrunner] listening on %s (uid=%d)", ZXRUNNER_SOCKET_PATH, getuid());
+
+    if (zx_tess_load() == 0)
+    {
+        if (zx_tess_api("chi_sim+eng"))
+        {
+            NSLog(@"[zxrunner] ocr warmed up");
+        }
+        else
+        {
+            NSLog(@"[zxrunner] ocr warm up failed: %s", g_tessError);
+        }
+    }
+    else
+    {
+        NSLog(@"[zxrunner] ocr engine unavailable: %s", g_tessError);
+    }
 
     while (1) {
         int client = accept(server, NULL, NULL);

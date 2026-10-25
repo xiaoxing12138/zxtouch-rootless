@@ -52,12 +52,12 @@ zxrunner-bin:
 	$(ZXRUNNER_CLANG) $(ZXRUNNER_ARCH) \
 		-isysroot $(ZXRUNNER_SDK) \
 		-target arm64-apple-ios15.0 \
+		-Wl,-rpath,$(ZX_ROOT_PREFIX)/usr/lib -Wl,-rpath,$(ZX_ROOT_PREFIX)/usr/local/lib \
 		-fobjc-arc -framework Foundation -framework Vision -framework CoreImage -framework CoreML \
 		$(ZXRUNNER_SRC) -o $(ZXRUNNER_BIN)
 	@echo "zxrunner built → $(ZXRUNNER_BIN)"
-	@echo "==> Signing zxrunner with ldid (roothide entitlement)..."
-	ldid -S $(ZXRUNNER_BIN)
-	ldid -sentitlements=$(THEOS_PROJECT_DIR)/zxrunner/resources/zxrunner-entitlements.plist $(ZXRUNNER_BIN) 2>/dev/null || ldid -S $(ZXRUNNER_BIN)
+	@echo "==> Signing zxrunner with ldid (ocr dlopen entitlement)..."
+	ldid -S$(THEOS_PROJECT_DIR)/zxrunner/resources/zxrunner-entitlements.plist $(ZXRUNNER_BIN)
 	@echo "zxrunner signed"
 
 # 把 daemon 二进制和 plist 放进 layout/ 让 Theos 自动打进 deb
