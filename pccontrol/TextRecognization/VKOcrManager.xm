@@ -1,6 +1,167 @@
 #import "VKOcrManager.h"
 #import "../Screen.h"
 #include "../Common.h"
+#import <sys/socket.h>
+#import <sys/un.h>
+#import <sys/select.h>
+#import <sys/time.h>
+#import <unistd.h>
+#import <errno.h>
+#import <stdlib.h>
+
+static BOOL sVisionUnavailable = NO;
+
+static NSString *ZXTesseractBinaryPath(void)
+{
+    static NSString *cached;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        for (NSString *candidate in @[@"/var/jb/usr/bin/tesseract", @"/usr/bin/tesseract"])
+        {
+            if (access(candidate.fileSystemRepresentation, X_OK) == 0)
+            {
+                cached = candidate;
+                break;
+            }
+        }
+        if (!cached) cached = @"/var/jb/usr/bin/tesseract";
+    });
+    return cached;
+}
+
+static NSString *ZXTessdataPrefix(void)
+{
+    if ([ZXTesseractBinaryPath() hasPrefix:@"/var/jb"])
+    {
+        return @"/var/jb/usr/share/tesseract-ocr/5/tessdata";
+    }
+    return @"/usr/share/tesseract-ocr/5/tessdata";
+}
+
+static CIContext *ZXOcrCIContext(void)
+{
+    static CIContext *ctx;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        ctx = [CIContext contextWithOptions:nil];
+    });
+    return ctx;
+}
+
+static int ZXRunnerRun(NSString *binary, NSArray *args, NSString *cwd, NSDictionary *env, NSString **errorText)
+{
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0)
+    {
+        if (errorText) *errorText = @"无法创建本地套接字";
+        return -1;
+    }
+
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, "/tmp/zxrunner.sock", sizeof(addr.sun_path) - 1);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        close(fd);
+        if (errorText) *errorText = @"无法连接 zxrunner 守护进程，请重启设备后重试";
+        return -1;
+    }
+
+    NSDictionary *cmd = @{
+        @"cmd": @"spawn_python",
+        @"path": binary ?: @"",
+        @"script": @"",
+        @"cwd": cwd ?: @"",
+        @"env": env ?: @{},
+        @"args": args ?: @[]
+    };
+    NSError *jsonErr = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:cmd options:0 error:&jsonErr];
+    if (!jsonData)
+    {
+        close(fd);
+        if (errorText) *errorText = jsonErr.localizedDescription;
+        return -1;
+    }
+
+    NSMutableData *payload = [NSMutableData dataWithData:jsonData];
+    [payload appendBytes:"\r\n" length:2];
+    if (write(fd, payload.bytes, payload.length) != (ssize_t)payload.length)
+    {
+        close(fd);
+        if (errorText) *errorText = @"向守护进程写入命令失败";
+        return -1;
+    }
+
+    char lineBuf[16384];
+    int linePos = 0;
+    NSMutableString *stream = [NSMutableString string];
+    int code = -1;
+    BOOL finished = NO;
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:30.0];
+
+    while (!finished)
+    {
+        if ([deadline timeIntervalSinceNow] < 0)
+        {
+            if (errorText) *errorText = @"文字识别执行超时";
+            break;
+        }
+
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(fd, &rfds);
+        struct timeval tv = { 0, 100 * 1000 };
+        int ret = select(fd + 1, &rfds, NULL, NULL, &tv);
+        if (ret < 0 && errno == EINTR) continue;
+        if (ret <= 0) continue;
+
+        char ch;
+        ssize_t nr = read(fd, &ch, 1);
+        if (nr <= 0) break;
+
+        if (ch == '\n')
+        {
+            if (linePos > 0 && lineBuf[linePos - 1] == '\r') linePos--;
+            lineBuf[linePos] = '\0';
+            NSData *lineData = [NSData dataWithBytes:lineBuf length:linePos];
+            NSDictionary *resp = [NSJSONSerialization JSONObjectWithData:lineData options:0 error:NULL];
+            if ([resp isKindOfClass:[NSDictionary class]])
+            {
+                NSString *type = resp[@"type"];
+                if ([type isEqualToString:@"stdout"] || [type isEqualToString:@"stderr"])
+                {
+                    [stream appendString:(resp[@"data"] ?: @"")];
+                }
+                else if ([type isEqualToString:@"exit"])
+                {
+                    code = [resp[@"code"] intValue];
+                    finished = YES;
+                }
+                else if ([type isEqualToString:@"error"])
+                {
+                    if (errorText) *errorText = resp[@"msg"] ?: @"守护进程返回错误";
+                    finished = YES;
+                }
+            }
+            linePos = 0;
+        }
+        else if (linePos < (int)sizeof(lineBuf) - 1)
+        {
+            lineBuf[linePos++] = ch;
+        }
+    }
+
+    close(fd);
+
+    if (code != 0 && errorText && (*errorText).length == 0)
+    {
+        NSString *trimmed = [stream stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        *errorText = trimmed.length ? trimmed : @"文字识别引擎执行失败";
+    }
+
+    return code;
+}
 
 static void ZXOcrDebugLog(NSString *text)
 {
@@ -18,6 +179,13 @@ static void ZXOcrDebugLog(NSString *text)
 }
 
 
+@interface VKOcrManager ()
+- (NSString *)recognizeWithVision:(NSError **)error;
+- (NSString *)recognizeWithTesseract:(NSError **)error;
+- (NSString *)tesseractLanguages;
+@end
+
+
 @implementation VKOcrManager
 {
     BOOL inProgress;
@@ -29,7 +197,9 @@ static void ZXOcrDebugLog(NSString *text)
     VNRecognizeTextRequest* request;
 
     CIImage *img;
+    CIImage *sourceImage;
     CGRect recognizeRect;
+    CGRect sourceRect;
     NSArray *requestedLanguages;
     CGFloat imageScale;
 }
@@ -54,6 +224,26 @@ static void ZXOcrDebugLog(NSString *text)
         }
 
         image = [image imageByApplyingOrientation:after];
+
+        sourceImage = image;
+
+        CGRect rawArea = aarea;
+        CGFloat sourceWidth = sourceImage.extent.size.width;
+        CGFloat sourceHeight = sourceImage.extent.size.height;
+        if (rawArea.origin.x == 0 && rawArea.origin.y == 0 &&
+            rawArea.size.width == 0 && rawArea.size.height == 0)
+        {
+            rawArea = CGRectMake(0, 0, sourceWidth, sourceHeight);
+        }
+        if (rawArea.origin.x + rawArea.size.width > sourceWidth)
+        {
+            rawArea.size.width = sourceWidth - rawArea.origin.x;
+        }
+        if (rawArea.origin.y + rawArea.size.height > sourceHeight)
+        {
+            rawArea.size.height = sourceHeight - rawArea.origin.y;
+        }
+        sourceRect = rawArea;
 
         CGFloat scale = 1.0;
         CGFloat longSide = MAX(image.extent.size.width, image.extent.size.height);
@@ -151,6 +341,29 @@ Return the string from a area
     }
     inProgress = true;
 
+    NSString *text = nil;
+    if (!sVisionUnavailable)
+    {
+        NSError *visionError = nil;
+        text = [self recognizeWithVision:&visionError];
+        if (text == nil)
+        {
+            if (visionError) sVisionUnavailable = YES;
+            NSLog(@"com.zjx.springboard: system ocr unavailable, falling back to tesseract. %@", visionError);
+            ZXOcrDebugLog([NSString stringWithFormat:@"vision unavailable: %@\n", visionError]);
+        }
+    }
+
+    if (text == nil)
+    {
+        text = [self recognizeWithTesseract:error];
+    }
+
+    inProgress = false;
+    return text;
+}
+
+- (NSString*)recognizeWithVision:(NSError**)error{
     NSError *err = nil;
     NSMutableArray<NSNumber *> *revisions = [NSMutableArray array];
     for (NSNumber *rev in @[@(request.revision), @2, @1])
@@ -197,18 +410,14 @@ Return the string from a area
 
     if (err)
     {
-        request.recognitionLevel = VNRequestTextRecognitionLevelFast;
-        requestResult = nil;
-        err = nil;
-        [requestHandler performRequests:@[request] error:&err];
-        NSLog(@"com.zjx.springboard: accurate ocr failed, retried with fast level. %@", err);
+        NSLog(@"com.zjx.springboard: accurate ocr failed on every revision, skip fast level. %@", err);
+        ZXOcrDebugLog([NSString stringWithFormat:@"accurate failed all revisions: %@\n", err]);
     }
 
     if (err)
     {
         NSLog(@"com.zjx.springboard: error happened while performing ocr. %@", err);
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;执行文字识别（OCR）时出错，错误信息：%@\r\n", err]}];
-        inProgress = false;
         return nil;
     }
     
@@ -232,8 +441,160 @@ Return the string from a area
         [stringList addObject:outputString];
     }
 
-    inProgress = false;
     return [stringList componentsJoinedByString:@";;"];
+}
+
+- (NSString *)tesseractLanguages
+{
+    if (requestedLanguages.count == 0) return @"chi_sim+eng";
+
+    NSMutableArray *mapped = [NSMutableArray array];
+    for (NSString *language in requestedLanguages)
+    {
+        NSString *lower = language.lowercaseString;
+        NSString *code = nil;
+        if ([lower hasPrefix:@"zh"]) code = @"chi_sim";
+        else if ([lower hasPrefix:@"en"]) code = @"eng";
+        else if ([lower hasPrefix:@"ja"]) code = @"jpn";
+        else if ([lower hasPrefix:@"ko"]) code = @"kor";
+        else if ([lower hasPrefix:@"ru"]) code = @"rus";
+        else if ([lower hasPrefix:@"fr"]) code = @"fra";
+        else if ([lower hasPrefix:@"de"]) code = @"deu";
+        else if ([lower hasPrefix:@"es"]) code = @"spa";
+        else if ([lower hasPrefix:@"it"]) code = @"ita";
+        else if ([lower hasPrefix:@"pt"]) code = @"por";
+        if (code && ![mapped containsObject:code]) [mapped addObject:code];
+    }
+    if (mapped.count == 0) [mapped addObject:@"chi_sim"];
+    if (![mapped containsObject:@"eng"]) [mapped addObject:@"eng"];
+    return [mapped componentsJoinedByString:@"+"];
+}
+
+- (NSString *)recognizeWithTesseract:(NSError **)error
+{
+    if (!sourceImage)
+    {
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;文字识别（OCR）失败：无法获取屏幕图像。\r\n"}];
+        return nil;
+    }
+
+    NSString *folder = @"/var/mobile/Library/ZXTouch/cache";
+    [[NSFileManager defaultManager] createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:NULL];
+
+    NSString *tag = [NSString stringWithFormat:@"ocr_%d_%u", (int)getpid(), arc4random()];
+    NSString *imagePath = [folder stringByAppendingPathComponent:[tag stringByAppendingString:@".jpg"]];
+    NSString *outBase = [folder stringByAppendingPathComponent:tag];
+    NSString *tsvPath = [outBase stringByAppendingString:@".tsv"];
+
+    CGRect area = sourceRect;
+    CGFloat upscale = (area.size.height > 0 && area.size.height <= 120.0) ? 2.0 : 1.0;
+
+    CGFloat sourceHeight = sourceImage.extent.size.height;
+    CGRect cropRect = CGRectMake(area.origin.x, sourceHeight - area.origin.y - area.size.height,
+                                 area.size.width, area.size.height);
+    if (cropRect.size.width <= 0 || cropRect.size.height <= 0)
+    {
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;文字识别（OCR）失败：识别区域为空。\r\n"}];
+        return nil;
+    }
+
+    CIImage *cropped = [sourceImage imageByCroppingToRect:cropRect];
+    if (upscale != 1.0)
+    {
+        cropped = [cropped imageByApplyingTransform:CGAffineTransformMakeScale(upscale, upscale)];
+    }
+    CGImageRef cgImage = [ZXOcrCIContext() createCGImage:cropped fromRect:cropped.extent];
+    if (!cgImage)
+    {
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;文字识别（OCR）失败：无法生成识别用图片。\r\n"}];
+        return nil;
+    }
+    NSData *jpeg = UIImageJPEGRepresentation([[UIImage alloc] initWithCGImage:cgImage], 0.92);
+    CGImageRelease(cgImage);
+    if (!jpeg || ![jpeg writeToFile:imagePath atomically:YES])
+    {
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;文字识别（OCR）失败：无法写入临时图片。\r\n"}];
+        return nil;
+    }
+
+    NSDictionary *env = @{
+        @"PATH": @"/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin",
+        @"TESSDATA_PREFIX": ZXTessdataPrefix(),
+        @"HOME": @"/var/mobile"
+    };
+    NSArray *args = @[@"-l", [self tesseractLanguages], @"--psm", @"6", imagePath, outBase, @"tsv"];
+
+    NSString *execError = nil;
+    int code = ZXRunnerRun(ZXTesseractBinaryPath(), args, ZXTessdataPrefix(), env, &execError);
+    NSData *tsvData = (code == 0) ? [NSData dataWithContentsOfFile:tsvPath] : nil;
+
+    [[NSFileManager defaultManager] removeItemAtPath:imagePath error:NULL];
+    [[NSFileManager defaultManager] removeItemAtPath:tsvPath error:NULL];
+
+    if (code != 0 || !tsvData)
+    {
+        NSString *reason = execError.length ? execError : @"未获得识别结果";
+        ZXOcrDebugLog([NSString stringWithFormat:@"tesseract failed code=%d reason=%@\n", code, reason]);
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;文字识别（OCR）失败：%@\r\n", reason]}];
+        return nil;
+    }
+
+    NSString *tsv = [[NSString alloc] initWithData:tsvData encoding:NSUTF8StringEncoding];
+    NSMutableArray *result = [NSMutableArray array];
+    NSString *lineKey = nil;
+    NSMutableString *lineText = nil;
+    CGRect lineBounds = CGRectZero;
+
+    for (NSString *row in [tsv componentsSeparatedByString:@"\n"])
+    {
+        NSArray *columns = [row componentsSeparatedByString:@"\t"];
+        if (columns.count != 12 || ![columns[0] isEqualToString:@"5"]) continue;
+
+        NSString *word = columns[11];
+        if (word.length == 0 || [columns[10] doubleValue] < 30.0) continue;
+
+        CGFloat left = [columns[6] doubleValue] / upscale + area.origin.x;
+        CGFloat top = [columns[7] doubleValue] / upscale + area.origin.y;
+        CGFloat width = [columns[8] doubleValue] / upscale;
+        CGFloat height = [columns[9] doubleValue] / upscale;
+
+        NSString *key = [NSString stringWithFormat:@"%@-%@-%@", columns[1], columns[3], columns[4]];
+        if (lineKey && ![key isEqualToString:lineKey])
+        {
+            [result addObject:[NSString stringWithFormat:@"%@,,%d,,%d,,%d,,%d", lineText,
+                               (int)lineBounds.origin.x, (int)lineBounds.origin.y,
+                               (int)lineBounds.size.width, (int)lineBounds.size.height]];
+            lineKey = nil;
+            lineText = nil;
+            lineBounds = CGRectZero;
+        }
+        if (!lineKey)
+        {
+            lineKey = key;
+            lineText = [NSMutableString string];
+        }
+        if (lineText.length > 0)
+        {
+            unichar previous = [lineText characterAtIndex:lineText.length - 1];
+            unichar current = [word characterAtIndex:0];
+            if (previous < 0x2E80 || current < 0x2E80) [lineText appendString:@" "];
+        }
+        [lineText appendString:word];
+
+        CGRect wordRect = CGRectMake(left, top, width, height);
+        lineBounds = (lineBounds.size.width == 0 && lineBounds.size.height == 0)
+                         ? wordRect
+                         : CGRectUnion(lineBounds, wordRect);
+    }
+
+    if (lineText.length > 0)
+    {
+        [result addObject:[NSString stringWithFormat:@"%@,,%d,,%d,,%d,,%d", lineText,
+                           (int)lineBounds.origin.x, (int)lineBounds.origin.y,
+                           (int)lineBounds.size.width, (int)lineBounds.size.height]];
+    }
+
+    return [result componentsJoinedByString:@";;"];
 }
 
 /*
