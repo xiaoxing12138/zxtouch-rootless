@@ -52,7 +52,7 @@ static NSArray *ZXRunnerRequest(NSDictionary *command, NSString **errorText)
 
     NSMutableData *payload = [NSMutableData dataWithData:jsonData];
     [payload appendBytes:"\r\n" length:2];
-    const uint8_t *wp = payload.bytes;
+    const uint8_t *wp = (const uint8_t *)payload.bytes;
     size_t wleft = payload.length;
     while (wleft > 0)
     {
@@ -96,7 +96,7 @@ static NSArray *ZXRunnerRequest(NSDictionary *command, NSString **errorText)
 
         while (!finished)
         {
-            const uint8_t *bytes = pending.bytes;
+            const uint8_t *bytes = (const uint8_t *)pending.bytes;
             NSUInteger len = pending.length;
             NSUInteger cut = 0;
             BOOL found = NO;
