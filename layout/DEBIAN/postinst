@@ -142,8 +142,16 @@ if [ -x "$DAEMON" ]; then
         "$LAUNCHCTL" bootstrap system "$DAEMON_PLIST" 2>/dev/null || true
         "$LAUNCHCTL" kickstart -k system/com.zjx.zxrunner 2>/dev/null || true
     fi
-    sleep 0.4
-    if [ ! -S /tmp/zxrunner.sock ]; then
+    # 服务是 launchd 起的看门狗 + 子进程服务，起来要一点时间；等够了再判断，
+    # 否则会误以为没起来、再补一个 nohup 实例，两个进程抢同一个 socket。
+    sleep 2
+    RUNNING=0
+    GREP="$JB/usr/bin/grep"
+    if [ ! -x "$GREP" ]; then GREP="/usr/bin/grep"; fi
+    if [ -x "$LAUNCHCTL" ] && "$LAUNCHCTL" print system/com.zjx.zxrunner 2>/dev/null | "$GREP" -q "pid = "; then
+        RUNNING=1
+    fi
+    if [ "$RUNNING" = "0" ] && [ ! -S /tmp/zxrunner.sock ]; then
         su mobile -c "nohup $DAEMON >/dev/null 2>&1 </dev/null &" 2>/dev/null || true
         sleep 0.5
     fi
