@@ -10,7 +10,7 @@
 #import "FlowWindow.h"       // 可视化流程编辑器（内容挂在本面板里）+ FlowEditorHost
 #import "FlowScript.h"       // bundleHasFlow：判断脚本包里有没有可视化流程
 #import "ScriptFloat.h"      // 面板遮罩要放行落在脚本悬浮球上的触摸
-#import "ZXScriptListView.h" // 脚本行：App 列表共用同一套
+#import "../zxtouch/zxtouch/ZXScriptListView.h" // 脚本行：App 列表共用同一套
 #import <UIKit/UIKit.h>
 
 static BOOL fnTouchOnUpperWindow(CGPoint point, CGFloat panelLevel)
