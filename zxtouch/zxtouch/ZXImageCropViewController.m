@@ -155,7 +155,11 @@
         CGFloat scale = maxSide / MAX(_stageSize.width, _stageSize.height);
         out = CGSizeMake(floor(_stageSize.width * scale), floor(_stageSize.height * scale));
     }
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:out];
+    UIGraphicsImageRendererFormat *format = [[UIGraphicsImageRendererFormat alloc] init];
+    format.scale = 1.0f;
+    format.opaque = NO;
+    format.preferredRange = UIGraphicsImageRendererFormatRangeStandard;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:out format:format];
     return [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
         CGContextRef c = ctx.CGContext;
         CGContextScaleCTM(c, out.width / self->_stageSize.width, out.height / self->_stageSize.height);
