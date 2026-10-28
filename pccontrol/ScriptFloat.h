@@ -18,6 +18,8 @@ BOOL ZXScriptFloatHitTestWindowPoint(CGPoint point, UIWindow *fromWindow);
 + (void)setBallEnabled:(BOOL)enabled forScriptPath:(NSString *)scriptPath;
 + (void)setBallLocked:(BOOL)locked forScriptPath:(NSString *)scriptPath;
 + (void)setBallIconMode:(NSInteger)mode forScriptPath:(NSString *)scriptPath;
++ (void)setBallImage:(UIImage *)image forScriptPath:(NSString *)scriptPath;
++ (void)setBallColorHex:(NSString *)hex forScriptPath:(NSString *)scriptPath;
 + (void)refreshPlayState;
 
 @end

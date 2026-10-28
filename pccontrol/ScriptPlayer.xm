@@ -12,6 +12,7 @@
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <sys/select.h>
+#import <sys/time.h>
 #include <errno.h>
 #include <unistd.h>
 #include <signal.h>
@@ -150,6 +151,66 @@ static NSString *ZXChildPath(NSString *path)
         return prefixed;
     }
     return path;
+}
+
+// 可视化流程里只要有一个「识字」步骤就算用到 OCR
+static BOOL ZXFlowUsesOCR(id node)
+{
+    if ([node isKindOfClass:[NSArray class]]) {
+        for (id item in (NSArray *)node) {
+            if (ZXFlowUsesOCR(item)) return YES;
+        }
+        return NO;
+    }
+    if (![node isKindOfClass:[NSDictionary class]]) return NO;
+    if ([node[@"Kind"] isEqualToString:@"ocr"]) return YES;
+    for (id value in [(NSDictionary *)node allValues]) {
+        if (ZXFlowUsesOCR(value)) return YES;
+    }
+    return NO;
+}
+
+static BOOL ZXBundleUsesOCR(NSString *bundlePath, NSString *entryFilePath, NSString *extension)
+{
+    if (![extension isEqualToString:@"py"]) return NO;
+
+    NSString *flowPath = [bundlePath stringByAppendingPathComponent:@"flow.plist"];
+    NSDictionary *flow = [NSDictionary dictionaryWithContentsOfFile:flowPath];
+    if ([flow isKindOfClass:[NSDictionary class]]) {
+        if (ZXFlowUsesOCR(flow[@"Steps"])) return YES;
+    }
+
+    NSString *source = [NSString stringWithContentsOfFile:entryFilePath encoding:NSUTF8StringEncoding error:NULL];
+    if (source.length == 0) return NO;
+    return [source containsString:@"ocr("] || [source containsString:@"识字("];
+}
+
+// 脚本里有 OCR 才让守护进程预热；预热在它自己的后台线程里跑，不挡脚本启动
+static void ZXWarmUpOCRForScript(NSString *bundlePath, NSString *entryFilePath, NSString *extension)
+{
+    if (!ZXBundleUsesOCR(bundlePath, entryFilePath, extension)) return;
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, "/tmp/zxrunner.sock", sizeof(addr.sun_path) - 1);
+
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        return;
+    }
+
+    struct timeval tv = { 2, 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    const char *payload = "{\"cmd\":\"ocr_warmup\"}\n";
+    if (write(fd, payload, strlen(payload)) > 0) {
+        char reply[128] = {0};
+        (void)read(fd, reply, sizeof(reply) - 1);
+    }
+    close(fd);
 }
 
 @implementation ScriptPlayer
@@ -317,7 +378,11 @@ static NSString *ZXChildPath(NSString *path)
 
     NSString *entryFilePath = [scriptBundlePath stringByAppendingPathComponent:entryFileName];
     NSLog(@"com.zjx.sprinboard: currently playing: %@. Repeat time: %d", entryFilePath, repeatTime);
-    
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+        ZXWarmUpOCRForScript(scriptBundlePath, entryFilePath, fileExtension);
+    });
+
 
     if ([fileExtension isEqualToString:@"raw"])
     {

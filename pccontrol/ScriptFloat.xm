@@ -19,6 +19,8 @@
 #define kSFBallSize    48.0f
 #define kSFIconTitle   1
 #define kSFIconApp     2
+#define kSFIconCustom  3
+#define kSFIconColor   4
 
 #define kSFStateIdle    0
 #define kSFStateRunning 1
@@ -123,6 +125,20 @@ static UIColor *sfBallThemeColor(void)
     return [UIColor colorWithRed:0.0f green:0.48f blue:1.0f alpha:1.0f];
 }
 
+// "E53935" / "#e53935" → 颜色；解析不出来返回 nil
+static UIColor *sfColorFromHex(NSString *hex)
+{
+    NSString *clean = [[hex ?: @"" stringByReplacingOccurrencesOfString:@"#" withString:@""] uppercaseString];
+    clean = [clean stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (clean.length != 6) return nil;
+    unsigned int value = 0;
+    if (![[NSScanner scannerWithString:clean] scanHexInt:&value]) return nil;
+    return [UIColor colorWithRed:(CGFloat)((value >> 16) & 0xFF) / 255.0f
+                           green:(CGFloat)((value >> 8) & 0xFF) / 255.0f
+                            blue:(CGFloat)(value & 0xFF) / 255.0f
+                           alpha:1.0f];
+}
+
 static NSString *sfAppIconPath(void)
 {
     static NSString *cached = nil;
@@ -222,6 +238,8 @@ static NSString *sfPathForInoToken(NSString *token)
 @property (nonatomic, copy) NSString *scriptPath;
 @property (nonatomic, assign) BOOL locked;
 @property (nonatomic, assign) NSInteger iconMode;
+@property (nonatomic, copy) NSString *customImagePath;
+@property (nonatomic, strong) UIColor *customColor;
 @property (nonatomic, assign) NSInteger playState;
 @property (nonatomic, copy) void (^onTap)(SFBallView *ball);
 @property (nonatomic, copy) void (^onLongPress)(SFBallView *ball);
@@ -281,6 +299,7 @@ static NSString *sfPathForInoToken(NSString *token)
 
 - (void)applyTitleForScriptPath:(NSString *)path
 {
+    self.backgroundColor = [UIColor whiteColor];
     if (self.iconMode == kSFIconApp) {
         NSString *imagePath = sfAppIconPath();
         UIImage *icon = imagePath ? [UIImage imageWithContentsOfFile:imagePath] : nil;
@@ -290,6 +309,21 @@ static NSString *sfPathForInoToken(NSString *token)
             _sfTitleLabel.hidden = YES;
             return;
         }
+    }
+    if (self.iconMode == kSFIconCustom) {
+        UIImage *icon = self.customImagePath.length ? [UIImage imageWithContentsOfFile:self.customImagePath] : nil;
+        if (icon) {
+            _sfIconView.image = icon;
+            _sfIconView.hidden = NO;
+            _sfTitleLabel.hidden = YES;
+            return;
+        }
+    }
+    if (self.iconMode == kSFIconColor && self.customColor) {
+        self.backgroundColor = self.customColor;
+        _sfIconView.hidden = YES;
+        _sfTitleLabel.hidden = YES;
+        return;
     }
     _sfIconView.hidden = YES;
     _sfTitleLabel.hidden = NO;
@@ -481,7 +515,13 @@ static ScriptFloat *_sfShared = nil;
         NSMutableDictionary *entry = [NSMutableDictionary dictionary];
         entry[@"enabled"] = @([item[@"enabled"] boolValue]);
         entry[@"locked"] = @([item[@"locked"] boolValue]);
-        entry[@"icon"] = ([item[@"icon"] integerValue] == kSFIconApp) ? @(kSFIconApp) : @(kSFIconTitle);
+        NSInteger iconMode = [item[@"icon"] integerValue];
+        if (iconMode != kSFIconApp && iconMode != kSFIconCustom && iconMode != kSFIconColor) {
+            iconMode = kSFIconTitle;
+        }
+        entry[@"icon"] = @(iconMode);
+        if ([item[@"imagePath"] isKindOfClass:[NSString class]]) entry[@"imagePath"] = item[@"imagePath"];
+        if ([item[@"color"] isKindOfClass:[NSString class]]) entry[@"color"] = item[@"color"];
         entry[@"x"] = [item[@"x"] isKindOfClass:[NSNumber class]] ? @([item[@"x"] doubleValue]) : @(0.5);
         entry[@"y"] = [item[@"y"] isKindOfClass:[NSNumber class]] ? @([item[@"y"] doubleValue]) : @(0.5);
         NSString *token = [item[@"ino"] isKindOfClass:[NSString class]] ? item[@"ino"] : nil;
@@ -614,7 +654,42 @@ static ScriptFloat *_sfShared = nil;
     if (!key) {
         return;
     }
-    _configs[key][@"icon"] = (mode == kSFIconApp) ? @(kSFIconApp) : @(kSFIconTitle);
+    if (mode != kSFIconApp && mode != kSFIconCustom && mode != kSFIconColor) {
+        mode = kSFIconTitle;
+    }
+    _configs[key][@"icon"] = @(mode);
+    [self persistToDisk];
+    [self rebuildBalls];
+}
+
+// 自定义图片：统一压成 512×512 存到球图标目录，配置里只留路径
+- (void)setBallImage:(UIImage *)image forPath:(NSString *)path
+{
+    if (!image) return;
+    NSString *key = [self configKeyForPath:path];
+    if (!key) return;
+
+    NSString *dir = @"/var/mobile/Library/ZXTouch/config/ball_icons";
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
+    NSUInteger hash = key.hash;
+    NSString *file = [dir stringByAppendingPathComponent:[NSString stringWithFormat:@"%lx.png", (unsigned long)hash]];
+    NSData *data = UIImagePNGRepresentation(image);
+    if (!data || ![data writeToFile:file atomically:YES]) return;
+
+    _configs[key][@"imagePath"] = file;
+    _configs[key][@"icon"] = @(kSFIconCustom);
+    [self persistToDisk];
+    [self rebuildBalls];
+}
+
+- (void)setBallColorHex:(NSString *)hex forPath:(NSString *)path
+{
+    NSString *key = [self configKeyForPath:path];
+    if (!key) return;
+    NSString *clean = [[hex ?: @"" stringByReplacingOccurrencesOfString:@"#" withString:@""] uppercaseString];
+    if (clean.length != 6) return;
+    _configs[key][@"color"] = clean;
+    _configs[key][@"icon"] = @(kSFIconColor);
     [self persistToDisk];
     [self rebuildBalls];
 }
@@ -657,6 +732,20 @@ static ScriptFloat *_sfShared = nil;
 {
     sfRunOnMain(^{
         [[self shared] setBallIconMode:mode forPath:scriptPath];
+    });
+}
+
++ (void)setBallImage:(UIImage *)image forScriptPath:(NSString *)scriptPath
+{
+    sfRunOnMain(^{
+        [[self shared] setBallImage:image forPath:scriptPath];
+    });
+}
+
++ (void)setBallColorHex:(NSString *)hex forScriptPath:(NSString *)scriptPath
+{
+    sfRunOnMain(^{
+        [[self shared] setBallColorHex:hex forPath:scriptPath];
     });
 }
 
@@ -838,6 +927,8 @@ static ScriptFloat *_sfShared = nil;
         }
         ball.locked = [config[@"locked"] boolValue];
         ball.iconMode = [config[@"icon"] integerValue];
+        ball.customImagePath = config[@"imagePath"];
+        ball.customColor = sfColorFromHex(config[@"color"]);
         [ball applyTitleForScriptPath:path];
         [self layoutBall:ball config:config];
     }

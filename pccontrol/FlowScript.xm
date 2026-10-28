@@ -39,6 +39,7 @@ NSString * const kFlowTap = @"tap";
 NSString * const kFlowSwipe = @"swipe";
 NSString * const kFlowWait = @"wait";
 NSString * const kFlowToast = @"toast";
+NSString * const kFlowRepeat = @"repeat";
 NSString * const kFlowColor = @"color";
 NSString * const kFlowFindColor = @"findColor";
 NSString * const kFlowCountColor = @"countColor";
@@ -84,6 +85,14 @@ static FlowFieldSpec *flowSimFieldSpec(void)
     return sim;
 }
 
+// 每个判断条件都带一组「找不到就重试」：0 次 = 只判断一次（老脚本的默认行为）
+static NSArray<FlowFieldSpec *> *flowRetryFieldSpecs(void)
+{
+    FlowFieldSpec *interval = [FlowFieldSpec numKey:@"RetryInterval" title:@"找不到时隔几秒再找" integer:NO def:@"1"];
+    FlowFieldSpec *times = [FlowFieldSpec key:@"RetryTimes" title:@"最多重试几次（0=不重试）" integer:YES def:@"0"];
+    return @[ interval, times ];
+}
+
 // 卡号在界面上的中文名
 static NSString *fwSimTitle(id value)
 {
@@ -120,6 +129,13 @@ static NSString *fwSimValue(id value)
 @end
 
 @implementation FlowStepType
+@end
+
+@interface FlowScript ()
++ (void)appendStep:(NSDictionary *)step to:(NSMutableString *)out indent:(NSInteger)indent;
++ (void)appendRepeat:(NSDictionary *)step to:(NSMutableString *)out indent:(NSInteger)indent;
++ (void)appendActions:(id)actions to:(NSMutableString *)out indent:(NSInteger)indent;
++ (void)appendAction:(NSDictionary *)step to:(NSMutableString *)out indent:(NSInteger)indent;
 @end
 
 @implementation FlowScript
@@ -177,41 +193,50 @@ static NSString *fwSimValue(id value)
             [FlowFieldSpec numKey:@"Seconds" title:@"显示几秒" integer:NO def:@"2"],
         ];
 
+        // 重复：把一组动作跑 N 遍，里面还能再放重复
+        FlowStepType *repeat = [self type:kFlowRepeat title:@"重复" symbol:@"repeat" condition:NO];
+        repeat.category = kCatFlow;
+        repeat.hint = @"「重复」里可以再放动作（也能再放重复）；下面填跑几遍，填 0 就一遍都不跑。";
+        repeat.fields = @[ [FlowFieldSpec key:@"Times" title:@"重复几次" integer:YES def:@"3"] ];
+
         FlowStepType *color = [self type:kFlowColor title:@"识色" symbol:@"eyedropper.halffull" condition:YES];
         color.category = kCatCondition;
+        color.hint = @"「找不到时隔几秒再找」「最多重试几次」：重试用完还找不到，才执行「不成立时」里的动作；填 0 次就是只判断一次。";
         color.pickActionTitle = @"从屏幕取颜色";
         color.pickMode = FlowPickModeColor;
         color.pickTargets = @[@"X", @"Y"];
-        color.fields = @[
+        color.fields = [@[
             [FlowFieldSpec key:@"X" title:@"X 坐标" integer:YES def:@"400"],
             [FlowFieldSpec key:@"Y" title:@"Y 坐标" integer:YES def:@"400"],
             [FlowFieldSpec key:@"Color" title:@"颜色（如 FF8800）" integer:NO def:@"FFFFFF"],
             [FlowFieldSpec key:@"Tolerance" title:@"容差（0-255）" integer:YES def:@"10"],
-        ];
+        ] arrayByAddingObjectsFromArray:flowRetryFieldSpecs()];
 
         FlowStepType *findColor = [self type:kFlowFindColor title:@"找色" symbol:@"magnifyingglass" condition:YES];
         findColor.category = kCatCondition;
+        findColor.hint = @"「找不到时隔几秒再找」「最多重试几次」：重试用完还找不到，才执行「不成立时」里的动作；填 0 次就是只判断一次。";
         findColor.pickActionTitle = @"从屏幕框选区域";
         findColor.pickMode = FlowPickModeRect;
         findColor.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
-        findColor.fields = @[
+        findColor.fields = [@[
             [FlowFieldSpec key:@"X1" title:@"区域左" integer:YES def:@"0"],
             [FlowFieldSpec key:@"Y1" title:@"区域上" integer:YES def:@"0"],
             [FlowFieldSpec key:@"X2" title:@"区域右" integer:YES def:@"1000"],
             [FlowFieldSpec key:@"Y2" title:@"区域下" integer:YES def:@"600"],
             [FlowFieldSpec key:@"Color" title:@"颜色（如 FF8800）" integer:NO def:@"FFFFFF"],
             [FlowFieldSpec key:@"Tolerance" title:@"容差（0-255）" integer:YES def:@"10"],
-        ];
+        ] arrayByAddingObjectsFromArray:flowRetryFieldSpecs()];
 
         FlowStepType *countColor = [self type:kFlowCountColor title:@"数色" symbol:@"number.square.fill" condition:YES];
         countColor.category = kCatCondition;
+        countColor.hint = @"「找不到时隔几秒再找」「最多重试几次」：重试用完还没达到你要的数量，才执行「不成立时」里的动作；填 0 次就是只判断一次。";
         countColor.pickActionTitle = @"从屏幕框选区域";
         countColor.pickMode = FlowPickModeRect;
         countColor.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
         FlowFieldSpec *countMode = [FlowFieldSpec key:@"Mode" title:@"判据" integer:NO def:@"atLeast"];
         countMode.choiceTitles = @[ @"至少", @"至多" ];
         countMode.choiceValues = @[ @"atLeast", @"atMost" ];
-        countColor.fields = @[
+        countColor.fields = [@[
             [FlowFieldSpec key:@"X1" title:@"区域左" integer:YES def:@"0"],
             [FlowFieldSpec key:@"Y1" title:@"区域上" integer:YES def:@"0"],
             [FlowFieldSpec key:@"X2" title:@"区域右" integer:YES def:@"1000"],
@@ -220,10 +245,11 @@ static NSString *fwSimValue(id value)
             [FlowFieldSpec key:@"Tolerance" title:@"容差（0-255）" integer:YES def:@"10"],
             [FlowFieldSpec key:@"Count" title:@"像素数量" integer:YES def:@"1000"],
             countMode,
-        ];
+        ] arrayByAddingObjectsFromArray:flowRetryFieldSpecs()];
 
         FlowStepType *image = [self type:kFlowImage title:@"识图" symbol:@"photo.fill" condition:YES];
         image.category = kCatCondition;
+        image.hint = @"「找不到时隔几秒再找」「最多重试几次」：重试用完还没找到模板，才执行「不成立时」里的动作；填 0 次就是只判断一次。";
         image.pickActionTitle = @"从屏幕框选模板";
         image.pickMode = FlowPickModeTemplate;
         image.pickTargets = @[@"Template"];
@@ -235,7 +261,7 @@ static NSString *fwSimValue(id value)
         FlowFieldSpec *imageMode = [FlowFieldSpec key:@"Mode" title:@"搜索范围" integer:NO def:@"full"];
         imageMode.choiceTitles = @[ @"全屏", @"自定义区域" ];
         imageMode.choiceValues = @[ @"full", @"area" ];
-        image.fields = @[
+        image.fields = [@[
             [FlowFieldSpec key:@"Template" title:@"模板图（用下面的按钮框选）" integer:NO def:@""],
             [FlowFieldSpec numKey:@"Threshold" title:@"相似度（0-1）" integer:NO def:@"0.8"],
             imageMode,
@@ -243,11 +269,12 @@ static NSString *fwSimValue(id value)
             [FlowFieldSpec key:@"Y1" title:@"区域上" integer:YES def:@"0"],
             [FlowFieldSpec key:@"X2" title:@"区域右" integer:YES def:@"0"],
             [FlowFieldSpec key:@"Y2" title:@"区域下" integer:YES def:@"0"],
-        ];
+        ] arrayByAddingObjectsFromArray:flowRetryFieldSpecs()];
 
         // 识字：把框选区域里的文字/数字识别出来，只用来判断，不改变脚本流程
         FlowStepType *ocr = [self type:kFlowOCR title:@"识字" symbol:@"text.viewfinder" condition:YES];
         ocr.category = kCatCondition;
+        ocr.hint = @"「找不到时隔几秒再找」「最多重试几次」：重试用完还没识别到你要的文字，才执行「不成立时」里的动作；填 0 次就是只判断一次。";
         ocr.pickActionTitle = @"从屏幕框选识字区域";
         ocr.pickMode = FlowPickModeRect;
         ocr.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
@@ -256,7 +283,7 @@ static NSString *fwSimValue(id value)
         ocrMatch.choiceValues = @[ @"contains", @"equals", @"notContains" ];
         FlowFieldSpec *ocrLanguages = [FlowFieldSpec key:@"Languages" title:@"识别语言" integer:NO def:@"zh-Hans,en-US"];
         ocrLanguages.pickerKind = @"languages";
-        ocr.fields = @[
+        ocr.fields = [@[
             [FlowFieldSpec key:@"X1" title:@"区域左" integer:YES def:@"0"],
             [FlowFieldSpec key:@"Y1" title:@"区域上" integer:YES def:@"0"],
             [FlowFieldSpec key:@"X2" title:@"区域右" integer:YES def:@"1000"],
@@ -264,7 +291,7 @@ static NSString *fwSimValue(id value)
             ocrMatch,
             [FlowFieldSpec key:@"Text" title:@"要比对的文字或数字" integer:NO def:@""],
             ocrLanguages,
-        ];
+        ] arrayByAddingObjectsFromArray:flowRetryFieldSpecs()];
 
         // 开关 App：一个步骤同时管「打开」和「关闭」，用哪个由「方式」决定
         FlowStepType *appSwitch = [self type:kFlowAppSwitch title:@"开关app" symbol:@"arrow.triangle.2.circlepath" condition:NO];
@@ -400,7 +427,7 @@ static NSString *fwSimValue(id value)
             [FlowFieldSpec numKey:@"Timeout" title:@"超时（秒）" integer:NO def:@"10"],
         ];
 
-        types = @[tap, swipe, wait, toast, color, findColor, countColor, image, ocr,
+        types = @[tap, swipe, wait, toast, repeat, color, findColor, countColor, image, ocr,
                   stopAll, runScript, appSwitch, wifi, screenshot, paste, volume,
                   ring, call, sms, dingtalk, wecom, wechat, http, shell];
     });
@@ -461,6 +488,8 @@ static NSString *fwSimValue(id value)
     if (type.isCondition) {
         step[@"Then"] = [NSMutableArray array];
         step[@"Else"] = [NSMutableArray array];
+    } else if ([kind isEqualToString:kFlowRepeat]) {
+        step[@"Steps"] = [NSMutableArray array];
     }
     return step;
 }
@@ -543,6 +572,11 @@ static NSString *fwSimValue(id value)
     }
     if ([kind isEqualToString:kFlowToast]) {
         return [NSString stringWithFormat:@"提示「%@」", step[@"Text"] ?: @""];
+    }
+    if ([kind isEqualToString:kFlowRepeat]) {
+        NSArray *children = [step[@"Steps"] isKindOfClass:[NSArray class]] ? step[@"Steps"] : @[];
+        return [NSString stringWithFormat:@"重复 %@ 次 · 里面 %lu 个动作",
+                [self textForValue:step[@"Times"]], (unsigned long)children.count];
     }
     if ([kind isEqualToString:kFlowColor]) {
         return [NSString stringWithFormat:@"如果 (%@, %@) 是 #%@（±%@）",
@@ -672,8 +706,14 @@ static NSString *fwSimValue(id value)
 
     NSArray *then = [step[@"Then"] isKindOfClass:[NSArray class]] ? step[@"Then"] : @[];
     NSArray *otherwise = [step[@"Else"] isKindOfClass:[NSArray class]] ? step[@"Else"] : @[];
-    return [NSString stringWithFormat:@"成立时 %lu 个动作 · 不成立时 %lu 个动作（点这一行编辑）",
-            (unsigned long)then.count, (unsigned long)otherwise.count];
+    NSInteger retryTimes = [step[@"RetryTimes"] integerValue];
+    NSString *retry = @"";
+    if (retryTimes > 0) {
+        retry = [NSString stringWithFormat:@" · 找不到每 %@ 秒重试，共 %ld 次",
+                 [self textForValue:step[@"RetryInterval"]], (long)retryTimes];
+    }
+    return [NSString stringWithFormat:@"成立时 %lu 个动作 · 不成立时 %lu 个动作%@（点这一行编辑）",
+            (unsigned long)then.count, (unsigned long)otherwise.count, retry];
 }
 
 #pragma mark - 流程读写
@@ -889,7 +929,7 @@ static NSString *fwSimValue(id value)
 + (NSMutableDictionary *)mutableStepFromStep:(NSDictionary *)step
 {
     NSMutableDictionary *result = [step mutableCopy];
-    for (NSString *key in @[@"Then", @"Else"]) {
+    for (NSString *key in @[@"Then", @"Else", @"Steps"]) {
         NSArray *children = step[key];
         if (![children isKindOfClass:[NSArray class]]) continue;
         NSMutableArray *list = [NSMutableArray array];
@@ -959,6 +999,16 @@ static NSString *fwSimValue(id value)
     [out appendString:@"\n"];
 }
 
+// 生成代码里「重复 / 重试」用的临时变量编号，只在同一份输出里保证不重名
+static NSInteger flowCodeSeq = 0;
+static NSInteger flowNextCodeSeq(void)
+{
+    @synchronized([FlowScript class]) {
+        flowCodeSeq += 1;
+        return flowCodeSeq;
+    }
+}
+
 + (NSString *)pythonSourceForFlow:(NSDictionary *)flow
 {
     NSArray *steps = [flow[@"Steps"] isKindOfClass:[NSArray class]] ? flow[@"Steps"] : @[];
@@ -1004,11 +1054,32 @@ static NSString *fwSimValue(id value)
 
 + (void)appendStep:(NSDictionary *)step to:(NSMutableString *)out indent:(NSInteger)indent
 {
+    if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
+        [self appendRepeat:step to:out indent:indent];
+        return;
+    }
     FlowStepType *type = [self typeForKind:step[@"Kind"]];
     if (type.isCondition) {
         [self appendCondition:step to:out indent:indent];
     } else {
         [self appendAction:step to:out indent:indent];
+    }
+}
+
++ (void)appendRepeat:(NSDictionary *)step to:(NSMutableString *)out indent:(NSInteger)indent
+{
+    NSInteger times = MAX(0, [step[@"Times"] integerValue]);
+    NSArray *children = [step[@"Steps"] isKindOfClass:[NSArray class]] ? step[@"Steps"] : @[];
+    NSInteger seq = flowNextCodeSeq();
+    [self appendLine:out indent:indent
+                text:[NSString stringWithFormat:@"for _zx_loop%ld in range(%ld):      # 重复 %ld 次",
+                      (long)seq, (long)times, (long)times]];
+    if (children.count == 0) {
+        [self appendLine:out indent:indent + 1 text:@"pass          # 里面还没放动作"];
+    } else {
+        for (NSDictionary *child in children) {
+            [self appendStep:child to:out indent:indent + 1];
+        }
     }
 }
 
@@ -1078,10 +1149,38 @@ static NSString *fwSimValue(id value)
         condition = @"True";
     }
 
-    [self appendLine:out indent:indent text:[NSString stringWithFormat:@"if %@:      # %@", condition, [self shortTitle:kind]]];
-    [self appendActions:step[@"Then"] to:out indent:indent + 1];
-    [self appendLine:out indent:indent text:@"else:"];
-    [self appendActions:step[@"Else"] to:out indent:indent + 1];
+    NSInteger retryTimes = MAX(0, [step[@"RetryTimes"] integerValue]);
+    double retryInterval = [step[@"RetryInterval"] doubleValue];
+    if (retryInterval < 0) retryInterval = 0;
+    NSString *intervalText = [self textForValue:@(retryInterval)];
+
+    if (retryTimes > 0) {
+        NSInteger seq = flowNextCodeSeq();
+        NSInteger attempts = retryTimes + 1;
+        NSString *okVar = [NSString stringWithFormat:@"_zx_ok%ld", (long)seq];
+        NSString *iVar = [NSString stringWithFormat:@"_zx_i%ld", (long)seq];
+        [self appendLine:out indent:indent text:[NSString stringWithFormat:@"%@ = False", okVar]];
+        [self appendLine:out indent:indent
+                    text:[NSString stringWithFormat:@"for %@ in range(%ld):      # %@：最多试 %ld 次（每 %@ 秒一次）",
+                          iVar, (long)attempts, [self shortTitle:kind], (long)attempts, intervalText]];
+        [self appendLine:out indent:indent + 1 text:[NSString stringWithFormat:@"if %@:", condition]];
+        [self appendLine:out indent:indent + 2 text:[NSString stringWithFormat:@"%@ = True", okVar]];
+        [self appendLine:out indent:indent + 2 text:@"break"];
+        if (retryInterval > 0) {
+            [self appendLine:out indent:indent + 1
+                        text:[NSString stringWithFormat:@"if %@ + 1 < %ld:", iVar, (long)attempts]];
+            [self appendLine:out indent:indent + 2 text:[NSString stringWithFormat:@"time.sleep(%@)", intervalText]];
+        }
+        [self appendLine:out indent:indent text:[NSString stringWithFormat:@"if %@:      # 试满 %ld 次还找不到就不成立", okVar, (long)attempts]];
+        [self appendActions:step[@"Then"] to:out indent:indent + 1];
+        [self appendLine:out indent:indent text:@"else:"];
+        [self appendActions:step[@"Else"] to:out indent:indent + 1];
+    } else {
+        [self appendLine:out indent:indent text:[NSString stringWithFormat:@"if %@:      # %@", condition, [self shortTitle:kind]]];
+        [self appendActions:step[@"Then"] to:out indent:indent + 1];
+        [self appendLine:out indent:indent text:@"else:"];
+        [self appendActions:step[@"Else"] to:out indent:indent + 1];
+    }
 }
 
 + (void)appendActions:(id)actions to:(NSMutableString *)out indent:(NSInteger)indent
@@ -1094,7 +1193,7 @@ static NSString *fwSimValue(id value)
     }
     for (NSDictionary *action in list) {
         if (![action isKindOfClass:[NSDictionary class]]) continue;
-        [self appendAction:action to:out indent:indent];
+        [self appendStep:action to:out indent:indent];
     }
 }
 

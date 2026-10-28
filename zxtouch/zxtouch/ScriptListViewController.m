@@ -243,17 +243,22 @@ static NSString *ZXDisclaimerText(void) {
 
 
 - (IBAction)moreButtonClicked:(id)sender {
+    [self showMoreOptionsFromView:sender];
+}
+
+- (void)showMoreOptionsFromView:(UIView *)sender {
     CGPoint buttonPosition = [sender convertPoint:CGPointZero toView:self._scriptListTableView];
     NSIndexPath *indexPath = [self._scriptListTableView indexPathForRowAtPoint:buttonPosition];
-    
+    if (!indexPath || indexPath.row >= (NSInteger)scriptList.count) return;
+
     MoreOptionsPopOverTableViewController *contentVC = [[MoreOptionsPopOverTableViewController alloc] initWithFolderPath:scriptList[indexPath.row]];
-    
+
     contentVC.modalPresentationStyle = UIModalPresentationPopover;
     [contentVC setUpperLevelViewController:self];
     UIPopoverPresentationController *popPC = contentVC.popoverPresentationController;
     popPC.permittedArrowDirections = UIPopoverArrowDirectionAny;
-    //popPC.barButtonItem = sender;
     popPC.sourceView = sender;
+    popPC.sourceRect = sender.bounds;
     popPC.delegate = contentVC;
     [self presentViewController:contentVC animated:YES completion:nil];
 }
@@ -289,6 +294,20 @@ static NSString *ZXDisclaimerText(void) {
     }
     cell.parentViewController = self;
     [cell setPropertyWithPath:scriptList[indexPath.row]];
+    __weak typeof(self) weakSelf = self;
+    __weak ScriptListTableCell *weakCell = cell;
+    cell.onLongPress = ^{
+        ScriptListViewController *vc = weakSelf;
+        ScriptListTableCell *strongCell = weakCell;
+        if (!vc || !strongCell) return;
+        [vc showMoreOptionsFromView:strongCell];
+    };
+    NSIndexPath *tappedIndex = [indexPath copy];
+    cell.onRowTap = ^{
+        ScriptListViewController *vc = weakSelf;
+        if (!vc) return;
+        [vc tableView:vc._scriptListTableView didSelectRowAtIndexPath:tappedIndex];
+    };
     return cell;
 }
 

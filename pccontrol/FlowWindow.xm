@@ -22,6 +22,7 @@
 #import "UIKeyboard.h"
 #import "Play.h"
 
+#import <PhotosUI/PhotosUI.h>
 #import <math.h>   // llround / fabs
 #import <stdio.h>  // snprintf
 #import <string.h> // memcpy
@@ -159,6 +160,7 @@ static UIColor *fwTypeColor(NSString *kind)
     if ([kind isEqualToString:kFlowSwipe])     return fwColor(0x7B4DFF, 0xA98BFF);
     if ([kind isEqualToString:kFlowWait])      return fwColor(0xB87700, 0xFFB84D);
     if ([kind isEqualToString:kFlowToast])     return fwColor(0x0E9F8A, 0x2ED3B7);
+    if ([kind isEqualToString:kFlowRepeat])    return fwColor(0x8D6E63, 0xBCAAA4);
     if ([kind isEqualToString:kFlowColor])     return fwColor(0xD9551F, 0xFF8F5E);
     if ([kind isEqualToString:kFlowFindColor]) return fwColor(0xC22E7A, 0xF0559B);
     if ([kind isEqualToString:kFlowCountColor]) return fwColor(0x8A4B00, 0xD08A2E);
@@ -529,7 +531,162 @@ static void fwPersistSchedule(NSString *bundlePath, NSString *startMode, NSStrin
 }
 @end
 
-@interface FlowWindow () <UITextFieldDelegate>
+@interface ZXBallCropViewController : UIViewController
+@property (nonatomic, strong) UIImage *sourceImage;
+@property (nonatomic, copy) void (^onFinish)(UIImage *cropped);
+@property (nonatomic, copy) void (^onCancel)(void);
+@end
+
+@implementation ZXBallCropViewController {
+    UIView *_cropStage;
+    UIImageView *_cropImageView;
+    UILabel *_cropHint;
+    UIButton *_cropCancelBtn;
+    UIButton *_cropDoneBtn;
+    CGFloat _cropBaseScale;
+    CGFloat _cropZoom;
+    CGPoint _cropOffset;
+    CGFloat _cropSide;
+    BOOL _cropReady;
+}
+
+- (void)viewDidLoad
+{
+    [super viewDidLoad];
+    self.view.backgroundColor = [UIColor colorWithWhite:0 alpha:0.85];
+
+    _cropStage = [[UIView alloc] init];
+    _cropStage.backgroundColor = [UIColor colorWithWhite:0.16 alpha:1];
+    _cropStage.clipsToBounds = YES;
+    [self.view addSubview:_cropStage];
+
+    _cropImageView = [[UIImageView alloc] init];
+    _cropImageView.image = self.sourceImage;
+    _cropImageView.userInteractionEnabled = NO;
+    [_cropStage addSubview:_cropImageView];
+
+    [_cropStage addGestureRecognizer:[[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(handleCropPinch:)]];
+    [_cropStage addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleCropPan:)]];
+
+    _cropHint = [[UILabel alloc] init];
+    _cropHint.text = @"双指缩放，单指拖动\n圆圈里就是悬浮球显示的部分";
+    _cropHint.numberOfLines = 2;
+    _cropHint.textAlignment = NSTextAlignmentCenter;
+    _cropHint.font = [UIFont systemFontOfSize:13];
+    _cropHint.textColor = [UIColor whiteColor];
+    [self.view addSubview:_cropHint];
+
+    _cropCancelBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_cropCancelBtn setTitle:@"取消" forState:UIControlStateNormal];
+    [_cropCancelBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    _cropCancelBtn.titleLabel.font = [UIFont systemFontOfSize:16];
+    _cropCancelBtn.backgroundColor = [UIColor colorWithWhite:0.3 alpha:1];
+    _cropCancelBtn.layer.cornerRadius = 10;
+    [_cropCancelBtn addTarget:self action:@selector(handleCropCancel) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:_cropCancelBtn];
+
+    _cropDoneBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_cropDoneBtn setTitle:@"完成" forState:UIControlStateNormal];
+    [_cropDoneBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    _cropDoneBtn.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    _cropDoneBtn.backgroundColor = [UIColor colorWithRed:0 green:0.48 blue:1 alpha:1];
+    _cropDoneBtn.layer.cornerRadius = 10;
+    [_cropDoneBtn addTarget:self action:@selector(handleCropDone) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:_cropDoneBtn];
+}
+
+- (void)viewDidLayoutSubviews
+{
+    [super viewDidLayoutSubviews];
+    CGFloat w = self.view.bounds.size.width;
+    CGFloat h = self.view.bounds.size.height;
+    CGFloat side = MIN(w - 56.0f, h - 220.0f);
+    if (side < 120.0f) side = MAX(MIN(w - 32.0f, h - 170.0f), 80.0f);
+    _cropSide = side;
+    _cropStage.frame = CGRectMake((w - side) / 2.0f, (h - side) / 2.0f - 24.0f, side, side);
+    _cropStage.layer.cornerRadius = side / 2.0f;
+    _cropHint.frame = CGRectMake(20, CGRectGetMinY(_cropStage.frame) - 52.0f, w - 40, 44);
+    _cropCancelBtn.frame = CGRectMake(w / 2.0f - 110.0f, CGRectGetMaxY(_cropStage.frame) + 24.0f, 100, 44);
+    _cropDoneBtn.frame = CGRectMake(w / 2.0f + 10.0f, CGRectGetMaxY(_cropStage.frame) + 24.0f, 100, 44);
+
+    if (!_cropReady && self.sourceImage.size.width > 0 && self.sourceImage.size.height > 0) {
+        _cropReady = YES;
+        _cropZoom = 1.0f;
+        _cropOffset = CGPointZero;
+        _cropBaseScale = MAX(side / self.sourceImage.size.width, side / self.sourceImage.size.height);
+    }
+    [self applyCropFrame];
+}
+
+- (void)applyCropFrame
+{
+    if (!_cropReady) return;
+    CGSize img = self.sourceImage.size;
+    CGFloat dw = img.width * _cropBaseScale * _cropZoom;
+    CGFloat dh = img.height * _cropBaseScale * _cropZoom;
+    CGFloat maxX = MAX(0.0f, (dw - _cropSide) / 2.0f);
+    CGFloat maxY = MAX(0.0f, (dh - _cropSide) / 2.0f);
+    _cropOffset.x = MIN(MAX(_cropOffset.x, -maxX), maxX);
+    _cropOffset.y = MIN(MAX(_cropOffset.y, -maxY), maxY);
+    _cropImageView.frame = CGRectMake((_cropSide - dw) / 2.0f + _cropOffset.x,
+                                      (_cropSide - dh) / 2.0f + _cropOffset.y, dw, dh);
+}
+
+- (void)handleCropPinch:(UIPinchGestureRecognizer *)g
+{
+    if (!_cropReady) return;
+    if (g.state == UIGestureRecognizerStateBegan || g.state == UIGestureRecognizerStateChanged) {
+        CGFloat next = _cropZoom * g.scale;
+        _cropZoom = MIN(MAX(next, 1.0f), 8.0f);
+        g.scale = 1.0f;
+        [self applyCropFrame];
+    }
+}
+
+- (void)handleCropPan:(UIPanGestureRecognizer *)g
+{
+    if (!_cropReady) return;
+    if (g.state == UIGestureRecognizerStateBegan || g.state == UIGestureRecognizerStateChanged) {
+        CGPoint t = [g translationInView:_cropStage];
+        _cropOffset.x += t.x;
+        _cropOffset.y += t.y;
+        [g setTranslation:CGPointZero inView:_cropStage];
+        [self applyCropFrame];
+    }
+}
+
+- (UIImage *)renderCroppedImage
+{
+    if (!_cropReady || _cropSide <= 0) return self.sourceImage;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(512, 512)];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        CGContextRef c = ctx.CGContext;
+        CGFloat scale = 512.0f / self->_cropSide;
+        CGContextScaleCTM(c, scale, scale);
+        UIBezierPath *circle = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(0, 0, self->_cropSide, self->_cropSide)];
+        [circle addClip];
+        [self->_cropImageView.image drawInRect:self->_cropImageView.frame];
+    }];
+}
+
+- (void)handleCropCancel
+{
+    [self dismissViewControllerAnimated:YES completion:^{
+        if (self.onCancel) self.onCancel();
+    }];
+}
+
+- (void)handleCropDone
+{
+    UIImage *out = [self renderCroppedImage];
+    [self dismissViewControllerAnimated:YES completion:^{
+        if (self.onFinish) self.onFinish(out);
+    }];
+}
+
+@end
+
+@interface FlowWindow () <UITextFieldDelegate, PHPickerViewControllerDelegate>
 @end
 
 static FlowWindow *_fwShared = nil;
@@ -575,6 +732,14 @@ static FlowWindow *_fwShared = nil;
 
     NSMutableDictionary         *_pickDragStep;
     FlowStepType                *_pickDragType;
+    NSMutableArray              *_addTargetSteps;
+
+    // 悬浮球自定义图片：取图用独立窗口，取完在预览页里缩放 / 拖动裁圆
+    UIWindow                    *_ballPickWindow;
+    UIViewController            *_ballPickHost;
+    __weak UIWindow             *_ballPrevKeyWindow;
+    NSString                    *_ballPickPath;
+    CGFloat                      _ballPickKeepY;
 }
 
 - (instancetype)init {
@@ -673,8 +838,7 @@ static FlowWindow *_fwShared = nil;
 }
 
 // 加一步：落盘后直接在子浮窗里打开它的参数
-- (void)addStepOfKind:(NSString *)kind {
-    NSMutableArray *steps = [self currentSteps];
+- (void)addStepOfKind:(NSString *)kind toSteps:(NSMutableArray *)steps {
     if (!steps) return;
     NSMutableDictionary *step = [FlowScript newStepOfKind:kind];
     if (!step) return;
@@ -763,7 +927,10 @@ static FlowWindow *_fwShared = nil;
 
 // 左滑删除：从当前这一页的数组里摘掉这一步
 - (void)deleteStep:(NSMutableDictionary *)step {
-    NSMutableArray *steps = [self currentSteps];
+    [self deleteStep:step fromSteps:[self currentSteps]];
+}
+
+- (void)deleteStep:(NSMutableDictionary *)step fromSteps:(NSMutableArray *)steps {
     if (!steps) return;
     NSUInteger index = [steps indexOfObjectIdenticalTo:step];
     if (index == NSNotFound) return;
@@ -774,14 +941,17 @@ static FlowWindow *_fwShared = nil;
 
 // 长按行的菜单：复制到下方
 - (void)showCopyMenuForRow:(FWStepRowView *)row step:(NSMutableDictionary *)step {
+    [self showCopyMenuForRow:row step:step steps:[self currentSteps]];
+}
+
+- (void)showCopyMenuForRow:(FWStepRowView *)row step:(NSMutableDictionary *)step steps:(NSMutableArray *)steps {
     __weak typeof(self) weakSelf = self;
     ZXShowMiniMenuNearView(row, @[ @{
         @"title": @"复制到下方",
         @"icon": @"doc.on.doc",
         @"action": ^{
             FlowWindow *strongSelf = weakSelf;
-            if (!strongSelf) return;
-            NSMutableArray *steps = [strongSelf currentSteps];
+            if (!strongSelf || !steps) return;
             NSUInteger index = [steps indexOfObjectIdenticalTo:step];
             if (index == NSNotFound) return;
             NSMutableDictionary *copy = [FlowScript mutableStepFromStep:step];
@@ -1187,6 +1357,8 @@ static FlowWindow *_fwShared = nil;
 - (void)textFieldDidEndEditing:(UITextField *)textField {
     UIWindow *win = textField.window;
     if (win.isKeyWindow) [win resignKeyWindow];
+    // 列表里的行内输入（如重复次数）改完后重建一遍，标题上的摘要跟着更新
+    [self refreshKeepingScroll];
 }
 
 #pragma mark - 子浮窗（屏幕中间：添加步骤 / 编辑参数 / 设置都走这里）
@@ -1982,7 +2154,13 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
 
 - (void)showAddSheet {
     BOOL branch = [_stack.lastObject[@"branch"] boolValue];
-    NSArray<FlowStepType *> *all = branch ? [FlowScript simpleStepTypes] : [FlowScript allStepTypes];
+    NSMutableArray *targetSteps = _addTargetSteps;
+    _addTargetSteps = nil;
+    if (!targetSteps) targetSteps = [self currentSteps];
+    if (!targetSteps) return;
+    // 重复块里和条件分支里都只能放动作，不能放判断
+    BOOL actionsOnly = branch || targetSteps != [self currentSteps];
+    NSArray<FlowStepType *> *all = actionsOnly ? [FlowScript simpleStepTypes] : [FlowScript allStepTypes];
     if (all.count == 0) return;
 
     // 按分类分组，分类顺序固定；没归类的兜底放进「其他」
@@ -2063,7 +2241,7 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
                     FlowWindow *strongSelf = weakSelf;
                     if (!strongSelf) return;
                     [strongSelf dismissSubAnimated:NO];
-                    [strongSelf addStepOfKind:kind];
+                    [strongSelf addStepOfKind:kind toSteps:targetSteps];
                 }] forControlEvents:UIControlEventTouchUpInside];
                 [content addSubview:cell];
             }
@@ -2296,7 +2474,20 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 {
     NSString *kind = step[@"Kind"];
 
-    if ([kind isEqualToString:kFlowTap]) {
+    if ([kind isEqualToString:kFlowRepeat]) {
+        // 单步执行「重复」= 把里面这一组动作按次数跑完
+        NSInteger times = MAX((NSInteger)llround(fwStepNumber(step, @"Times", 3)), 0);
+        NSArray *children = [step[@"Steps"] isKindOfClass:[NSArray class]] ? step[@"Steps"] : @[];
+        for (NSInteger round = 0; round < times; round++) {
+            if (ZXStepRunAborted()) break;
+            for (NSDictionary *child in children) {
+                if (ZXStepRunAborted()) break;
+                FlowStepType *childType = [FlowScript typeForKind:child[@"Kind"]];
+                if (childType.isCondition) [self performCheckStep:child];
+                else [self performActionStep:child];
+            }
+        }
+    } else if ([kind isEqualToString:kFlowTap]) {
         double x = fwStepNumber(step, @"X", 0);
         double y = fwStepNumber(step, @"Y", 0);
         NSInteger count = MAX((NSInteger)llround(fwStepNumber(step, @"Count", 1)), 1);
@@ -2848,6 +3039,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             BOOL ballOn = [ballConfig[@"enabled"] boolValue];
             BOOL ballLocked = [ballConfig[@"locked"] boolValue];
             NSInteger ballIcon = ballConfig[@"icon"] ? [ballConfig[@"icon"] integerValue] : 1;
+            if (ballIcon < 1 || ballIcon > 4) ballIcon = 1;
 
             UIView *ballToggle = [strongSelf makeActionRow:@"启停悬浮球"
                                                     detail:(ballOn ? @"已开启" : @"未开启")
@@ -2871,10 +3063,18 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                 y = [strongSelf subAddRow:ballLock y:y];
 
                 UIView *ballIconRow = [strongSelf makeChoiceRow:@"图标"
-                                                         titles:@[ @"脚本首字", @"App 图标" ]
-                                                       selected:(ballIcon == 2 ? 1 : 0) width:w
+                                                         titles:@[ @"脚本首字", @"App 图标", @"自定义图片", @"纯色" ]
+                                                       selected:(ballIcon - 1) width:w
                                                        onChange:^(NSInteger idx) {
                     CGFloat keepY = strongSelf->_subScroll ? strongSelf->_subScroll.contentOffset.y : 0.0f;
+                    if (idx == 2) {
+                        [strongSelf chooseBallImageForPath:ballPath];
+                        return;
+                    }
+                    if (idx == 3) {
+                        [strongSelf showBallColorPickerForPath:ballPath];
+                        return;
+                    }
                     [ScriptFloat setBallIconMode:(idx == 1 ? 2 : 1) forScriptPath:ballPath];
                     [weakSelf refreshSettingsKeepingY:keepY];
                 }];
@@ -2941,6 +3141,166 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         CGFloat maxY = MAX(0.0f, _subScroll.contentSize.height - _subScroll.bounds.size.height);
         _subScroll.contentOffset = CGPointMake(0, MIN(MAX(keepY, 0.0f), maxY));
     }
+}
+
+#pragma mark - 悬浮球：自定义图片 / 纯色
+
+- (UIViewController *)ballPickerHostViewController
+{
+    if (_ballPickHost && _ballPickWindow && !_ballPickHost.presentedViewController) return _ballPickHost;
+    if (!_ballPickWindow) {
+        _ballPrevKeyWindow = [UIApplication sharedApplication].keyWindow;
+        UIWindowScene *scene = (UIWindowScene *)[[UIApplication sharedApplication].connectedScenes anyObject];
+        _ballPickWindow = scene ? [[UIWindow alloc] initWithWindowScene:scene]
+                                : [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        _ballPickWindow.windowLevel = UIWindowLevelAlert + 4;
+        UIViewController *rvc = [[UIViewController alloc] init];
+        rvc.view.backgroundColor = [UIColor clearColor];
+        _ballPickWindow.rootViewController = rvc;
+        _ballPickHost = rvc;
+    }
+    [_ballPickWindow makeKeyAndVisible];
+    return _ballPickHost;
+}
+
+- (void)closeBallPickerWindow
+{
+    if (!_ballPickWindow) return;
+    _ballPickWindow.hidden = YES;
+    _ballPickWindow = nil;
+    _ballPickHost = nil;
+    [_ballPrevKeyWindow makeKeyWindow];
+    _ballPrevKeyWindow = nil;
+}
+
+- (void)chooseBallImageForPath:(NSString *)ballPath
+{
+    if (ballPath.length == 0) return;
+    UIViewController *host = [self ballPickerHostViewController];
+    if (!host) return;
+    _ballPickPath = [ballPath copy];
+    _ballPickKeepY = _subScroll ? _subScroll.contentOffset.y : 0.0f;
+
+    PHPickerConfiguration *config = [[PHPickerConfiguration alloc] init];
+    config.filter = [PHPickerFilter imagesFilter];
+    config.selectionLimit = 1;
+    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
+    picker.delegate = self;
+    [host presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results
+{
+    NSString *path = [_ballPickPath copy];
+    _ballPickPath = nil;
+    __weak typeof(self) weakSelf = self;
+    [picker dismissViewControllerAnimated:NO completion:^{
+        FlowWindow *s = weakSelf;
+        if (!s) return;
+        if (path.length == 0 || results.count == 0) {
+            [s closeBallPickerWindow];
+            [s refreshSettingsKeepingY:s->_ballPickKeepY];
+            return;
+        }
+        NSItemProvider *provider = results.firstObject.itemProvider;
+        [provider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage *image, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                FlowWindow *ss = weakSelf;
+                if (!ss) return;
+                if (!image) {
+                    [ss closeBallPickerWindow];
+                    [ss refreshSettingsKeepingY:ss->_ballPickKeepY];
+                    return;
+                }
+                [ss presentBallCropForImage:image path:path];
+            });
+        }];
+    }];
+}
+
+- (void)presentBallCropForImage:(UIImage *)image path:(NSString *)ballPath
+{
+    UIViewController *host = [self ballPickerHostViewController];
+    if (!host || !image) {
+        [self closeBallPickerWindow];
+        [self refreshSettingsKeepingY:_ballPickKeepY];
+        return;
+    }
+
+    __weak typeof(self) weakSelf = self;
+    ZXBallCropViewController *crop = [[ZXBallCropViewController alloc] init];
+    crop.sourceImage = image;
+    crop.onFinish = ^(UIImage *cropped) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            FlowWindow *s = weakSelf;
+            if (!s) return;
+            if (cropped) [ScriptFloat setBallImage:cropped forScriptPath:ballPath];
+            [s closeBallPickerWindow];
+            [s refreshSettingsKeepingY:s->_ballPickKeepY];
+        });
+    };
+    crop.onCancel = ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            FlowWindow *s = weakSelf;
+            if (!s) return;
+            [s closeBallPickerWindow];
+            [s refreshSettingsKeepingY:s->_ballPickKeepY];
+        });
+    };
+    [host presentViewController:crop animated:YES completion:nil];
+}
+
+- (void)showBallColorPickerForPath:(NSString *)ballPath
+{
+    if (ballPath.length == 0) return;
+    NSArray<NSString *> *colors = @[ @"E53935", @"FB8C00", @"FDD835", @"43A047",
+                                     @"00ACC1", @"1E88E5", @"8E24AA", @"D81B60",
+                                     @"6D4C41", @"546E7A", @"111111", @"FFFFFF" ];
+    NSString *currentHex = [ScriptFloat ballConfigForScriptPath:ballPath][@"color"];
+    currentHex = [currentHex uppercaseString];
+
+    __weak typeof(self) weakSelf = self;
+    [self showSubWithTitle:@"悬浮球颜色" builder:^CGFloat(UIScrollView *content, CGFloat w) {
+        FlowWindow *s = weakSelf;
+        if (!s) return 0.0f;
+
+        CGFloat inner = w - 8.0f;
+        CGFloat y = 8.0f;
+
+        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(8.0f, y, inner, 18.0f)];
+        hint.text = @"点一个颜色，悬浮球就换成纯色";
+        hint.font = [UIFont systemFontOfSize:11];
+        hint.textColor = ZXPalette(ZXPalSub);
+        [content addSubview:hint];
+        y += 18.0f + FW_GAP;
+
+        NSInteger cols = 4;
+        CGFloat gap = 10.0f;
+        CGFloat chip = floor((inner - gap * (cols - 1)) / cols);
+        for (NSUInteger i = 0; i < colors.count; i++) {
+            NSInteger col = (NSInteger)i % cols;
+            NSInteger row = (NSInteger)i / cols;
+            NSString *hex = colors[i];
+            UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+            b.frame = CGRectMake(8.0f + col * (chip + gap), y + row * (chip + gap), chip, chip);
+            b.backgroundColor = ZXColorFromHex(hex);
+            b.layer.cornerRadius = chip / 2.0f;
+            b.layer.borderWidth = [hex isEqualToString:currentHex] ? 3.0f : 1.0f;
+            b.layer.borderColor = ([hex isEqualToString:currentHex] ? ZXPalette(ZXPalAccent)
+                                                                    : ZXPalette(ZXPalLine)).CGColor;
+            [b addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+                FlowWindow *ss = weakSelf;
+                if (!ss) return;
+                [ScriptFloat setBallColorHex:hex forScriptPath:ballPath];
+                [ss dismissSubAnimated:NO];
+                [ss refreshKeepingScroll];
+                [ss showSettings];
+            }] forControlEvents:UIControlEventTouchUpInside];
+            [content addSubview:b];
+        }
+        y += ((colors.count + cols - 1) / cols) * (chip + gap) + 4.0f;
+        return y;
+    }];
 }
 
 #pragma mark - 内容刷新
@@ -3293,6 +3653,84 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     return row;
 }
 
+// 重复块：上面是次数输入框，中间是嵌套动作，下面是「添加动作」入口
+- (CGFloat)layoutRepeatContentOfStep:(NSMutableDictionary *)step atY:(CGFloat)y x:(CGFloat)x width:(CGFloat)w
+{
+    if (![step[@"Steps"] isKindOfClass:[NSMutableArray class]]) step[@"Steps"] = [NSMutableArray array];
+    NSMutableArray *children = step[@"Steps"];
+    CGFloat inset = 16.0f;
+    CGFloat cx = x + inset;
+    CGFloat cw = MAX(w - inset * 2.0f, 80.0f);
+    __weak typeof(self) weakSelf = self;
+
+    UIView *countRow = [self makeValueRow:@"重复几次" value:step[@"Times"] integer:YES width:cw
+                                 onChange:^(NSString *text) {
+        FlowWindow *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        step[@"Times"] = [FlowScript valueFromText:text integer:YES];
+        [strongSelf autosave];
+    }];
+    countRow.frame = CGRectMake(cx, y, cw, countRow.frame.size.height);
+    [_scroll addSubview:countRow];
+    y += countRow.frame.size.height + 6.0f;
+
+    y = [self layoutNestedSteps:children atY:y x:cx width:cw];
+
+    UIView *add = [self makeActionRow:@"＋  添加动作" detail:nil color:ZXPalette(ZXPalAccent) primary:NO width:cw
+                               action:^{
+        FlowWindow *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_addTargetSteps = children;
+        [strongSelf showAddSheet];
+    }];
+    add.frame = CGRectMake(cx, y, cw, add.frame.size.height);
+    [_scroll addSubview:add];
+    return y + add.frame.size.height + FW_GAP;
+}
+
+- (CGFloat)layoutNestedSteps:(NSMutableArray *)steps atY:(CGFloat)y x:(CGFloat)x width:(CGFloat)w
+{
+    __weak typeof(self) weakSelf = self;
+    if (steps.count == 0) {
+        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(x + 4, y, w - 8, 22)];
+        hint.font = [UIFont systemFontOfSize:11];
+        hint.textColor = ZXPalette(ZXPalSub);
+        hint.text = @"里面还没有动作，点下面的「添加动作」";
+        [_scroll addSubview:hint];
+        return y + 26.0f;
+    }
+    for (NSInteger i = 0; i < (NSInteger)steps.count; i++) {
+        NSDictionary *step = steps[i];
+        if (![step isKindOfClass:[NSDictionary class]]) continue;
+        FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
+        FWStepRowView *row = [self makeStepRow:[FlowScript summaryForStep:step]
+                                     customName:[step[@"Name"] isKindOfClass:[NSString class]] ? step[@"Name"] : nil
+                                         detail:[FlowScript detailForStep:step]
+                                          index:i
+                                         symbol:type.symbolName
+                                          color:fwTypeColor(type.kind)
+                                      deletable:YES
+                                       sortable:NO
+                                          width:w
+                                          onTap:^{
+                                              [weakSelf showParamsSubForStep:(NSMutableDictionary *)step parentSteps:steps];
+                                          }
+                                       onDelete:^{
+                                           [weakSelf deleteStep:(NSMutableDictionary *)step fromSteps:steps];
+                                       }];
+        __weak FWStepRowView *weakRow = row;
+        row.onCopy = ^{ [weakSelf showCopyMenuForRow:weakRow step:(NSMutableDictionary *)step steps:steps]; };
+        row.step = step;
+        row.frame = CGRectMake(x, y, w, FW_ROW_H);
+        [_scroll addSubview:row];
+        y += FW_ROW_H + FW_GAP;
+        if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
+            y = [self layoutRepeatContentOfStep:(NSMutableDictionary *)step atY:y x:x width:w];
+        }
+    }
+    return y;
+}
+
 - (void)refresh {
     if (!_host) return;
     UIScrollView *scroll = [_host flowHostScrollView];
@@ -3358,6 +3796,9 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             row.step = step;
             [_rows addObject:row];
             y = [self addRow:row y:y];
+            if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
+                y = [self layoutRepeatContentOfStep:(NSMutableDictionary *)step atY:y x:4.0f width:rowW];
+            }
         }
     }
 

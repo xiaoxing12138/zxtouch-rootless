@@ -26,8 +26,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.preferredContentSize = CGSizeMake(300, 200);
-    // Do any additional setup after loading the view from its nib.
+    self.preferredContentSize = CGSizeMake(300, 100);
 }
 
 - (void)setFolder:(NSString*)path {
@@ -36,64 +35,6 @@
 
 - (void)setUpperLevelViewController:(ScriptListViewController*)vc{
     upperLevel = vc;
-}
-
-- (IBAction)createScriptButtonClick:(id)sender {
-    if (!self->currentFolder)
-    {
-        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法创建脚本：路径未设置。" buttonString:@"确定"];
-        return;
-    }
-    
-    // 不再让用户起名：直接用「年月日_时分秒」，想改名字事后自己改
-    NSDateFormatter *nameFormatter = [[NSDateFormatter alloc] init];
-    [nameFormatter setDateFormat:@"yyyyMMdd_HHmmss"];
-    NSString *scriptName = [nameFormatter stringFromDate:[NSDate date]];
-
-    BOOL isDir;
-    NSError *err = nil;
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    NSString *folderToAddPath = [self->currentFolder stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.bdl", scriptName]];
-    // 同一秒里连点两下（基本不会发生）就往后加 -2、-3，保证不重名
-    NSInteger seq = 2;
-    while ([fileManager fileExistsAtPath:folderToAddPath isDirectory:&isDir] && isDir)
-    {
-        folderToAddPath = [self->currentFolder stringByAppendingPathComponent:
-                           [NSString stringWithFormat:@"%@-%ld.bdl", scriptName, (long)seq++]];
-    }
-
-    [fileManager createDirectoryAtPath:folderToAddPath withIntermediateDirectories:YES attributes:nil error:&err];
-    if (err)
-    {
-        [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建脚本，原因：", err] buttonString:@"确定"];
-        return;
-    }
-
-    // add plist file
-    NSDictionary *scriptInfo = @{@"Entry": @"main.py", @"FrontApp": @"", @"Orientation": @"1"};
-    if (![scriptInfo writeToFile:[folderToAddPath stringByAppendingPathComponent:@"info.plist"] atomically:YES])
-    {
-        [fileManager removeItemAtPath:folderToAddPath error:nil];
-        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法创建脚本：info.plist 写入失败。" buttonString:@"确定"];
-        return;
-    }
-
-    // add python file
-    NSDateFormatter *dateFormatter=[[NSDateFormatter alloc] init];
-    [dateFormatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
-    NSString *currentDateTime = [dateFormatter stringFromDate:[NSDate date]];
-    NSString *initContent = [NSString stringWithFormat:@"# 本脚本创建于 %@\n# ZXTouch 模块文档（GitHub）：https://github.com/xuan32546/IOS13-SimulateTouch/\n\nfrom zxtouch.client import zxtouch\n\n\n# 请在此处编写你的代码。", currentDateTime];
-
-    if (![initContent writeToFile:[folderToAddPath stringByAppendingPathComponent:@"main.py"] atomically:YES encoding:NSUTF8StringEncoding error:&err])
-    {
-        [fileManager removeItemAtPath:folderToAddPath error:nil];
-        [Util showAlertBoxWithOneOption:self title:@"错误" message:[NSString stringWithFormat:@"%@%@", @"无法创建脚本，原因：", err] buttonString:@"确定"];
-        return;
-    }
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self->upperLevel refreshTable];
-    });
 }
 
 - (IBAction)createFolderButtonClick:(id)sender {
@@ -192,31 +133,12 @@
 
 - (IBAction)importFileButtonClick:(id)sender {
     if (!self->currentFolder) {
-        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法创建文件夹：路径未设置。" buttonString:@"确定"];
+        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法导入文件：路径未设置。" buttonString:@"确定"];
         return;
     }
 
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[(NSString *)kUTTypeItem] inMode:UIDocumentPickerModeImport];
     picker.delegate = self;
-    picker.modalPresentationStyle = UIModalPresentationFormSheet;
-    [self presentViewController:picker animated:YES completion:nil];
-}
-
-- (IBAction)importImageButtonClick:(id)sender {
-    if (!self->currentFolder) {
-        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"无法创建文件夹：路径未设置。" buttonString:@"确定"];
-        return;
-    }
-
-    if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) {
-        [Util showAlertBoxWithOneOption:self title:@"错误" message:@"照片图库不可用。" buttonString:@"确定"];
-        return;
-    }
-
-    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
-    picker.delegate = self;
-    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
-    picker.mediaTypes = @[(NSString *)kUTTypeImage];
     picker.modalPresentationStyle = UIModalPresentationFormSheet;
     [self presentViewController:picker animated:YES completion:nil];
 }
@@ -240,38 +162,5 @@
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentAtURL:(NSURL *)url {
     [self documentPicker:controller didPickDocumentsAtURLs:@[url]];
-}
-
-- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
-    UIImage *image = info[UIImagePickerControllerOriginalImage];
-    NSURL *imageURL = info[UIImagePickerControllerImageURL];
-    NSString *fileName = imageURL.lastPathComponent.length ? imageURL.lastPathComponent : @"导入的图片.png";
-    NSString *destinationPath = [self availableDestinationPathForFileName:fileName];
-
-    NSError *err = nil;
-    NSData *imageData = nil;
-    NSString *extension = [[destinationPath pathExtension] lowercaseString];
-    if ([extension isEqualToString:@"jpg"] || [extension isEqualToString:@"jpeg"]) {
-        imageData = UIImageJPEGRepresentation(image, 0.92);
-    } else {
-        if (extension.length == 0) {
-            destinationPath = [destinationPath stringByAppendingPathExtension:@"png"];
-        }
-        imageData = UIImagePNGRepresentation(image);
-    }
-
-    if (!imageData) {
-        err = [NSError errorWithDomain:@"ZXTouchImport" code:1 userInfo:@{NSLocalizedDescriptionKey: @"无法读取所选图片。"}];
-    } else {
-        [imageData writeToFile:destinationPath options:NSDataWritingAtomic error:&err];
-    }
-
-    [picker dismissViewControllerAnimated:YES completion:^{
-        [self finishImportWithError:err destination:destinationPath];
-    }];
-}
-
-- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
-    [picker dismissViewControllerAnimated:YES completion:nil];
 }
 @end

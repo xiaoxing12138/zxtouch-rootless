@@ -11,6 +11,8 @@
 #import "PlaySettingsViewController.h"
 #import "PlaySettingsNavigationController.h"
 #import "ScheduleSettingsViewController.h"
+#import "../ZXScriptListView.h"
+#include "../Config.h"
 
 @interface MoreOptionsPopOverTableViewController ()
 {
@@ -231,14 +233,85 @@
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if ([[currentFolder pathExtension] isEqualToString:@"bdl"])
     {
-        return 4;      // 重命名 / 播放设置 / 可视化编辑 / 定时启动结束
+        return 8;
     }
     else
     {
-        return 2;      // 重命名 / 新建可视化脚本
+        return 4;
     }
 }
 
+- (void)copyScript:(id)sender {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *dir = [currentFolder stringByDeletingLastPathComponent];
+    NSString *base = [[currentFolder lastPathComponent] stringByDeletingPathExtension];
+    NSString *copy = [[dir stringByAppendingPathComponent:[base stringByAppendingString:@" 副本"]]
+                      stringByAppendingPathExtension:@"bdl"];
+    NSInteger seq = 2;
+    while ([fm fileExistsAtPath:copy]) {
+        copy = [[dir stringByAppendingPathComponent:
+                 [NSString stringWithFormat:@"%@ 副本%ld", base, (long)seq++]] stringByAppendingPathExtension:@"bdl"];
+    }
+    NSError *err = nil;
+    if (![fm copyItemAtPath:currentFolder toPath:copy error:&err]) {
+        [Util showAlertBoxWithOneOption:self title:@"错误"
+                                message:[NSString stringWithFormat:@"复制失败:%@", err.localizedDescription]
+                           buttonString:@"确定"];
+        return;
+    }
+    ScriptListViewController *upper = upperLevel;
+    [self dismissThen:^{
+        [upper refreshTable];
+    }];
+}
+
+- (void)exportScript:(id)sender {
+    NSURL *url = [NSURL fileURLWithPath:currentFolder];
+    ScriptListViewController *upper = upperLevel;
+    [self dismissThen:^{
+        UIActivityViewController *activity = [[UIActivityViewController alloc] initWithActivityItems:@[url]
+                                                                             applicationActivities:nil];
+        activity.popoverPresentationController.sourceView = upper.view;
+        activity.popoverPresentationController.sourceRect = CGRectMake(upper.view.bounds.size.width / 2.0f,
+                                                                       upper.view.bounds.size.height / 2.0f, 1, 1);
+        [upper presentViewController:activity animated:YES completion:nil];
+    }];
+}
+
+- (void)moveScript:(id)sender {
+    NSString *path = [currentFolder copy];
+    ScriptListViewController *upper = upperLevel;
+    [self dismissThen:^{
+        ZXScriptShowMovePicker(path, SCRIPTS_PATH, upper, nil, ^(BOOL moved) {
+            if (moved) [upper refreshTable];
+        });
+    }];
+}
+
+- (void)deleteScript:(id)sender {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示"
+                                                                   message:@"确定要删除此文件（文件夹）吗？"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        MoreOptionsPopOverTableViewController *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        NSError *err = nil;
+        [[NSFileManager defaultManager] removeItemAtPath:strongSelf->currentFolder error:&err];
+        if (err) {
+            [Util showAlertBoxWithOneOption:strongSelf title:@"错误"
+                                    message:[NSString stringWithFormat:@"删除此文件时出错。错误信息：%@", err]
+                               buttonString:@"确定"];
+            return;
+        }
+        ScriptListViewController *upper = strongSelf->upperLevel;
+        [strongSelf dismissThen:^{
+            [upper refreshTable];
+        }];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     static NSString *cellID = @"SingleButtonCell";
@@ -255,45 +328,61 @@
     // cell 是复用的：不清掉上一次挂上去的 target，会出现「点一项触发两个动作」
     [cell.button removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
 
+    BOOL isBundle = [[currentFolder pathExtension] isEqualToString:@"bdl"];
     if (indexPath.row == 0)
     {
         [cell setButtonText:@"重命名"];
-        
-        [cell.button addTarget:self
-              action:@selector(changeName:)
-              forControlEvents:UIControlEventTouchUpInside];
+        [cell.button addTarget:self action:@selector(changeName:) forControlEvents:UIControlEventTouchUpInside];
     }
-    else if (indexPath.row == 1 && [[currentFolder pathExtension] isEqualToString:@"bdl"])
+    else if (indexPath.row == 1 && isBundle)
     {
-        [cell setButtonText:@"播放设置"];
-        
-        [cell.button addTarget:self
-              action:@selector(changePlaySetting:)
-              forControlEvents:UIControlEventTouchUpInside];
+        [cell setButtonText:@"复制"];
+        [cell.button addTarget:self action:@selector(copyScript:) forControlEvents:UIControlEventTouchUpInside];
     }
     else if (indexPath.row == 1)
     {
-        [cell setButtonText:@"新建可视化脚本"];
-        
-        [cell.button addTarget:self
-              action:@selector(createVisualScript:)
-              forControlEvents:UIControlEventTouchUpInside];
+        [cell setButtonText:@"移动"];
+        [cell.button addTarget:self action:@selector(moveScript:) forControlEvents:UIControlEventTouchUpInside];
+    }
+    else if (indexPath.row == 2 && isBundle)
+    {
+        [cell setButtonText:@"导出"];
+        [cell.button addTarget:self action:@selector(exportScript:) forControlEvents:UIControlEventTouchUpInside];
     }
     else if (indexPath.row == 2)
     {
-        [cell setButtonText:@"可视化编辑"];
-        
-        [cell.button addTarget:self
-              action:@selector(openFlowEditor:)
-              forControlEvents:UIControlEventTouchUpInside];
+        [cell setButtonText:@"删除"];
+        [cell.button addTarget:self action:@selector(deleteScript:) forControlEvents:UIControlEventTouchUpInside];
+    }
+    else if (indexPath.row == 3 && isBundle)
+    {
+        [cell setButtonText:@"移动"];
+        [cell.button addTarget:self action:@selector(moveScript:) forControlEvents:UIControlEventTouchUpInside];
     }
     else if (indexPath.row == 3)
     {
+        [cell setButtonText:@"新建可视化脚本"];
+        [cell.button addTarget:self action:@selector(createVisualScript:) forControlEvents:UIControlEventTouchUpInside];
+    }
+    else if (indexPath.row == 4 && isBundle)
+    {
+        [cell setButtonText:@"删除"];
+        [cell.button addTarget:self action:@selector(deleteScript:) forControlEvents:UIControlEventTouchUpInside];
+    }
+    else if (indexPath.row == 5 && isBundle)
+    {
+        [cell setButtonText:@"播放设置"];
+        [cell.button addTarget:self action:@selector(changePlaySetting:) forControlEvents:UIControlEventTouchUpInside];
+    }
+    else if (indexPath.row == 6 && isBundle)
+    {
+        [cell setButtonText:@"可视化编辑"];
+        [cell.button addTarget:self action:@selector(openFlowEditor:) forControlEvents:UIControlEventTouchUpInside];
+    }
+    else if (indexPath.row == 7 && isBundle)
+    {
         [cell setButtonText:@"启动 / 结束"];
-        
-        [cell.button addTarget:self
-              action:@selector(openScheduleSettings:)
-              forControlEvents:UIControlEventTouchUpInside];
+        [cell.button addTarget:self action:@selector(openScheduleSettings:) forControlEvents:UIControlEventTouchUpInside];
     }
     
     return cell;

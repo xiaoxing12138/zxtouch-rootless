@@ -12,6 +12,7 @@
 #import <fcntl.h>
 #import <spawn.h>
 #import <string.h>
+#import <pthread.h>
 #import <dlfcn.h>
 #import <Vision/Vision.h>
 #import <CoreImage/CoreImage.h>
@@ -29,6 +30,7 @@ typedef struct
 
 static ZXTessSlot g_tessSlots[ZXTESS_MAX_SLOTS];
 static int g_tessSlotCount = 0;
+static pthread_mutex_t g_tessMutex = PTHREAD_MUTEX_INITIALIZER;
 static int g_tessLoadState = 0;
 static char g_tessError[256] = {0};
 
@@ -143,6 +145,43 @@ static void *zx_tess_api(const char *langs)
     g_tessSlots[g_tessSlotCount].api = api;
     g_tessSlotCount++;
     return api;
+}
+
+// 脚本开始跑时才预热，且在后台线程做，不挡 spawn_python / 触摸命令
+static void *zx_tess_warmup_thread(void *arg)
+{
+    (void)arg;
+    pthread_mutex_lock(&g_tessMutex);
+    if (zx_tess_load() == 0)
+    {
+        if (zx_tess_api("chi_sim+eng"))
+        {
+            NSLog(@"[zxrunner] ocr warmed up (script)");
+        }
+        else
+        {
+            NSLog(@"[zxrunner] ocr warm up failed: %s", g_tessError);
+        }
+    }
+    else
+    {
+        NSLog(@"[zxrunner] ocr engine unavailable: %s", g_tessError);
+    }
+    pthread_mutex_unlock(&g_tessMutex);
+    return NULL;
+}
+
+static void zx_tess_warmup_async(void)
+{
+    pthread_t tid;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&tid, &attr, zx_tess_warmup_thread, NULL) != 0)
+    {
+        zx_tess_warmup_thread(NULL);
+    }
+    pthread_attr_destroy(&attr);
 }
 
 static int send_json_object(int fd, NSDictionary *obj)
@@ -376,7 +415,7 @@ static int handle_ocr(int client, NSDictionary *cmd)
     return 0;
 }
 
-static int handle_ocr_tess(int client, NSDictionary *cmd)
+static int handle_ocr_tess_locked(int client, NSDictionary *cmd)
 {
     NSString *path = cmd[@"path"];
     NSString *langs = [cmd[@"langs"] isKindOfClass:[NSString class]] ? cmd[@"langs"] : @"";
@@ -437,6 +476,14 @@ static int handle_ocr_tess(int client, NSDictionary *cmd)
     return 0;
 }
 
+static int handle_ocr_tess(int client, NSDictionary *cmd)
+{
+    pthread_mutex_lock(&g_tessMutex);
+    int ret = handle_ocr_tess_locked(client, cmd);
+    pthread_mutex_unlock(&g_tessMutex);
+    return ret;
+}
+
 static void handle_client(int client)
 {
     char linebuf[8192];
@@ -465,6 +512,9 @@ static void handle_client(int client)
                     handle_ocr(client, cmd);
                 } else if ([c isEqualToString:@"ocr_tess"]) {
                     handle_ocr_tess(client, cmd);
+                } else if ([c isEqualToString:@"ocr_warmup"]) {
+                    zx_tess_warmup_async();
+                    send_json_line(client, "done", NULL);
                 } else if ([c isEqualToString:@"ping"]) {
                     send_json_line(client, "pong", "\"v\":\"" ZXRUNNER_VERSION "\"");
                 } else {
@@ -518,22 +568,6 @@ static int run_server(void)
     }
 
     NSLog(@"[zxrunner] listening on %s (uid=%d)", ZXRUNNER_SOCKET_PATH, getuid());
-
-    if (zx_tess_load() == 0)
-    {
-        if (zx_tess_api("chi_sim+eng"))
-        {
-            NSLog(@"[zxrunner] ocr warmed up");
-        }
-        else
-        {
-            NSLog(@"[zxrunner] ocr warm up failed: %s", g_tessError);
-        }
-    }
-    else
-    {
-        NSLog(@"[zxrunner] ocr engine unavailable: %s", g_tessError);
-    }
 
     while (1) {
         int client = accept(server, NULL, NULL);

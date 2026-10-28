@@ -8,6 +8,7 @@ endif
 
 TWEAK_NAME = pccontrol
 pccontrol_FILES = Tweak.xm SocketServer.xm Touch.xm Screen.xm Task.xm Process.xm AlertBox.xm Common.xm Record.xm Play.xm Window.xm Toast.xm UIKeyboard.xm DeviceInfo.xm TouchIndicator/TouchIndicatorWindow.xm TouchIndicator/TouchIndicatorView.xm TouchIndicator/TouchIndicatorCoordinateView.xm TouchIndicator/TouchIndicatorViewList.xm ScriptPlayer.xm TextRecognization/VKOcrManager.xm TextRecognization/TextRecognizer.xm UpdateCache.xm ColorPicker.xm TemplateMatch.xm ScreenMatch.xm NetSpeedIndicator.xm TouchCoordinateIndicator.xm FloatingMenu.xm ScriptFloat.xm TapTestWindow.xm ScriptFunctions.xm FunctionWindow.xm FlowScript.xm PickOverlay.xm FlowWindow.xm Schedule.xm \
+	../zxtouch/zxtouch/ZXScriptListView.m \
 	../zxtouch/zxtouch/RemoteDashboardServer.m \
 	../zxtouch/zxtouch/GCDWebServer/Core/GCDWebServerResponse.m \
 	../zxtouch/zxtouch/GCDWebServer/Core/GCDWebServerRequest.m \
@@ -31,7 +32,7 @@ pccontrol_CFLAGS = -Wno-error -Wno-module-import-in-extern-c -fobjc-arc \
 	-I../zxtouch/zxtouch/GCDWebServer/Core \
 	-I../zxtouch/zxtouch/GCDWebServer/Responses \
 	-I../zxtouch/zxtouch/GCDWebServer/Requests
-pccontrol_FRAMEWORKS = UIKit AssetsLibrary AVFoundation CoreMedia CoreVideo CoreImage IOSurface IOMobileFramebuffer Accelerate MobileCoreServices QuartzCore
+pccontrol_FRAMEWORKS = UIKit AssetsLibrary AVFoundation CoreMedia CoreVideo CoreImage IOSurface IOMobileFramebuffer Accelerate MobileCoreServices QuartzCore PhotosUI
 pccontrol_ARCHS = arm64 arm64e
 
 pccontrol_PRIVATE_FRAMEWORKS = IOKit

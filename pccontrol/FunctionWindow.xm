@@ -10,6 +10,7 @@
 #import "FlowWindow.h"       // 可视化流程编辑器（内容挂在本面板里）+ FlowEditorHost
 #import "FlowScript.h"       // bundleHasFlow：判断脚本包里有没有可视化流程
 #import "ScriptFloat.h"      // 面板遮罩要放行落在脚本悬浮球上的触摸
+#import "ZXScriptListView.h" // 脚本行：App 列表共用同一套
 #import <UIKit/UIKit.h>
 
 static BOOL fnTouchOnUpperWindow(CGPoint point, CGFloat panelLevel)
@@ -91,150 +92,6 @@ static UIImage *fnSymbol(NSString *name) {
     if (CGRectContainsPoint(self.bounds, [touch locationInView:self])) self.onTap();
 }
 @end
-
-#define FN_SCRIPT_DELETE_W 72.0f   // 脚本行左滑露出的「删除」宽度
-
-// 脚本列表里的脚本行：左滑露「删除」，长按弹菜单（复制 / 重命名 / 导出），点按选择
-@interface FNScriptRowView : UIView <UIGestureRecognizerDelegate>
-@property (nonatomic, strong) UIView   *content;
-@property (nonatomic, copy) void (^onTap)(void);
-@property (nonatomic, copy) void (^onDelete)(void);
-@property (nonatomic, copy) void (^onMenu)(void);
-@end
-
-@implementation FNScriptRowView {
-    BOOL    _open;
-    CGFloat _panStartX;
-}
-
-- (instancetype)initWithFrame:(CGRect)frame {
-    self = [super initWithFrame:frame];
-    if (self) {
-        self.layer.cornerRadius = 8;
-        self.clipsToBounds = YES;
-
-        UIButton *del = [UIButton buttonWithType:UIButtonTypeSystem];
-        del.backgroundColor = [UIColor systemRedColor];
-        del.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-        [del setTitle:@"删除" forState:UIControlStateNormal];
-        [del setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        del.hidden = YES;
-        del.tag = 9;
-        __weak typeof(self) weakSelf = self;
-        [del addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-            FNScriptRowView *row = weakSelf;
-            if (row && row.onDelete) row.onDelete();
-        }] forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:del];
-
-        _content = [[UIView alloc] initWithFrame:self.bounds];
-        _content.backgroundColor = [UIColor secondarySystemBackgroundColor];
-        _content.layer.cornerRadius = 8;
-        [self addSubview:_content];
-
-        UILongPressGestureRecognizer *press =
-            [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handlePress:)];
-        press.minimumPressDuration = 0.45;
-        [self addGestureRecognizer:press];
-
-        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)];
-        [tap requireGestureRecognizerToFail:press];
-        [_content addGestureRecognizer:tap];
-
-        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
-        pan.delegate = self;
-        [self addGestureRecognizer:pan];
-    }
-    return self;
-}
-
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    [self viewWithTag:9].frame = CGRectMake(self.bounds.size.width - FN_SCRIPT_DELETE_W, 0,
-                                            FN_SCRIPT_DELETE_W, self.bounds.size.height);
-    if (CGAffineTransformIsIdentity(_content.transform)) _content.frame = self.bounds;
-}
-
-- (void)handleTap {
-    if (_open) { [self setOpen:NO animated:YES]; return; }
-    if (self.onTap) self.onTap();
-}
-
-- (void)handlePress:(UILongPressGestureRecognizer *)g {
-    if (g.state != UIGestureRecognizerStateBegan) return;
-    [self setOpen:NO animated:NO];
-    if (self.onMenu) self.onMenu();
-}
-
-- (void)handlePan:(UIPanGestureRecognizer *)g {
-    if (g.state == UIGestureRecognizerStateBegan) _panStartX = _content.transform.tx;
-    CGFloat x = _panStartX + [g translationInView:self].x;
-    if (x > 0) x = 0;
-    if (x < -FN_SCRIPT_DELETE_W) x = -FN_SCRIPT_DELETE_W;
-    [self viewWithTag:9].hidden = (x > -1.0f);
-    _content.transform = CGAffineTransformMakeTranslation(x, 0);
-    if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
-        [self setOpen:(x < -FN_SCRIPT_DELETE_W / 2.0f) animated:YES];
-    }
-}
-
-- (void)setOpen:(BOOL)open animated:(BOOL)animated {
-    _open = open;
-    [self viewWithTag:9].hidden = !open;
-    void (^apply)(void) = ^{
-        self->_content.transform = CGAffineTransformMakeTranslation(open ? -FN_SCRIPT_DELETE_W : 0, 0);
-    };
-    if (animated) [UIView animateWithDuration:0.18 animations:apply];
-    else apply();
-}
-
-- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
-    if ([g isKindOfClass:[UIPanGestureRecognizer class]]) {
-        CGPoint v = [(UIPanGestureRecognizer *)g velocityInView:self];
-        return fabs(v.x) > fabs(v.y);   // 竖直方向留给列表自己滚
-    }
-    return YES;
-}
-@end
-
-// 可视化脚本的总步骤数（读包内 flow.plist 的 Steps）；不是可视化脚本返回 -1
-static NSInteger fnFlowStepCount(NSString *bundlePath) {
-    NSDictionary *flow = [NSDictionary dictionaryWithContentsOfFile:
-                          [bundlePath stringByAppendingPathComponent:kFlowFileName]];
-    NSArray *steps = [flow[@"Steps"] isKindOfClass:[NSArray class]] ? flow[@"Steps"] : nil;
-    return steps ? (NSInteger)steps.count : -1;
-}
-
-// 步骤数分档上色：0 灰，之后每 5 步换一色，30 步以上红。不用蓝色——蓝色是自定义脚本（PY）的标识色
-static UIColor *fnStepCountColor(NSInteger count) {
-    if (count <= 0)  return [UIColor systemGrayColor];
-    if (count <= 5)  return [UIColor systemGreenColor];
-    if (count <= 10) return [UIColor systemOrangeColor];
-    if (count <= 15) return [UIColor systemPurpleColor];
-    if (count <= 20) return [UIColor systemPinkColor];
-    if (count <= 25) return [UIColor systemTealColor];
-    if (count <= 30) return [UIColor systemBrownColor];
-    return [UIColor systemRedColor];
-}
-
-// 文件最后修改时间：今年的只显示「月-日 时:分」，往年带上年份
-static NSString *fnDateText(NSDate *date) {
-    if (!date) return @"";
-    static NSDateFormatter *thisYear = nil;
-    static NSDateFormatter *otherYear = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        thisYear = [[NSDateFormatter alloc] init];
-        thisYear.dateFormat = @"MM-dd HH:mm";
-        otherYear = [[NSDateFormatter alloc] init];
-        otherYear.dateFormat = @"yyyy-MM-dd HH:mm";
-    });
-    NSDateFormatter *fmt = thisYear;
-    NSInteger year = [[NSCalendar currentCalendar] component:NSCalendarUnitYear fromDate:date];
-    NSInteger nowYear = [[NSCalendar currentCalendar] component:NSCalendarUnitYear fromDate:[NSDate date]];
-    if (year != nowYear) fmt = otherYear;
-    return [fmt stringFromDate:date];
-}
 
 // 界面外观：0跟随系统 1浅色 2深色。旧配置只有 dark_mode 布尔值，按 深色/浅色 迁移。
 NSInteger ZXAppearanceModeFromConfig(NSDictionary *config) {
@@ -1592,30 +1449,6 @@ static CGFloat fnCapLabelWidth(NSString *key)
     [self layoutCard];
 }
 
-// 列一层目录，顺序严格照 App 的脚本列表（ScriptListViewController 的 insertFileListIntoArray:）：
-// 非 .bdl 的文件夹「插到最前」，其余按系统枚举顺序追加 —— 这样面板里的顺序和 App 里看到的完全一致。
-// .bdl 本身是脚本包（也是文件夹），一律当脚本行，不能当文件夹展开。
-static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:dir error:nil] ?: @[];
-    NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
-    for (NSString *name in items) {
-        if ([name hasPrefix:@"."]) continue;
-        NSString *path = [dir stringByAppendingPathComponent:name];
-        BOOL isDir = NO;
-        if (![fm fileExistsAtPath:path isDirectory:&isDir]) continue;
-        BOOL isBdl = [[name pathExtension].lowercaseString isEqualToString:@"bdl"];
-        if (!isDir && !isBdl) continue;   // 面板只列「文件夹」和「脚本」，普通文件不进来
-        NSDate *date = [fm attributesOfItemAtPath:path error:nil][NSFileModificationDate];
-        NSDictionary *entry = @{ @"name": name, @"path": path,
-                                 @"dir": @(isDir && !isBdl),
-                                 @"date": date ?: [NSDate distantPast] };
-        if (isDir && !isBdl) [entries insertObject:entry atIndex:0];
-        else [entries addObject:entry];
-    }
-    return entries;
-}
-
 // 面板状态存 plist：展开的文件夹 + 全局宽高，下次打开还是这样
 - (void)savePanelState {
     NSMutableDictionary *state = [NSMutableDictionary dictionary];
@@ -1625,136 +1458,55 @@ static NSArray<NSDictionary *> *fnListScriptEntries(NSString *dir) {
     [state writeToFile:PANEL_STATE_CONFIG_PATH atomically:YES];
 }
 
-// 递归铺目录：文件夹点一下展开 / 收起；脚本行支持左滑删除、长按菜单（复制/重命名/导出），
-// 行右显示最后编辑时间，名字左边是可视化脚本的总步骤数（按档上色）
+// 递归铺目录：文件夹点一下展开 / 收起；脚本行支持左滑删除、长按菜单（复制/重命名/导出/删除/移动）
 - (CGFloat)addScriptEntriesAtDir:(NSString *)dir depth:(NSInteger)depth y:(CGFloat)y width:(CGFloat)pw {
     __weak typeof(self) weakSelf = self;
-    CGFloat indent = 8.0f + depth * 18.0f;
-    CGFloat rowW = pw - 8.0f;
-    CGFloat timeW = 96.0f;
+    CGFloat indent = depth * 18.0f;
+    CGFloat rowW = pw - 8.0f - indent;
 
-    for (NSDictionary *entry in fnListScriptEntries(dir)) {
-        BOOL isFolder = [entry[@"dir"] boolValue];
-        NSString *path = entry[@"path"];
+    for (ZXScriptListItem *item in ZXScriptListScan(dir, NO)) {
+        BOOL isFolder = item.isFolder;
+        NSString *path = item.path;
         BOOL expanded = isFolder && [_expandedFolders containsObject:path];
 
+        ZXScriptListView *row = [[ZXScriptListView alloc] initWithFrame:CGRectMake(4 + indent, y, rowW, FN_ROW_H)];
+        row.showsDisclosure = isFolder;
+        row.expanded = expanded;
+        row.swipeDeleteEnabled = !isFolder;
+        [row applyItem:item];
+        row.highlighted = (!isFolder && [path isEqualToString:_functionScriptPath]);
+        __weak ZXScriptListView *weakRow = row;
+
         if (isFolder) {
-            FNTapView *row = [[FNTapView alloc] initWithFrame:CGRectMake(4, y, rowW, FN_ROW_H)];
-            row.backgroundColor = [UIColor secondarySystemBackgroundColor];
-            row.layer.cornerRadius = 8;
-
-            UIImageView *arrow = [[UIImageView alloc] initWithFrame:CGRectMake(indent + 8, (FN_ROW_H - 12) / 2.0f, 12, 12)];
-            arrow.image = fnSymbol(expanded ? @"chevron.down" : @"chevron.right");
-            arrow.tintColor = [UIColor secondaryLabelColor];
-            arrow.contentMode = UIViewContentModeScaleAspectFit;
-            [row addSubview:arrow];
-
-            UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(indent + 26, (FN_ROW_H - 16) / 2.0f, 16, 16)];
-            icon.image = fnSymbol(expanded ? @"folder.fill" : @"folder");
-            icon.tintColor = [UIColor systemBlueColor];
-            icon.contentMode = UIViewContentModeScaleAspectFit;
-            [row addSubview:icon];
-
-            CGFloat nameX = indent + 48.0f;
-            UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(nameX, 0, MAX(rowW - nameX - 10.0f, 40.0f), FN_ROW_H)];
-            name.text = entry[@"name"];
-            name.font = [UIFont systemFontOfSize:13];
-            name.textColor = [UIColor labelColor];
-            name.adjustsFontSizeToFitWidth = YES;
-            name.minimumScaleFactor = 0.8;
-            [row addSubview:name];
-
-            row.onTap = ^{
+            row.onTap = ^(ZXScriptListItem *picked) {
                 FunctionWindow *window = weakSelf;
                 if (!window) return;
-                if (expanded) [window->_expandedFolders removeObject:path];
-                else [window->_expandedFolders addObject:path];
+                if (expanded) [window->_expandedFolders removeObject:picked.path];
+                else [window->_expandedFolders addObject:picked.path];
                 [window savePanelState];
                 [window reloadScriptPicker];
             };
-
-            [_functionScrollView addSubview:row];
-            y += FN_ROW_H + FN_ROW_GAP;
-            if (expanded) y = [self addScriptEntriesAtDir:path depth:depth + 1 y:y width:pw];
-            continue;
+        } else {
+            row.onTap = ^(ZXScriptListItem *picked) {
+                FunctionWindow *window = weakSelf;
+                if (!window) return;
+                [window selectFunctionScript:picked.path];
+            };
+            row.onDeleteSwipe = ^(ZXScriptListItem *picked) {
+                FunctionWindow *window = weakSelf;
+                if (!window) return;
+                [window deleteScriptAtPath:picked.path];
+            };
+            row.onLongPress = ^(ZXScriptListItem *picked) {
+                FunctionWindow *window = weakSelf;
+                if (!window) return;
+                [window showScriptActionMenuForPath:picked.path anchor:weakRow];
+            };
         }
-
-        // ---- 脚本行 ----
-        FNScriptRowView *row = [[FNScriptRowView alloc] initWithFrame:CGRectMake(4, y, rowW, FN_ROW_H)];
-        // 当前选中的脚本用浅色标出来，下次进列表一眼看到
-        if ([path isEqualToString:_functionScriptPath]) {
-            row.content.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *tc) {
-                if (tc.userInterfaceStyle == UIUserInterfaceStyleDark) {
-                    return [UIColor colorWithRed:0.05f green:0.17f blue:0.34f alpha:1.0f];
-                }
-                return [UIColor colorWithRed:0.82f green:0.91f blue:1.0f alpha:1.0f];
-            }];
-        }
-
-        // 步数/PY 在最左边（占文件夹箭头那格），然后才是图标和文件名。
-        // 「N步」和「PY」共用同一套模板：同尺寸药丸、同字号、水平垂直都居中，只有颜色不同
-        NSInteger stepCount = fnFlowStepCount(path);
-        CGFloat countX = indent + 6.0f;
-        CGFloat countW = 34.0f;
-        UIColor *badgeColor = (stepCount >= 0) ? fnStepCountColor(stepCount) : [UIColor systemBlueColor];
-        UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(countX, (FN_ROW_H - 16) / 2.0f, countW, 16)];
-        badge.text = (stepCount >= 0) ? [NSString stringWithFormat:@"%ld步", (long)stepCount] : @"PY";
-        badge.font = [UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightBold];
-        badge.textColor = badgeColor;
-        badge.textAlignment = NSTextAlignmentCenter;
-        badge.adjustsFontSizeToFitWidth = YES;
-        badge.minimumScaleFactor = 0.7;
-        badge.backgroundColor = [badgeColor colorWithAlphaComponent:0.14f];
-        badge.layer.cornerRadius = 4;
-        badge.clipsToBounds = YES;
-        [row.content addSubview:badge];
-
-        UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(countX + countW + 2.0f,
-                                                                          (FN_ROW_H - 16) / 2.0f, 16, 16)];
-        icon.image = fnSymbol(stepCount >= 0 ? @"square.grid.2x2.fill" : @"doc.text.fill");
-        icon.tintColor = (stepCount >= 0) ? badgeColor : [UIColor secondaryLabelColor];
-        icon.contentMode = UIViewContentModeScaleAspectFit;
-        [row.content addSubview:icon];
-
-        CGFloat nameX = countX + countW + 2.0f + 16.0f + 4.0f;
-        CGFloat nameW = rowW - nameX - 10.0f - (timeW + 8.0f);
-        UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(nameX, 0, MAX(nameW, 40.0f), FN_ROW_H)];
-        name.text = entry[@"name"];   // 保留 .bdl 后缀，和文件 App 里看到的名字一致
-        name.font = [UIFont systemFontOfSize:13];
-        name.textColor = [UIColor labelColor];
-        name.adjustsFontSizeToFitWidth = YES;
-        name.minimumScaleFactor = 0.8;
-        [row.content addSubview:name];
-
-        UILabel *time = [[UILabel alloc] initWithFrame:CGRectMake(rowW - 10.0f - timeW, 0, timeW, FN_ROW_H)];
-        time.text = fnDateText(entry[@"date"]);
-        time.font = [UIFont systemFontOfSize:11];
-        time.textColor = [UIColor secondaryLabelColor];
-        time.textAlignment = NSTextAlignmentRight;
-        [row.content addSubview:time];
-
-        __weak FNScriptRowView *weakRow = row;
-        row.onTap = ^{
-            FunctionWindow *window = weakSelf;
-            if (!window) return;
-            [window selectFunctionScript:path];
-        };
-        row.onDelete = ^{
-            FunctionWindow *window = weakSelf;
-            if (!window) return;
-            [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-            // 删掉的如果正是当前选中的脚本，把选择也清掉，免得面板还去读一个已不存在的包
-            if ([path isEqualToString:window->_functionScriptPath]) window->_functionScriptPath = nil;
-            [window reloadScriptPicker];
-        };
-        row.onMenu = ^{
-            FunctionWindow *window = weakSelf;
-            if (!window) return;
-            [window showScriptActionMenuForPath:path anchor:weakRow];
-        };
 
         [_functionScrollView addSubview:row];
         y += FN_ROW_H + FN_ROW_GAP;
+        if (isFolder && expanded) y = [self addScriptEntriesAtDir:path depth:depth + 1 y:y width:pw];
     }
     return y;
 }
@@ -1939,7 +1691,7 @@ static NSString *fnImportExportFolder(void) {
     ZXShowMiniMenuNearView(_newScriptBtn, menuItems);
 }
 
-// 长按脚本行：复制 / 重命名 / 导出
+// 长按脚本行：复制 / 重命名 / 导出 / 移动 / 删除
 - (void)showScriptActionMenuForPath:(NSString *)path anchor:(UIView *)anchor {
     if (!anchor) return;
     __weak typeof(self) weakSelf = self;
@@ -1953,7 +1705,31 @@ static NSString *fnImportExportFolder(void) {
         @{ @"title": @"导出", @"icon": @"square.and.arrow.up", @"action": ^{
             [weakSelf exportScriptAtPath:path];
         } },
+        @{ @"title": @"移动", @"icon": @"folder", @"action": ^{
+            [weakSelf moveScriptAtPath:path];
+        } },
+        @{ @"title": @"删除", @"icon": @"trash", @"action": ^{
+            [weakSelf deleteScriptAtPath:path];
+        } },
     ]);
+}
+
+- (void)moveScriptAtPath:(NSString *)path {
+    __weak typeof(self) weakSelf = self;
+    ZXScriptShowMovePicker(path, getScriptsFolder(), nil, nil, ^(BOOL moved) {
+        FunctionWindow *window = weakSelf;
+        if (!window) return;
+        if (!moved) return;
+        if ([path isEqualToString:window->_functionScriptPath]) window->_functionScriptPath = nil;
+        [window reloadScriptPicker];
+    });
+}
+
+- (void)deleteScriptAtPath:(NSString *)path {
+    if (path.length == 0) return;
+    [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    if ([path isEqualToString:_functionScriptPath]) _functionScriptPath = nil;
+    [self reloadScriptPicker];
 }
 
 // 在同目录复制一份「名称 副本.bdl」（重名就 副本2、副本3）

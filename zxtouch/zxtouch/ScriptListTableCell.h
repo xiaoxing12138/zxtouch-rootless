@@ -14,8 +14,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (weak, nonatomic) IBOutlet UIButton *playButton;
 @property (strong, nonatomic) IBOutlet UIImageView *iconImage;
 @property (weak, nonatomic) UIViewController* parentViewController;
+@property (nonatomic, copy, nullable) void (^onLongPress)(void);
+@property (nonatomic, copy, nullable) void (^onRowTap)(void);
 
-- (void) setTitle:(NSString*)title;
 - (void) setPropertyWithPath:(NSString*)path;
 
 @end

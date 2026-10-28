@@ -24,6 +24,7 @@ extern NSString * const kFlowTap;        // 点击
 extern NSString * const kFlowSwipe;      // 滑动
 extern NSString * const kFlowWait;       // 等待
 extern NSString * const kFlowToast;      // 提示
+extern NSString * const kFlowRepeat;     // 重复（里面装一组动作）
 extern NSString * const kFlowColor;      // 识色（条件）
 extern NSString * const kFlowFindColor;  // 找色（条件）
 extern NSString * const kFlowCountColor; // 数色（条件）

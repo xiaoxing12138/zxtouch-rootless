@@ -6,41 +6,25 @@
 //
 
 #import "ScriptListTableCell.h"
+#import "ZXScriptListView.h"
 #import "Socket.h"
 #import "Util.h"
 
 @implementation ScriptListTableCell
 {
-    NSString* filePath;
-}
-
-- (UIImage *)symbolNamed:(NSString *)symbolName fallback:(NSString *)fallbackName {
-    UIImage *image = nil;
-    if (@available(iOS 13.0, *)) {
-        image = [UIImage systemImageNamed:symbolName];
-    }
-    if (!image) {
-        image = [UIImage imageNamed:fallbackName];
-    }
-    return image;
-}
-
-- (UIImageView *)activeIconView {
-    return self.iconImage ?: self.imageView;
+    NSString *filePath;
+    ZXScriptListView *scriptRow;
 }
 
 - (void)awakeFromNib {
     [super awakeFromNib];
-    self.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
-    self.contentView.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
-    self.scriptTitle.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
-    self.scriptTitle.textColor = [UIColor labelColor];
+    self.backgroundColor = [UIColor clearColor];
+    self.contentView.backgroundColor = [UIColor clearColor];
+    self.selectionStyle = UITableViewCellSelectionStyleNone;
+    self.scriptTitle.hidden = YES;
+    if (self.iconImage) self.iconImage.hidden = YES;
 
-    UIImageView *icon = [self activeIconView];
-    icon.contentMode = UIViewContentModeScaleAspectFit;
-    icon.tintColor = [UIColor systemBlueColor];
-
-    UIImage *playImage = [self symbolNamed:@"play.circle.fill" fallback:@"play-icon"];
+    UIImage *playImage = [UIImage systemImageNamed:@"play.circle.fill"];
     [_playButton setBackgroundImage:nil forState:UIControlStateNormal];
     [_playButton setImage:playImage forState:UIControlStateNormal];
     _playButton.tintColor = [UIColor systemGreenColor];
@@ -51,11 +35,42 @@
             UIButton *button = (UIButton *)view;
             [button setTitle:@"" forState:UIControlStateNormal];
             [button setBackgroundImage:nil forState:UIControlStateNormal];
-            [button setImage:[self symbolNamed:@"ellipsis.circle" fallback:@"gearshape"] forState:UIControlStateNormal];
+            [button setImage:[UIImage systemImageNamed:@"ellipsis.circle"] forState:UIControlStateNormal];
             button.tintColor = [UIColor secondaryLabelColor];
             button.backgroundColor = [UIColor clearColor];
         }
     }
+
+    [self setupScriptRowIfNeeded];
+}
+
+- (void)setupScriptRowIfNeeded {
+    if (scriptRow) return;
+
+    scriptRow = [[ZXScriptListView alloc] initWithFrame:CGRectZero];
+    scriptRow.translatesAutoresizingMaskIntoConstraints = NO;
+    scriptRow.showsDisclosure = NO;
+    scriptRow.swipeDeleteEnabled = NO;
+    [self.contentView addSubview:scriptRow];
+
+    __weak typeof(self) weakSelf = self;
+    scriptRow.onLongPress = ^(ZXScriptListItem *item) {
+        if (weakSelf.onLongPress) weakSelf.onLongPress();
+    };
+    scriptRow.onTap = ^(ZXScriptListItem *item) {
+        if (weakSelf.onRowTap) weakSelf.onRowTap();
+    };
+
+    NSMutableArray<NSLayoutConstraint *> *rules = [NSMutableArray array];
+    [rules addObject:[scriptRow.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16]];
+    [rules addObject:[scriptRow.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:5]];
+    [rules addObject:[scriptRow.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-5]];
+    if (_playButton) {
+        [rules addObject:[scriptRow.trailingAnchor constraintEqualToAnchor:_playButton.leadingAnchor constant:-8]];
+    } else {
+        [rules addObject:[scriptRow.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16]];
+    }
+    [NSLayoutConstraint activateConstraints:rules];
 }
 
 - (IBAction)playButtonClick:(id)sender {
@@ -67,7 +82,6 @@
         return;
     }
 
-    // 命令必须以 \r\n 结尾，否则 socket server 不派发，recv 会一直阻塞把 App 卡死
     [springBoardSocket send:[NSString stringWithFormat:@"19%@\r\n", filePath]];
     NSString* result = [springBoardSocket recv:1024];
     if (result.length == 0 || [result characterAtIndex:0] != '0')
@@ -77,80 +91,21 @@
     [springBoardSocket close];
 }
 
-- (void)setSelected:(BOOL)selected animated:(BOOL)animated {
-    [super setSelected:selected animated:animated];
-
-    // Configure the view for the selected state
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    filePath = nil;
+    self.onLongPress = nil;
+    self.onRowTap = nil;
+    _playButton.hidden = NO;
 }
 
-- (void) setTitle:(NSString*)title{
-    _scriptTitle.text = title;
-}
-
-- (void) hideButton{
-    [_playButton setHidden:YES];
-}
-
-- (void) showButton{
-    [_playButton setHidden:NO];
-}
-
-- (void) setPropertyWithPath:(NSString*)path{
+- (void)setPropertyWithPath:(NSString *)path {
     filePath = path;
-    
-    BOOL isDir = NO;
-    _scriptTitle.text = [path lastPathComponent];
-    [self showButton];
+    [self setupScriptRowIfNeeded];
 
-    if ([[path pathExtension] isEqualToString:@"bdl"]) // is script. can play
-    {
-        NSString *entry = [NSDictionary dictionaryWithContentsOfFile:[path stringByAppendingPathComponent:@"info.plist"]][@"Entry"];
-        NSString *entryExtension = [[entry pathExtension] lowercaseString];
-        UIImage *icon = nil;
-        UIColor *tint = [UIColor systemBlueColor];
-        if ([entryExtension isEqualToString:@"raw"]) {
-            icon = [self symbolNamed:@"waveform.path.ecg" fallback:@"script-icon"];
-            tint = [UIColor systemOrangeColor];
-        } else if ([entryExtension isEqualToString:@"py"]) {
-            icon = [self symbolNamed:@"chevron.left.forwardslash.chevron.right" fallback:@"script-icon"];
-            tint = [UIColor systemBlueColor];
-        } else {
-            icon = [self symbolNamed:@"play.square.stack" fallback:@"script-icon"];
-        }
-        [[self activeIconView] setImage:icon];
-        [self activeIconView].tintColor = tint;
-        
-        return;
-    }
-    
-    [[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&isDir];
-    [self hideButton];
-
-    if (!isDir)
-    {
-        NSString *extension = [[path pathExtension] lowercaseString];
-        if ([extension isEqualToString:@"py"]) {
-            [[self activeIconView] setImage:[self symbolNamed:@"chevron.left.forwardslash.chevron.right" fallback:@"normal-file-icon"]];
-            [self activeIconView].tintColor = [UIColor systemBlueColor];
-        } else if ([extension isEqualToString:@"raw"]) {
-            [[self activeIconView] setImage:[self symbolNamed:@"waveform.path.ecg" fallback:@"normal-file-icon"]];
-            [self activeIconView].tintColor = [UIColor systemOrangeColor];
-        } else if ([extension isEqualToString:@"md"] || [extension isEqualToString:@"markdown"]) {
-            [[self activeIconView] setImage:[self symbolNamed:@"doc.richtext" fallback:@"normal-file-icon"]];
-            [self activeIconView].tintColor = [UIColor systemPurpleColor];
-        } else if ([extension isEqualToString:@"png"] || [extension isEqualToString:@"jpg"] || [extension isEqualToString:@"jpeg"] || [extension isEqualToString:@"gif"]) {
-            [[self activeIconView] setImage:[self symbolNamed:@"photo" fallback:@"normal-file-icon"]];
-            [self activeIconView].tintColor = [UIColor systemTealColor];
-        } else {
-            [[self activeIconView] setImage:[self symbolNamed:@"doc" fallback:@"normal-file-icon"]];
-            [self activeIconView].tintColor = [UIColor secondaryLabelColor];
-        }
-    }
-    else
-    {
-        [[self activeIconView] setImage:[self symbolNamed:@"folder.fill" fallback:@"folder-icon"]];
-        [self activeIconView].tintColor = [UIColor systemBlueColor];
-    }
+    ZXScriptListItem *item = [ZXScriptListItem itemWithPath:path];
+    [scriptRow applyItem:item];
+    _playButton.hidden = !item.isScript;
 }
 
 @end
