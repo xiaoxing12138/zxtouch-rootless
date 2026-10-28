@@ -138,20 +138,16 @@ if [ -x "$DAEMON" ]; then
     fi
     sleep 0.3
     rm -f /tmp/zxrunner.sock
+    BOOTED=0
     if [ -f "$DAEMON_PLIST" ] && [ -x "$LAUNCHCTL" ]; then
-        "$LAUNCHCTL" bootstrap system "$DAEMON_PLIST" 2>/dev/null || true
+        "$LAUNCHCTL" bootstrap system "$DAEMON_PLIST" 2>/dev/null && BOOTED=1
         "$LAUNCHCTL" kickstart -k system/com.zjx.zxrunner 2>/dev/null || true
+        # 已经装载过（bootstrap 报 already bootstrapped）也算装载成功
+        "$LAUNCHCTL" print system/com.zjx.zxrunner >/dev/null 2>&1 && BOOTED=1
     fi
-    # 服务是 launchd 起的看门狗 + 子进程服务，起来要一点时间；等够了再判断，
-    # 否则会误以为没起来、再补一个 nohup 实例，两个进程抢同一个 socket。
-    sleep 2
-    RUNNING=0
-    GREP="$JB/usr/bin/grep"
-    if [ ! -x "$GREP" ]; then GREP="/usr/bin/grep"; fi
-    if [ -x "$LAUNCHCTL" ] && "$LAUNCHCTL" print system/com.zjx.zxrunner 2>/dev/null | "$GREP" -q "pid = "; then
-        RUNNING=1
-    fi
-    if [ "$RUNNING" = "0" ] && [ ! -S /tmp/zxrunner.sock ]; then
+    # launchd 那边是看门狗进程 + 子进程服务，起来要几秒。只要服务装载成功
+    # 就交给 launchd，不再补 nohup 实例，否则两个进程抢同一个 socket。
+    if [ "$BOOTED" = "0" ]; then
         su mobile -c "nohup $DAEMON >/dev/null 2>&1 </dev/null &" 2>/dev/null || true
         sleep 0.5
     fi
