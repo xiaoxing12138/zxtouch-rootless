@@ -765,8 +765,21 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                     char *iargv[] = { (char *)found.UTF8String, (char *)"-c",
                                       (char *)"import zxtouch,sys;print(zxtouch.__file__)", NULL };
                     extern char **environ;
+                    NSMutableArray<NSString *> *iEnvList = [NSMutableArray array];
+                    for (char **ep = environ; ep && *ep; ep++) {
+                        NSString *pair = [NSString stringWithUTF8String:*ep];
+                        if (!pair || [pair hasPrefix:@"PYTHONPATH="]) continue;
+                        [iEnvList addObject:pair];
+                    }
+                    if (modulePaths.count > 0) {
+                        [iEnvList addObject:[NSString stringWithFormat:@"PYTHONPATH=%@", [modulePaths componentsJoinedByString:@":"]]];
+                    }
+                    char **ienvp = (char **)malloc(sizeof(char *) * (iEnvList.count + 1));
+                    for (NSUInteger ei = 0; ei < iEnvList.count; ei++) ienvp[ei] = (char *)iEnvList[ei].UTF8String;
+                    ienvp[iEnvList.count] = NULL;
                     pid_t ipid = 0;
-                    int ierr = posix_spawn(&ipid, found.UTF8String, &fa2, &attr2, iargv, environ);
+                    int ierr = posix_spawn(&ipid, found.UTF8String, &fa2, &attr2, iargv, ienvp);
+                    free(ienvp);
                     posix_spawn_file_actions_destroy(&fa2);
                     posix_spawnattr_destroy(&attr2);
                     close(ifd);

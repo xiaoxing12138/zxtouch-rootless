@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <stdlib.h>
+#include <string.h>
 
 static BOOL isPlaying = false;
 
@@ -81,6 +82,61 @@ static BOOL ZXForceDaemon(void)
 {
     NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:@"/var/mobile/Library/ZXTouch/config/tweak/config.plist"];
     return [cfg[@"forceDaemon"] boolValue];
+}
+
+static NSString *ZXPythonScriptBootstrap(void)
+{
+    return @"import os,runpy,sys\n"
+           "c=sys.argv[1:]\n"
+           "p=next((x for x in c if os.path.isfile(x)),None)\n"
+           "if p is None:\n"
+           "    sys.stderr.write('zx: cannot open script in this process: '+' | '.join(c)+'\\n')\n"
+           "    sys.exit(2)\n"
+           "d=os.path.dirname(p) or '.'\n"
+           "os.chdir(d)\n"
+           "sys.path.insert(0,d)\n"
+           "sys.argv=[p]\n"
+           "runpy.run_path(p,run_name='__main__')\n";
+}
+
+static NSArray<NSString *> *ZXPythonScriptCandidates(NSString *filePath)
+{
+    NSMutableArray<NSString *> *arr = [NSMutableArray array];
+    char resolved[PATH_MAX] = {0};
+    if (filePath.length > 0 && realpath(filePath.fileSystemRepresentation, resolved) != NULL) {
+        NSString *real = [NSString stringWithUTF8String:resolved];
+        if (real.length > 0 && ![arr containsObject:real]) [arr addObject:real];
+    }
+    if (filePath.length > 0 && ![arr containsObject:filePath]) [arr addObject:filePath];
+    NSString *prefixed = jbroot(filePath);
+    if (prefixed.length > 0 && ![arr containsObject:prefixed]) [arr addObject:prefixed];
+    return arr;
+}
+
+static char **ZXCStringArray(NSArray<NSString *> *list)
+{
+    char **out = (char **)malloc(sizeof(char *) * (list.count + 1));
+    for (NSUInteger i = 0; i < list.count; i++) out[i] = strdup(list[i].UTF8String);
+    out[list.count] = NULL;
+    return out;
+}
+
+static void ZXCStringArrayFree(char **arr)
+{
+    if (!arr) return;
+    for (int i = 0; arr[i]; i++) free(arr[i]);
+    free(arr);
+}
+
+static NSString *ZXChildPath(NSString *path)
+{
+    if (path.length == 0 || ![path hasPrefix:@"/"]) return path;
+    NSString *prefixed = jbroot(path);
+    if (prefixed.length > 0 && ![prefixed isEqualToString:path] &&
+        [[NSFileManager defaultManager] fileExistsAtPath:prefixed]) {
+        return prefixed;
+    }
+    return path;
 }
 
 @implementation ScriptPlayer
@@ -394,6 +450,9 @@ static BOOL ZXForceDaemon(void)
     NSString *pythonModulePath = ZXPythonModulePath();
     NSString *selectionEnv = ZXScriptEnvPrefix(scriptBundlePath);
 
+    NSMutableArray<NSString *> *pyArgs = [NSMutableArray arrayWithObjects:@"-u", @"-c", ZXPythonScriptBootstrap(), nil];
+    [pyArgs addObjectsFromArray:ZXPythonScriptCandidates(filePath)];
+
     // ── 1. 构造环境变量 ──
     // shell 链路（system2Cancelable）在 Dopamine 下 PATH 缺 /var/jb/usr/bin
     // 导致 probe A=127。现在完全绕开 shell，直接 posix_spawn python，
@@ -405,9 +464,14 @@ static BOOL ZXForceDaemon(void)
     if (selectionEnv.length > 0) {
         NSArray<NSString *> *parts = [selectionEnv componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         for (NSString *part in parts) {
-            if (part.length > 0 && [part containsString:@"="]) {
-                [envVars addObject:part];
+            NSRange eq = [part rangeOfString:@"="];
+            if (eq.location == NSNotFound) continue;
+            NSString *key = [part substringToIndex:eq.location];
+            NSString *val = [part substringFromIndex:eq.location + 1];
+            if ([key isEqualToString:@"ZX_OPTS_FILE"] || [key isEqualToString:@"ZX_FUNC_PARAMS_FILE"]) {
+                val = ZXChildPath(val);
             }
+            [envVars addObject:[NSString stringWithFormat:@"%@=%@", key, val]];
         }
     }
 
@@ -469,17 +533,15 @@ static BOOL ZXForceDaemon(void)
     posix_spawnattr_setpgroup(&attrs, 0);  // python 自己当进程组长（kill(-pid) 可暂停/停止）
     posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETPGROUP);
 
-    const char *argv[] = {
-        pythonPath.UTF8String,
-        "-u",
-        filePath.UTF8String,
-        NULL
-    };
+    NSMutableArray<NSString *> *argList = [NSMutableArray arrayWithObject:pythonPath];
+    [argList addObjectsFromArray:pyArgs];
+    char **argv = ZXCStringArray(argList);
 
     pid_t pid = 0;
-    int spawnErr = ZXForceDaemon() ? EPERM : posix_spawn(&pid, pythonPath.UTF8String, &actions, &attrs, (char *const *)argv, envp);
+    int spawnErr = ZXForceDaemon() ? EPERM : posix_spawn(&pid, pythonPath.UTF8String, &actions, &attrs, argv, envp);
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attrs);
+    ZXCStringArrayFree(argv);
     free(envp);
 
     if (prevCwd[0]) chdir(prevCwd);
@@ -497,8 +559,9 @@ static BOOL ZXForceDaemon(void)
             if (![self runPythonViaDaemon:pythonPath
                                scriptPath:filePath
                                   scriptDir:scriptDir
-                                   envp:environ
-                              extraEnv:envVars]) {
+                                       args:pyArgs
+                                       envp:environ
+                                   extraEnv:envVars]) {
                 showAlertBox(@"脚本无法启动（守护进程也不可用）",
                              [NSString stringWithFormat:@"小新Lap 在此设备上无法直接执行 Python。\n\n守护进程 zxrunner 未运行或无法启动。\n\n详情：%s", strerror(spawnErr)],
                              999);
@@ -772,9 +835,10 @@ static BOOL ZXForceDaemon(void)
 
 - (BOOL)runPythonViaDaemon:(NSString *)pythonPath
                 scriptPath:(NSString *)scriptPath
-                   scriptDir:(NSString *)scriptDir
-                    envp:(char **)envp
-               extraEnv:(NSArray<NSString *> *)extraEnv
+                 scriptDir:(NSString *)scriptDir
+                      args:(NSArray<NSString *> *)args
+                      envp:(char **)envp
+                  extraEnv:(NSArray<NSString *> *)extraEnv
 {
     // 0. 创建 output log
     NSString *outputLog = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output";
@@ -830,10 +894,10 @@ static BOOL ZXForceDaemon(void)
     NSDictionary *cmd = @{
         @"cmd": @"spawn_python",
         @"path": pythonPath ?: @"",
-        @"script": scriptPath ?: @"",
+        @"script": @"",
         @"cwd": scriptDir ?: @"",
         @"env": envDict,
-        @"args": @[@"-u"]
+        @"args": args ?: @[]
     };
     NSError *jsonErr = nil;
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:cmd options:0 error:&jsonErr];
