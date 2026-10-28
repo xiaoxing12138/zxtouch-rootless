@@ -583,6 +583,20 @@ int main(int argc, char *argv[])
         signal(SIGCHLD, SIG_DFL);
         signal(SIGPIPE, SIG_IGN);
 
+        // LaunchDaemon 以 root 启动（rootless 上 system 域不能用 UserName），
+        // 这里主动降到 mobile：python / socket 都必须以手机用户身份跑
+        if (geteuid() == 0) {
+            unlink(ZXRUNNER_SOCKET_PATH);
+            setenv("HOME", "/var/mobile", 1);
+            chdir("/var/mobile");
+            setgid(501);
+            setuid(501);
+            if (getuid() != 501) {
+                fprintf(stderr, "zxrunner: failed to drop privileges\n");
+                return 5;
+            }
+        }
+
         return run_server();
     }
 }

@@ -129,7 +129,7 @@ static NSString *ZXDisclaimerText(void) {
     }
     self._scriptListTableView.backgroundColor = [UIColor systemGroupedBackgroundColor];
     self._scriptListTableView.rowHeight = 56;
-    self._scriptListTableView.separatorInset = UIEdgeInsetsMake(0, 70, 0, 16);
+    self._scriptListTableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     self._scriptListTableView.tableFooterView = [[UIView alloc] init];
     
     NSMutableArray<NSDictionary *> *popups = [NSMutableArray array];

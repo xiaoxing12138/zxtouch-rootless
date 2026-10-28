@@ -11,6 +11,7 @@
 #import "Config.h"
 #import "Util.h"
 #import "Socket.h"
+#import "../ZXImageCropViewController.h"
 
 static NSString *kCfgEnabled = @"floating_menu_enabled";
 static NSString *kCfgEdge    = @"floating_menu_edge";     // 1=右 0=左
@@ -519,58 +520,84 @@ static NSArray<NSDictionary *> *FMMenuAppearanceSpecs(void) {
 
 - (void)imagePickerController:(UIImagePickerController *)picker
 didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
-    if (_pickingPanelBg) {
-        _pickingPanelBg = NO;
-        NSData *bgData = [self pngDataForPanelBg:info[UIImagePickerControllerOriginalImage]];
-        BOOL saved = bgData && [bgData writeToFile:[FMDotIconDir() stringByAppendingPathComponent:kPanelBgCustomFile]
-                                        atomically:YES];
-        if (saved) _config[kCfgPanelBgImage] = kPanelBgCustomFile;
-        [self saveConfig];
-        [picker dismissViewControllerAnimated:YES completion:^{
-            [self reloadTweak];
-            [self->_tableView reloadData];
-            if (!saved) {
-                [Util showAlertBoxWithOneOption:self title:@"错误"
-                                        message:@"无法保存所选图片。"
-                                   buttonString:@"确定"];
-            }
-        }];
-        return;
-    }
-
-    NSData *data = [self pngDataForDotIcon:info[UIImagePickerControllerOriginalImage]];
-    BOOL saved = [self writeDotIconData:data fileName:kDotIconCustomFile];
-    _config[kCfgDotIcon] = @(saved ? kDotIconModeCustom : kDotIconModeApp);
-    [self saveConfig];
+    UIImage *image = info[UIImagePickerControllerOriginalImage];
+    BOOL isPanelBg = _pickingPanelBg;
+    _pickingPanelBg = NO;
+    __weak FloatingMenuConfigurationViewController *weakSelf = self;
     [picker dismissViewControllerAnimated:YES completion:^{
-        [self reloadTweak];
-        [self->_tableView reloadData];
-        if (!saved) {
-            [Util showAlertBoxWithOneOption:self title:@"错误"
-                                    message:@"无法保存所选图片，已恢复为 App 图标。"
-                               buttonString:@"确定"];
-        }
+        [weakSelf presentCropForImage:image panelBg:isPanelBg];
     }];
 }
 
-- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
-    if (_pickingPanelBg) {
-        _pickingPanelBg = NO;
-        [picker dismissViewControllerAnimated:YES completion:^{
-            [self->_tableView reloadData];
-        }];
+- (void)presentCropForImage:(UIImage *)image panelBg:(BOOL)isPanelBg {
+    if (!image) {
+        if (!isPanelBg) [self revertDotIconIfNeeded];
+        [self.tableView reloadData];
         return;
     }
-    // 自定义图片还没落地就退出 → 回到 App 图标，避免出现「选了自定义但没有图」的状态
+    ZXImageCropViewController *crop = [[ZXImageCropViewController alloc] init];
+    crop.sourceImage = image;
+    crop.circleMask = !isPanelBg;
+    crop.canvasAspect = isPanelBg ? (5.0f / 7.0f) : 1.0f;
+    crop.outputMaxSide = isPanelBg ? 1200.0f : 512.0f;
+    crop.hintText = isPanelBg ? @"双指缩放，单指拖动\n框里就是面板显示的背景" : @"双指缩放，单指拖动\n圆圈里就是圆点显示的部分";
+
+    __weak FloatingMenuConfigurationViewController *weakSelf = self;
+    crop.onFinish = ^(UIImage *cropped) {
+        FloatingMenuConfigurationViewController *strongSelf = weakSelf;
+        if (!strongSelf || !cropped) return;
+        BOOL saved = NO;
+        if (isPanelBg) {
+            NSData *data = UIImagePNGRepresentation(cropped);
+            saved = data && [data writeToFile:[FMDotIconDir() stringByAppendingPathComponent:kPanelBgCustomFile]
+                                   atomically:YES];
+            if (saved) strongSelf->_config[kCfgPanelBgImage] = kPanelBgCustomFile;
+            [strongSelf saveConfig];
+        } else {
+            saved = [strongSelf writeDotIconData:UIImagePNGRepresentation(cropped) fileName:kDotIconCustomFile];
+            strongSelf->_config[kCfgDotIcon] = @(saved ? kDotIconModeCustom : kDotIconModeApp);
+            [strongSelf saveConfig];
+        }
+        [strongSelf reloadTweak];
+        [strongSelf.tableView reloadData];
+        if (!saved) {
+            [Util showAlertBoxWithOneOption:strongSelf title:@"错误"
+                                    message:(isPanelBg ? @"无法保存所选图片。" : @"无法保存所选图片，已恢复为 App 图标。")
+                               buttonString:@"确定"];
+        }
+    };
+    crop.onCancel = ^{
+        FloatingMenuConfigurationViewController *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if (!isPanelBg) [strongSelf revertDotIconIfNeeded];
+        [strongSelf reloadTweak];
+        [strongSelf.tableView reloadData];
+    };
+    [self presentViewController:crop animated:YES completion:nil];
+}
+
+// 自定义图片还没落地就退出 → 回到 App 图标，避免出现「选了自定义但没有图」的状态
+- (void)revertDotIconIfNeeded {
     NSString *customPath = [FMDotIconDir() stringByAppendingPathComponent:kDotIconCustomFile];
     if ([self dotIconMode] == kDotIconModeCustom &&
         ![[NSFileManager defaultManager] fileExistsAtPath:customPath]) {
         _config[kCfgDotIcon] = @(kDotIconModeApp);
         [self saveConfig];
     }
-    [self reloadTweak];   // 取消也要同步一次：上面可能刚从自定义回退成 App 图标
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    BOOL wasPanelBg = _pickingPanelBg;
+    _pickingPanelBg = NO;
+    __weak FloatingMenuConfigurationViewController *weakSelf = self;
     [picker dismissViewControllerAnimated:YES completion:^{
-        [self->_tableView reloadData];
+        FloatingMenuConfigurationViewController *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if (!wasPanelBg) {
+            [strongSelf revertDotIconIfNeeded];
+            [strongSelf reloadTweak];
+        }
+        [strongSelf.tableView reloadData];
     }];
 }
 

@@ -61,15 +61,42 @@
         if (weakSelf.onRowTap) weakSelf.onRowTap();
     };
 
+    UIButton *moreButton = nil;
+    for (UIView *view in self.contentView.subviews) {
+        if ([view isKindOfClass:[UIButton class]] && view != _playButton) {
+            moreButton = (UIButton *)view;
+            break;
+        }
+    }
+
     NSMutableArray<NSLayoutConstraint *> *rules = [NSMutableArray array];
     [rules addObject:[scriptRow.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16]];
+    [rules addObject:[scriptRow.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16]];
     [rules addObject:[scriptRow.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:5]];
     [rules addObject:[scriptRow.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-5]];
-    if (_playButton) {
-        [rules addObject:[scriptRow.trailingAnchor constraintEqualToAnchor:_playButton.leadingAnchor constant:-8]];
-    } else {
-        [rules addObject:[scriptRow.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16]];
+
+    if (moreButton) {
+        [moreButton removeFromSuperview];
+        moreButton.translatesAutoresizingMaskIntoConstraints = NO;
+        [scriptRow addSubview:moreButton];
+        [rules addObject:[moreButton.trailingAnchor constraintEqualToAnchor:scriptRow.trailingAnchor constant:-8]];
+        [rules addObject:[moreButton.centerYAnchor constraintEqualToAnchor:scriptRow.centerYAnchor]];
+        [rules addObject:[moreButton.widthAnchor constraintEqualToConstant:30]];
+        [rules addObject:[moreButton.heightAnchor constraintEqualToConstant:30]];
     }
+
+    if (_playButton) {
+        UIButton *play = _playButton;   // outlet 是 weak，先拿到强引用再摘下来
+        [play removeFromSuperview];
+        play.translatesAutoresizingMaskIntoConstraints = NO;
+        [scriptRow addSubview:play];
+        UIView *right = moreButton ?: scriptRow;
+        [rules addObject:[play.trailingAnchor constraintEqualToAnchor:right.trailingAnchor constant:(moreButton ? -42.0f : -8.0f)]];
+        [rules addObject:[play.centerYAnchor constraintEqualToAnchor:scriptRow.centerYAnchor]];
+        [rules addObject:[play.widthAnchor constraintEqualToConstant:28]];
+        [rules addObject:[play.heightAnchor constraintEqualToConstant:28]];
+    }
+
     [NSLayoutConstraint activateConstraints:rules];
 }
 
@@ -104,6 +131,7 @@
     [self setupScriptRowIfNeeded];
 
     ZXScriptListItem *item = [ZXScriptListItem itemWithPath:path];
+    scriptRow.trailingInset = item.isScript ? 78.0f : 44.0f;
     [scriptRow applyItem:item];
     _playButton.hidden = !item.isScript;
 }

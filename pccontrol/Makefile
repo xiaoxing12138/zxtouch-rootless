@@ -9,6 +9,7 @@ endif
 TWEAK_NAME = pccontrol
 pccontrol_FILES = Tweak.xm SocketServer.xm Touch.xm Screen.xm Task.xm Process.xm AlertBox.xm Common.xm Record.xm Play.xm Window.xm Toast.xm UIKeyboard.xm DeviceInfo.xm TouchIndicator/TouchIndicatorWindow.xm TouchIndicator/TouchIndicatorView.xm TouchIndicator/TouchIndicatorCoordinateView.xm TouchIndicator/TouchIndicatorViewList.xm ScriptPlayer.xm TextRecognization/VKOcrManager.xm TextRecognization/TextRecognizer.xm UpdateCache.xm ColorPicker.xm TemplateMatch.xm ScreenMatch.xm NetSpeedIndicator.xm TouchCoordinateIndicator.xm FloatingMenu.xm ScriptFloat.xm TapTestWindow.xm ScriptFunctions.xm FunctionWindow.xm FlowScript.xm PickOverlay.xm FlowWindow.xm Schedule.xm \
 	../zxtouch/zxtouch/ZXScriptListView.m \
+	../zxtouch/zxtouch/ZXImageCropViewController.m \
 	../zxtouch/zxtouch/RemoteDashboardServer.m \
 	../zxtouch/zxtouch/GCDWebServer/Core/GCDWebServerResponse.m \
 	../zxtouch/zxtouch/GCDWebServer/Core/GCDWebServerRequest.m \
@@ -63,19 +64,18 @@ zxrunner-bin:
 
 # 把 daemon 二进制和 plist 放进 layout/ 让 Theos 自动打进 deb
 # layout/<path> → deb 包内的 /<path>
-# 用 LaunchAgents（gui domain）而非 LaunchDaemons（system domain）：
-# rootless 上 launchctl bootstrap system 会被 Operation not permitted 拒
-# 用 gui domain + mobile 用户 bootstrap 正常
+# 用 LaunchDaemons（system domain）：LaunchAgents 在 /var/jb 下 launchd 重启后不会重扫，
+# 设备一重启守护进程就没了，OCR 的 tesseract 通道直接报「无法连接」
 after-pccontrol-all:: zxrunner-bin
 	@echo "==> Installing zxrunner into layout/..."
 	@mkdir -p $(THEOS_PROJECT_DIR)/layout/usr/libexec
 	@cp $(ZXRUNNER_BIN) $(THEOS_PROJECT_DIR)/layout/usr/libexec/zxrunner
 	@chmod 0755 $(THEOS_PROJECT_DIR)/layout/usr/libexec/zxrunner
-	@mkdir -p $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents
+	@mkdir -p $(THEOS_PROJECT_DIR)/layout/Library/LaunchDaemons
 	@sed 's|@ZX_ROOT_PREFIX@|$(ZX_ROOT_PREFIX)|g' \
 	   $(THEOS_PROJECT_DIR)/zxrunner/resources/com.zjx.zxrunner.plist \
-	   > $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents/com.zjx.zxrunner.plist
-	@chmod 0644 $(THEOS_PROJECT_DIR)/layout/Library/LaunchAgents/com.zjx.zxrunner.plist
+	   > $(THEOS_PROJECT_DIR)/layout/Library/LaunchDaemons/com.zjx.zxrunner.plist
+	@chmod 0644 $(THEOS_PROJECT_DIR)/layout/Library/LaunchDaemons/com.zjx.zxrunner.plist
 
 after-install::
-	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall SpringBoard; launchctl bootstrap gui/501 $(ZX_ROOT_PREFIX)/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || launchctl load $(ZX_ROOT_PREFIX)/Library/LaunchAgents/com.zjx.zxrunner.plist 2>/dev/null || true"
+	install.exec "chown -R mobile:mobile /var/mobile/Library/ZXTouch && killall SpringBoard; $(ZX_ROOT_PREFIX)/usr/bin/launchctl bootout system/com.zjx.zxrunner 2>/dev/null; $(ZX_ROOT_PREFIX)/usr/bin/launchctl bootstrap system $(ZX_ROOT_PREFIX)/Library/LaunchDaemons/com.zjx.zxrunner.plist 2>/dev/null || true"

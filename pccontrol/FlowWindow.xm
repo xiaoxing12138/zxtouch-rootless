@@ -21,8 +21,10 @@
 #import "Process.h"
 #import "UIKeyboard.h"
 #import "Play.h"
+#import "../zxtouch/zxtouch/ZXImageCropViewController.h"
 
 #import <PhotosUI/PhotosUI.h>
+#import <objc/runtime.h>
 #import <math.h>   // llround / fabs
 #import <stdio.h>  // snprintf
 #import <string.h> // memcpy
@@ -39,6 +41,8 @@
 #define FW_SUB_EXEC_W 74.0f // 「执行此步骤」按钮宽度
 
 // 子浮窗宽高：所有脚本共用一套，存公共配置（和选项面板的 panel_state 一样是全局的）
+static char kFWRepeatStepKey;
+
 static NSString * const kSubSizeWidthKey  = @"flow_sub_w";
 static NSString * const kSubSizeHeightKey = @"flow_sub_h";
 
@@ -402,9 +406,11 @@ static void fwPersistSchedule(NSString *bundlePath, NSString *startMode, NSStrin
         UILongPressGestureRecognizer *press =
             [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handlePress:)];
         press.minimumPressDuration = 0.45;
+        press.delegate = self;
         [self addGestureRecognizer:press];
 
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)];
+        tap.delegate = self;
         [tap requireGestureRecognizerToFail:press];
         [_content addGestureRecognizer:tap];
 
@@ -519,6 +525,16 @@ static void fwPersistSchedule(NSString *bundlePath, NSString *startMode, NSStrin
     }
 }
 
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)g shouldReceiveTouch:(UITouch *)touch
+{
+    UIView *view = touch.view;
+    while (view && view != self) {
+        if ([view isKindOfClass:[UIControl class]]) return NO;
+        view = view.superview;
+    }
+    return YES;
+}
+
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
     if ([g isKindOfClass:[UIPanGestureRecognizer class]]) {
         if (!self.swipeEnabled) return NO;
@@ -529,161 +545,6 @@ static void fwPersistSchedule(NSString *bundlePath, NSString *startMode, NSStrin
     }
     return YES;
 }
-@end
-
-@interface ZXBallCropViewController : UIViewController
-@property (nonatomic, strong) UIImage *sourceImage;
-@property (nonatomic, copy) void (^onFinish)(UIImage *cropped);
-@property (nonatomic, copy) void (^onCancel)(void);
-@end
-
-@implementation ZXBallCropViewController {
-    UIView *_cropStage;
-    UIImageView *_cropImageView;
-    UILabel *_cropHint;
-    UIButton *_cropCancelBtn;
-    UIButton *_cropDoneBtn;
-    CGFloat _cropBaseScale;
-    CGFloat _cropZoom;
-    CGPoint _cropOffset;
-    CGFloat _cropSide;
-    BOOL _cropReady;
-}
-
-- (void)viewDidLoad
-{
-    [super viewDidLoad];
-    self.view.backgroundColor = [UIColor colorWithWhite:0 alpha:0.85];
-
-    _cropStage = [[UIView alloc] init];
-    _cropStage.backgroundColor = [UIColor colorWithWhite:0.16 alpha:1];
-    _cropStage.clipsToBounds = YES;
-    [self.view addSubview:_cropStage];
-
-    _cropImageView = [[UIImageView alloc] init];
-    _cropImageView.image = self.sourceImage;
-    _cropImageView.userInteractionEnabled = NO;
-    [_cropStage addSubview:_cropImageView];
-
-    [_cropStage addGestureRecognizer:[[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(handleCropPinch:)]];
-    [_cropStage addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleCropPan:)]];
-
-    _cropHint = [[UILabel alloc] init];
-    _cropHint.text = @"双指缩放，单指拖动\n圆圈里就是悬浮球显示的部分";
-    _cropHint.numberOfLines = 2;
-    _cropHint.textAlignment = NSTextAlignmentCenter;
-    _cropHint.font = [UIFont systemFontOfSize:13];
-    _cropHint.textColor = [UIColor whiteColor];
-    [self.view addSubview:_cropHint];
-
-    _cropCancelBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_cropCancelBtn setTitle:@"取消" forState:UIControlStateNormal];
-    [_cropCancelBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    _cropCancelBtn.titleLabel.font = [UIFont systemFontOfSize:16];
-    _cropCancelBtn.backgroundColor = [UIColor colorWithWhite:0.3 alpha:1];
-    _cropCancelBtn.layer.cornerRadius = 10;
-    [_cropCancelBtn addTarget:self action:@selector(handleCropCancel) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:_cropCancelBtn];
-
-    _cropDoneBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_cropDoneBtn setTitle:@"完成" forState:UIControlStateNormal];
-    [_cropDoneBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    _cropDoneBtn.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
-    _cropDoneBtn.backgroundColor = [UIColor colorWithRed:0 green:0.48 blue:1 alpha:1];
-    _cropDoneBtn.layer.cornerRadius = 10;
-    [_cropDoneBtn addTarget:self action:@selector(handleCropDone) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:_cropDoneBtn];
-}
-
-- (void)viewDidLayoutSubviews
-{
-    [super viewDidLayoutSubviews];
-    CGFloat w = self.view.bounds.size.width;
-    CGFloat h = self.view.bounds.size.height;
-    CGFloat side = MIN(w - 56.0f, h - 220.0f);
-    if (side < 120.0f) side = MAX(MIN(w - 32.0f, h - 170.0f), 80.0f);
-    _cropSide = side;
-    _cropStage.frame = CGRectMake((w - side) / 2.0f, (h - side) / 2.0f - 24.0f, side, side);
-    _cropStage.layer.cornerRadius = side / 2.0f;
-    _cropHint.frame = CGRectMake(20, CGRectGetMinY(_cropStage.frame) - 52.0f, w - 40, 44);
-    _cropCancelBtn.frame = CGRectMake(w / 2.0f - 110.0f, CGRectGetMaxY(_cropStage.frame) + 24.0f, 100, 44);
-    _cropDoneBtn.frame = CGRectMake(w / 2.0f + 10.0f, CGRectGetMaxY(_cropStage.frame) + 24.0f, 100, 44);
-
-    if (!_cropReady && self.sourceImage.size.width > 0 && self.sourceImage.size.height > 0) {
-        _cropReady = YES;
-        _cropZoom = 1.0f;
-        _cropOffset = CGPointZero;
-        _cropBaseScale = MAX(side / self.sourceImage.size.width, side / self.sourceImage.size.height);
-    }
-    [self applyCropFrame];
-}
-
-- (void)applyCropFrame
-{
-    if (!_cropReady) return;
-    CGSize img = self.sourceImage.size;
-    CGFloat dw = img.width * _cropBaseScale * _cropZoom;
-    CGFloat dh = img.height * _cropBaseScale * _cropZoom;
-    CGFloat maxX = MAX(0.0f, (dw - _cropSide) / 2.0f);
-    CGFloat maxY = MAX(0.0f, (dh - _cropSide) / 2.0f);
-    _cropOffset.x = MIN(MAX(_cropOffset.x, -maxX), maxX);
-    _cropOffset.y = MIN(MAX(_cropOffset.y, -maxY), maxY);
-    _cropImageView.frame = CGRectMake((_cropSide - dw) / 2.0f + _cropOffset.x,
-                                      (_cropSide - dh) / 2.0f + _cropOffset.y, dw, dh);
-}
-
-- (void)handleCropPinch:(UIPinchGestureRecognizer *)g
-{
-    if (!_cropReady) return;
-    if (g.state == UIGestureRecognizerStateBegan || g.state == UIGestureRecognizerStateChanged) {
-        CGFloat next = _cropZoom * g.scale;
-        _cropZoom = MIN(MAX(next, 1.0f), 8.0f);
-        g.scale = 1.0f;
-        [self applyCropFrame];
-    }
-}
-
-- (void)handleCropPan:(UIPanGestureRecognizer *)g
-{
-    if (!_cropReady) return;
-    if (g.state == UIGestureRecognizerStateBegan || g.state == UIGestureRecognizerStateChanged) {
-        CGPoint t = [g translationInView:_cropStage];
-        _cropOffset.x += t.x;
-        _cropOffset.y += t.y;
-        [g setTranslation:CGPointZero inView:_cropStage];
-        [self applyCropFrame];
-    }
-}
-
-- (UIImage *)renderCroppedImage
-{
-    if (!_cropReady || _cropSide <= 0) return self.sourceImage;
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(512, 512)];
-    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
-        CGContextRef c = ctx.CGContext;
-        CGFloat scale = 512.0f / self->_cropSide;
-        CGContextScaleCTM(c, scale, scale);
-        UIBezierPath *circle = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(0, 0, self->_cropSide, self->_cropSide)];
-        [circle addClip];
-        [self->_cropImageView.image drawInRect:self->_cropImageView.frame];
-    }];
-}
-
-- (void)handleCropCancel
-{
-    [self dismissViewControllerAnimated:YES completion:^{
-        if (self.onCancel) self.onCancel();
-    }];
-}
-
-- (void)handleCropDone
-{
-    UIImage *out = [self renderCroppedImage];
-    [self dismissViewControllerAnimated:YES completion:^{
-        if (self.onFinish) self.onFinish(out);
-    }];
-}
-
 @end
 
 @interface FlowWindow () <UITextFieldDelegate, PHPickerViewControllerDelegate>
@@ -1154,6 +1015,7 @@ static FlowWindow *_fwShared = nil;
                                                               textW, detail.length ? 18 : FW_ROW_H)];
     main.adjustsFontSizeToFitWidth = YES;
     main.minimumScaleFactor = 0.8;
+    main.tag = 101;
     if (customName.length > 0) {
         // 自定义名用青绿色加粗跟在最前，系统原名灰色小字跟在右边，一眼能分清
         NSMutableAttributedString *s = [[NSMutableAttributedString alloc] init];
@@ -1175,6 +1037,7 @@ static FlowWindow *_fwShared = nil;
 
     if (detail.length > 0) {
         UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(textX, 22, textW, 14)];
+        sub.tag = 102;
         sub.text = detail;
         sub.font = [UIFont systemFontOfSize:11];
         sub.textColor = ZXPalette(ZXPalSub);
@@ -3165,12 +3028,21 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 
 - (void)closeBallPickerWindow
 {
-    if (!_ballPickWindow) return;
-    _ballPickWindow.hidden = YES;
-    _ballPickWindow = nil;
-    _ballPickHost = nil;
-    [_ballPrevKeyWindow makeKeyWindow];
-    _ballPrevKeyWindow = nil;
+    UIWindow *window = _ballPickWindow;
+    if (!window) return;
+    _ballPickPath = nil;
+    // 相册 / 预览页刚 dismiss 完的那一下还在收尾，立刻把窗口藏掉会把这次转场卡死
+    // （SpringBoard 主线程 watchdog 直接判无响应），延后一拍再收窗
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        FlowWindow *s = weakSelf;
+        window.hidden = YES;
+        if (!s || s->_ballPickWindow != window) return;
+        s->_ballPickWindow = nil;
+        s->_ballPickHost = nil;
+        [s->_ballPrevKeyWindow makeKeyWindow];
+        s->_ballPrevKeyWindow = nil;
+    });
 }
 
 - (void)chooseBallImageForPath:(NSString *)ballPath
@@ -3194,14 +3066,17 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     NSString *path = [_ballPickPath copy];
     _ballPickPath = nil;
     __weak typeof(self) weakSelf = self;
-    [picker dismissViewControllerAnimated:NO completion:^{
+    // 用户在相册点取消：回调也会走到这里（results 为空），只把相册关掉就行，
+    // 不要在转场过程中重建选项面板，否则 SpringBoard 主线程会被卡住
+    if (path.length == 0 || results.count == 0) {
+        [picker dismissViewControllerAnimated:YES completion:^{
+            [weakSelf closeBallPickerWindow];
+        }];
+        return;
+    }
+    [picker dismissViewControllerAnimated:YES completion:^{
         FlowWindow *s = weakSelf;
         if (!s) return;
-        if (path.length == 0 || results.count == 0) {
-            [s closeBallPickerWindow];
-            [s refreshSettingsKeepingY:s->_ballPickKeepY];
-            return;
-        }
         NSItemProvider *provider = results.firstObject.itemProvider;
         [provider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage *image, NSError *error) {
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -3209,7 +3084,6 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                 if (!ss) return;
                 if (!image) {
                     [ss closeBallPickerWindow];
-                    [ss refreshSettingsKeepingY:ss->_ballPickKeepY];
                     return;
                 }
                 [ss presentBallCropForImage:image path:path];
@@ -3228,15 +3102,18 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     }
 
     __weak typeof(self) weakSelf = self;
-    ZXBallCropViewController *crop = [[ZXBallCropViewController alloc] init];
+    ZXImageCropViewController *crop = [[ZXImageCropViewController alloc] init];
     crop.sourceImage = image;
+    crop.circleMask = YES;
+    crop.outputMaxSide = 512.0f;
+    crop.hintText = @"双指缩放，单指拖动\n圆圈里就是悬浮球显示的部分";
     crop.onFinish = ^(UIImage *cropped) {
         dispatch_async(dispatch_get_main_queue(), ^{
             FlowWindow *s = weakSelf;
             if (!s) return;
             if (cropped) [ScriptFloat setBallImage:cropped forScriptPath:ballPath];
-            [s closeBallPickerWindow];
             [s refreshSettingsKeepingY:s->_ballPickKeepY];
+            [s closeBallPickerWindow];
         });
     };
     crop.onCancel = ^{
@@ -3244,7 +3121,6 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             FlowWindow *s = weakSelf;
             if (!s) return;
             [s closeBallPickerWindow];
-            [s refreshSettingsKeepingY:s->_ballPickKeepY];
         });
     };
     [host presentViewController:crop animated:YES completion:nil];
@@ -3653,7 +3529,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     return row;
 }
 
-// 重复块：上面是次数输入框，中间是嵌套动作，下面是「添加动作」入口
+// 重复块：次数输入框并进上面的步骤行，下面是嵌套动作和「添加动作」入口
 - (CGFloat)layoutRepeatContentOfStep:(NSMutableDictionary *)step atY:(CGFloat)y x:(CGFloat)x width:(CGFloat)w
 {
     if (![step[@"Steps"] isKindOfClass:[NSMutableArray class]]) step[@"Steps"] = [NSMutableArray array];
@@ -3662,17 +3538,6 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     CGFloat cx = x + inset;
     CGFloat cw = MAX(w - inset * 2.0f, 80.0f);
     __weak typeof(self) weakSelf = self;
-
-    UIView *countRow = [self makeValueRow:@"重复几次" value:step[@"Times"] integer:YES width:cw
-                                 onChange:^(NSString *text) {
-        FlowWindow *strongSelf = weakSelf;
-        if (!strongSelf) return;
-        step[@"Times"] = [FlowScript valueFromText:text integer:YES];
-        [strongSelf autosave];
-    }];
-    countRow.frame = CGRectMake(cx, y, cw, countRow.frame.size.height);
-    [_scroll addSubview:countRow];
-    y += countRow.frame.size.height + 6.0f;
 
     y = [self layoutNestedSteps:children atY:y x:cx width:cw];
 
@@ -3686,6 +3551,71 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     add.frame = CGRectMake(cx, y, cw, add.frame.size.height);
     [_scroll addSubview:add];
     return y + add.frame.size.height + FW_GAP;
+}
+
+// 重复行的标题/副标题交给共享文案会把「几次」也写进标题，这里换成本地组合
+- (NSString *)rowTitleForStep:(NSDictionary *)step
+{
+    if ([step[@"Kind"] isEqualToString:kFlowRepeat]) return @"重复";
+    return [FlowScript summaryForStep:step];
+}
+
+- (NSString *)rowDetailForStep:(NSDictionary *)step
+{
+    if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
+        NSArray *children = [step[@"Steps"] isKindOfClass:[NSArray class]] ? step[@"Steps"] : @[];
+        return [NSString stringWithFormat:@"里面 %lu 个动作", (unsigned long)children.count];
+    }
+    return [FlowScript detailForStep:step];
+}
+
+// 次数输入框塞进步骤行右侧，和标题同一行
+- (void)attachRepeatTimesFieldToRow:(FWStepRowView *)row step:(NSMutableDictionary *)step
+{
+    CGFloat w = row.bounds.size.width;
+    CGFloat rightInset = row.dragEnabled ? 34.0f : 8.0f;
+    CGFloat chipW = 92.0f;
+    CGFloat chipX = w - rightInset - chipW;
+
+    UIView *chip = [[UIView alloc] initWithFrame:CGRectMake(chipX, (FW_ROW_H - 28.0f) / 2.0f, chipW, 28.0f)];
+    chip.backgroundColor = ZXPalette(ZXPalField);
+    chip.layer.cornerRadius = 8.0f;
+    chip.layer.borderWidth = 1.0f;
+    chip.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
+    [row.content addSubview:chip];
+
+    UILabel *suffix = [[UILabel alloc] initWithFrame:CGRectMake(chipW - 26.0f, 0, 18.0f, 28.0f)];
+    suffix.text = @"次";
+    suffix.font = [UIFont systemFontOfSize:11];
+    suffix.textColor = ZXPalette(ZXPalSub);
+    suffix.textAlignment = NSTextAlignmentCenter;
+    [chip addSubview:suffix];
+
+    UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(8.0f, 0, chipW - 36.0f, 28.0f)];
+    field.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightMedium];
+    field.textColor = ZXPalette(ZXPalText);
+    field.keyboardType = UIKeyboardTypeNumberPad;
+    field.textAlignment = NSTextAlignmentRight;
+    field.text = [FlowScript textForValue:step[@"Times"]];
+    [field addTarget:self action:@selector(repeatTimesFieldChanged:) forControlEvents:UIControlEventEditingDidEnd];
+    [field addTarget:self action:@selector(repeatTimesFieldChanged:) forControlEvents:UIControlEventEditingDidEndOnExit];
+    objc_setAssociatedObject(field, &kFWRepeatStepKey, step, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [chip addSubview:field];
+
+    CGFloat textW = MAX(chipX - 6.0f - 79.0f, 40.0f);
+    UILabel *main = [row.content viewWithTag:101];
+    UILabel *sub = [row.content viewWithTag:102];
+    if (main) main.frame = CGRectMake(79.0f, main.frame.origin.y, textW, main.frame.size.height);
+    if (sub) sub.frame = CGRectMake(79.0f, 22.0f, textW, sub.frame.size.height);
+}
+
+- (void)repeatTimesFieldChanged:(UITextField *)field
+{
+    NSMutableDictionary *step = objc_getAssociatedObject(field, &kFWRepeatStepKey);
+    if (!step) return;
+    step[@"Times"] = [FlowScript valueFromText:field.text integer:YES];
+    field.text = [FlowScript textForValue:step[@"Times"]];
+    [self autosave];
 }
 
 - (CGFloat)layoutNestedSteps:(NSMutableArray *)steps atY:(CGFloat)y x:(CGFloat)x width:(CGFloat)w
@@ -3703,9 +3633,9 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         NSDictionary *step = steps[i];
         if (![step isKindOfClass:[NSDictionary class]]) continue;
         FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
-        FWStepRowView *row = [self makeStepRow:[FlowScript summaryForStep:step]
+        FWStepRowView *row = [self makeStepRow:[self rowTitleForStep:step]
                                      customName:[step[@"Name"] isKindOfClass:[NSString class]] ? step[@"Name"] : nil
-                                         detail:[FlowScript detailForStep:step]
+                                         detail:[self rowDetailForStep:step]
                                           index:i
                                          symbol:type.symbolName
                                           color:fwTypeColor(type.kind)
@@ -3723,6 +3653,9 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         row.step = step;
         row.frame = CGRectMake(x, y, w, FW_ROW_H);
         [_scroll addSubview:row];
+        if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
+            [self attachRepeatTimesFieldToRow:row step:(NSMutableDictionary *)step];
+        }
         y += FW_ROW_H + FW_GAP;
         if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
             y = [self layoutRepeatContentOfStep:(NSMutableDictionary *)step atY:y x:x width:w];
@@ -3772,9 +3705,9 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             if (![step isKindOfClass:[NSDictionary class]]) continue;
             FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
             __weak typeof(self) weakSelf = self;
-            FWStepRowView *row = [self makeStepRow:[FlowScript summaryForStep:step]
+            FWStepRowView *row = [self makeStepRow:[self rowTitleForStep:step]
                                          customName:[step[@"Name"] isKindOfClass:[NSString class]] ? step[@"Name"] : nil
-                                             detail:[FlowScript detailForStep:step]
+                                             detail:[self rowDetailForStep:step]
                                              index:i
                                             symbol:type.symbolName
                                              color:fwTypeColor(type.kind)
@@ -3796,6 +3729,9 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             row.step = step;
             [_rows addObject:row];
             y = [self addRow:row y:y];
+            if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
+                [self attachRepeatTimesFieldToRow:row step:(NSMutableDictionary *)step];
+            }
             if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
                 y = [self layoutRepeatContentOfStep:(NSMutableDictionary *)step atY:y x:4.0f width:rowW];
             }

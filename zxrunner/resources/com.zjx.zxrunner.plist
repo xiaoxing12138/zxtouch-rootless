@@ -13,6 +13,8 @@
     <!-- 常驻 socket server，崩了 launchd 自动重启 -->
     <key>KeepAlive</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
     <key>StandardOutPath</key>
     <string>/tmp/zxrunner_stdout.log</string>
     <key>StandardErrorPath</key>

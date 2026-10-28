@@ -121,17 +121,32 @@ if [ -x "$JB/usr/bin/ldid" ]; then
 fi
 
 # Start zxrunner daemon. Postinst runs as root, bypassing the SpringBoard exec
-# restrictions, and a respring does not make launchd rescan LaunchAgents.
+# restrictions. It runs as a system-domain LaunchDaemon so launchd restarts it
+# after a reboot/respring (the old gui-domain LaunchAgent under /var/jb is never
+# rescanned, which is why OCR later failed with "cannot connect to zxrunner").
 DAEMON="$JB/usr/libexec/zxrunner"
+DAEMON_PLIST="$JB/Library/LaunchDaemons/com.zjx.zxrunner.plist"
+LAUNCHCTL="$JB/usr/bin/launchctl"
 if [ -x "$DAEMON" ]; then
-    # Kill any stale instance from before, then start fresh
+    if [ -x "$LAUNCHCTL" ]; then
+        "$LAUNCHCTL" bootout system/com.zjx.zxrunner 2>/dev/null || true
+        "$LAUNCHCTL" bootout gui/501/com.zjx.zxrunner 2>/dev/null || true
+    fi
+    rm -f "$JB/Library/LaunchAgents/com.zjx.zxrunner.plist"
     if [ -x "$JB/usr/bin/killall" ]; then
         "$JB/usr/bin/killall" zxrunner 2>/dev/null || true
     fi
     sleep 0.3
     rm -f /tmp/zxrunner.sock
-    su mobile -c "nohup $DAEMON >/dev/null 2>&1 </dev/null &" 2>/dev/null || true
-    sleep 0.5
+    if [ -f "$DAEMON_PLIST" ] && [ -x "$LAUNCHCTL" ]; then
+        "$LAUNCHCTL" bootstrap system "$DAEMON_PLIST" 2>/dev/null || true
+        "$LAUNCHCTL" kickstart -k system/com.zjx.zxrunner 2>/dev/null || true
+    fi
+    sleep 0.4
+    if [ ! -S /tmp/zxrunner.sock ]; then
+        su mobile -c "nohup $DAEMON >/dev/null 2>&1 </dev/null &" 2>/dev/null || true
+        sleep 0.5
+    fi
 fi
 
 # Never restart SpringBoard from a maintainer script. Package managers run this

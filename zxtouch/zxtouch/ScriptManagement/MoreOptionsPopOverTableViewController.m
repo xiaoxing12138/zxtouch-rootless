@@ -8,9 +8,6 @@
 #import "MoreOptionsPopOverTableViewController.h"
 #import "TableViewCellWithSingleButton.h"
 #import "Util.h"
-#import "PlaySettingsViewController.h"
-#import "PlaySettingsNavigationController.h"
-#import "ScheduleSettingsViewController.h"
 #import "../ZXScriptListView.h"
 #include "../Config.h"
 
@@ -124,16 +121,6 @@
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)changePlaySetting:(id)sender {
-    UIStoryboard *sb = [UIStoryboard storyboardWithName:@"SettingPages" bundle:nil];
-    PlaySettingsNavigationController *playSettingsViewController = [sb instantiateViewControllerWithIdentifier:@"PlaySettingsNavigationController"];
-    
-    [playSettingsViewController setPath:[currentFolder stringByStandardizingPath]];
-
-    [self presentViewController:playSettingsViewController animated:YES completion:nil];
-    
-}
-
 #pragma mark - 可视化脚本
 
 - (void)dismissThen:(void (^)(void))completion
@@ -150,31 +137,6 @@
     dispatch_async(dispatch_get_main_queue(), ^{
         [host dismissViewControllerAnimated:YES completion:completion];
     });
-}
-
-- (void)pushAfterDismiss:(UIViewController *)controller
-{
-    ScriptListViewController *upper = self->upperLevel;
-    [self dismissThen:^{
-        [upper.navigationController pushViewController:controller animated:YES];
-    }];
-}
-
-// 可视化编辑器是插件侧的悬浮卡片（取点要在游戏画面上画覆盖层，App 里截不到游戏），
-// 所以这里只发命令，然后把自己这层弹层关掉，让位给卡片。
-- (void)openFlowEditor:(id)sender {
-    ScriptListViewController *upper = self->upperLevel;
-    NSString *path = [currentFolder stringByStandardizingPath];
-    [self dismissThen:^{
-        NSString *result = [Util sendEngineCommand:[NSString stringWithFormat:@"44;;open;;%@", path]];
-        if (!result) {
-            [Util showAlertBoxWithOneOption:upper title:@"错误" message:@"小新Lap 服务不可用，请确认插件已生效。" buttonString:@"确定"];
-        }
-    }];
-}
-
-- (void)openScheduleSettings:(id)sender {
-    [self pushAfterDismiss:[[ScheduleSettingsViewController alloc] initWithScriptBundlePath:currentFolder]];
 }
 
 - (void)createVisualScript:(id)sender {
@@ -233,7 +195,7 @@
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if ([[currentFolder pathExtension] isEqualToString:@"bdl"])
     {
-        return 8;
+        return 5;
     }
     else
     {
@@ -368,21 +330,6 @@
     {
         [cell setButtonText:@"删除"];
         [cell.button addTarget:self action:@selector(deleteScript:) forControlEvents:UIControlEventTouchUpInside];
-    }
-    else if (indexPath.row == 5 && isBundle)
-    {
-        [cell setButtonText:@"播放设置"];
-        [cell.button addTarget:self action:@selector(changePlaySetting:) forControlEvents:UIControlEventTouchUpInside];
-    }
-    else if (indexPath.row == 6 && isBundle)
-    {
-        [cell setButtonText:@"可视化编辑"];
-        [cell.button addTarget:self action:@selector(openFlowEditor:) forControlEvents:UIControlEventTouchUpInside];
-    }
-    else if (indexPath.row == 7 && isBundle)
-    {
-        [cell setButtonText:@"启动 / 结束"];
-        [cell.button addTarget:self action:@selector(openScheduleSettings:) forControlEvents:UIControlEventTouchUpInside];
     }
     
     return cell;

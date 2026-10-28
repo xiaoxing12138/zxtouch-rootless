@@ -186,6 +186,12 @@ static UIColor *ZXScriptRowBackground(void)
     [self setNeedsLayout];
 }
 
+- (void)setTrailingInset:(CGFloat)trailingInset
+{
+    _trailingInset = trailingInset;
+    [self setNeedsLayout];
+}
+
 - (void)setHighlighted:(BOOL)highlighted
 {
     _highlighted = highlighted;
@@ -277,10 +283,10 @@ static UIColor *ZXScriptRowBackground(void)
 - (void)layoutSubviews
 {
     [super layoutSubviews];
-    CGFloat w = self.bounds.size.width;
+    CGFloat w = self.bounds.size.width - self.trailingInset;
     CGFloat h = self.bounds.size.height;
 
-    _deletePanel.frame = CGRectMake(w - ZX_ROW_DELETE_W, 0, ZX_ROW_DELETE_W, h);
+    _deletePanel.frame = CGRectMake(self.bounds.size.width - ZX_ROW_DELETE_W, 0, ZX_ROW_DELETE_W, h);
     [_deletePanel viewWithTag:10].frame = _deletePanel.bounds;
     if (CGAffineTransformIsIdentity(_content.transform)) _content.frame = self.bounds;
 

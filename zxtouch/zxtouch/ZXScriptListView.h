@@ -24,6 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL swipeDeleteEnabled;
 @property (nonatomic, assign) BOOL showsDisclosure;
 @property (nonatomic, assign) BOOL expanded;
+@property (nonatomic, assign) CGFloat trailingInset;
 
 @property (nonatomic, copy, nullable) void (^onTap)(ZXScriptListItem *item);
 @property (nonatomic, copy, nullable) void (^onLongPress)(ZXScriptListItem *item);
