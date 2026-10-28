@@ -88,15 +88,28 @@ static NSString *ZXPythonScriptBootstrap(void)
 {
     return @"import os,runpy,sys\n"
            "c=sys.argv[1:]\n"
-           "p=next((x for x in c if os.path.isfile(x)),None)\n"
-           "if p is None:\n"
-           "    sys.stderr.write('zx: cannot open script in this process: '+' | '.join(c)+'\\n')\n"
-           "    sys.exit(2)\n"
-           "d=os.path.dirname(p) or '.'\n"
-           "os.chdir(d)\n"
-           "sys.path.insert(0,d)\n"
-           "sys.argv=[p]\n"
-           "runpy.run_path(p,run_name='__main__')\n";
+           "src=b''\n"
+           "try:\n"
+           "    src=sys.stdin.buffer.read()\n"
+           "except Exception:\n"
+           "    src=b''\n"
+           "if src:\n"
+           "    p=c[0]\n"
+           "    sys.argv=[p]\n"
+           "    exec(compile(src.decode('utf-8',errors='replace'),p,'exec'),{'__name__':'__main__','__file__':p,'__package__':None,'__spec__':None,'__loader__':None})\n"
+           "else:\n"
+           "    p=next((x for x in c if x and os.path.isfile(x)),None)\n"
+           "    if p is None:\n"
+           "        sys.stderr.write('zx: cannot open script in this process: '+' | '.join(c)+'\\n')\n"
+           "        sys.exit(2)\n"
+           "    d=os.path.dirname(p) or '.'\n"
+           "    try:\n"
+           "        os.chdir(d)\n"
+           "    except OSError:\n"
+           "        pass\n"
+           "    sys.path.insert(0,d)\n"
+           "    sys.argv=[p]\n"
+           "    runpy.run_path(p,run_name='__main__')\n";
 }
 
 static NSArray<NSString *> *ZXPythonScriptCandidates(NSString *filePath)
@@ -517,9 +530,19 @@ static NSString *ZXChildPath(NSString *path)
         NSLog(@"com.zjx.springboard: chdir(%s) failed: %s", scriptDir.UTF8String, strerror(errno));
     }
 
+    int srcFd = open(filePath.fileSystemRepresentation, O_RDONLY);
+    if (srcFd < 0) {
+        NSLog(@"com.zjx.springboard: open(%s) failed: %s", filePath.UTF8String, strerror(errno));
+    }
+
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
-    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    if (srcFd >= 0) {
+        posix_spawn_file_actions_adddup2(&actions, srcFd, STDIN_FILENO);
+        posix_spawn_file_actions_addclose(&actions, srcFd);
+    } else {
+        posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    }
     posix_spawn_file_actions_adddup2(&actions, p_stdout[1], STDOUT_FILENO);
     posix_spawn_file_actions_adddup2(&actions, p_stdout[1], STDERR_FILENO);
     posix_spawn_file_actions_addclose(&actions, p_stdout[0]);
@@ -541,6 +564,7 @@ static NSString *ZXChildPath(NSString *path)
     int spawnErr = ZXForceDaemon() ? EPERM : posix_spawn(&pid, pythonPath.UTF8String, &actions, &attrs, argv, envp);
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attrs);
+    if (srcFd >= 0) close(srcFd);
     ZXCStringArrayFree(argv);
     free(envp);
 
