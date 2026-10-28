@@ -577,11 +577,52 @@ static int run_server(void)
     }
 }
 
+// launchd 会给自己的服务进程套一个很小的 jetsam 内存上限，
+// tesseract 一加载就被 JETSAM_REASON_MEMORY_PERPROCESSLIMIT 杀掉。
+// 所以由 launchd 启动的这一份只当看门狗，真正的服务进程以子进程身份起，
+// 子进程不归 launchd 管，内存不受限制。
+static int run_supervisor(const char *selfPath)
+{
+    while (1) {
+        posix_spawn_file_actions_t fa;
+        posix_spawn_file_actions_init(&fa);
+        posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO, "/tmp/zxrunner_stdout.log",
+                                         O_WRONLY | O_CREAT | O_APPEND, 0644);
+        posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/tmp/zxrunner_stderr.log",
+                                         O_WRONLY | O_CREAT | O_APPEND, 0644);
+        posix_spawnattr_t attr;
+        posix_spawnattr_init(&attr);
+        char *envp[] = { "ZXRUNNER_WORKER=1", "HOME=/var/mobile",
+                         "PATH=/usr/bin:/bin:/usr/sbin:/sbin", NULL };
+        char *argv[] = { (char *)selfPath, NULL };
+
+        pid_t pid = 0;
+        int err = posix_spawn(&pid, selfPath, &fa, &attr, argv, envp);
+        posix_spawn_file_actions_destroy(&fa);
+        posix_spawnattr_destroy(&attr);
+
+        if (err == 0 && pid > 0) {
+            int status = 0;
+            while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+            }
+            sleep(2);
+        } else {
+            sleep(5);
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     @autoreleasepool {
         signal(SIGCHLD, SIG_DFL);
         signal(SIGPIPE, SIG_IGN);
+
+        NSDictionary *env = [[NSProcessInfo processInfo] environment];
+        if (env[@"XPC_SERVICE_NAME"] && !env[@"ZXRUNNER_WORKER"]) {
+            return run_supervisor(argv[0]);
+        }
 
         // LaunchDaemon 以 root 启动（rootless 上 system 域不能用 UserName），
         // 这里主动降到 mobile：python / socket 都必须以手机用户身份跑
