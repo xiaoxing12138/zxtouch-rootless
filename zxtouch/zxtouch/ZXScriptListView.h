@@ -33,11 +33,19 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 NSArray<ZXScriptListItem *> *ZXScriptListScan(NSString *directory, BOOL includePlainFiles);
 NSArray<NSString *> *ZXScriptMoveFolders(NSString *scriptsRoot, NSString *excludingPath);
 NSString *ZXScriptMoveFolderTitle(NSString *folder, NSString *scriptsRoot);
 BOOL ZXScriptMoveItem(NSString *itemPath, NSString *destinationFolder, NSError **error);
 void ZXScriptShowMovePicker(NSString *itemPath, NSString *scriptsRoot, UIViewController *host,
                             UIView *sourceView, void (^completion)(BOOL moved));
+
+#ifdef __cplusplus
+}
+#endif
 
 NS_ASSUME_NONNULL_END
