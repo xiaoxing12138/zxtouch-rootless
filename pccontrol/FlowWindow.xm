@@ -604,6 +604,7 @@ static FlowWindow *_fwShared = nil;
     CGFloat                       _dragStartY;
     UIView                       *_dragLine;     // 松手后会插到哪里的指示线
     NSTimer                      *_dragScrollTimer; // 拖动到上下边缘时的自动滚动
+    NSInteger                     _stepCursor;    // 全局步骤序号（判断分支、重复内部也算）
     CGFloat                       _dragDisplayY;  // 拖动行当前在内容坐标里的顶部（自动滚动时累加）
 
     BOOL                         _animateTransition;   // 换页时淡入 + 上移
@@ -3727,10 +3728,12 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         NSMutableDictionary *step = steps[i];
         if (![step isKindOfClass:[NSMutableDictionary class]]) continue;
         FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
+        NSInteger number = _stepCursor;
+        _stepCursor += 1;
         FWStepRowView *row = [self makeStepRow:[self rowTitleForStep:step]
                                      customName:[step[@"Name"] isKindOfClass:[NSString class]] ? step[@"Name"] : nil
                                          detail:[self rowDetailForStep:step]
-                                          index:(depth == 0 ? i : -1)
+                                          index:number
                                          symbol:type.symbolName
                                           color:fwTypeColor(type.kind)
                                       deletable:YES
@@ -3987,6 +3990,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     _rows = [NSMutableArray array];   // 每次重建都清空：换页后旧行不该再被拖动逻辑引用
     _spans = [NSMutableArray array];
     _branchLabels = [NSMutableArray array];
+    _stepCursor = 0;
     _dragRow = nil;
     _dragSourceSteps = nil;
     _dragTargetSteps = nil;

@@ -3,6 +3,21 @@
 
 #define ZX_ROW_DELETE_W 72.0f
 
+// 总步数：判断的成立/不成立、重复的内部都算一步
+static NSInteger ZXCountFlowSteps(NSArray *steps)
+{
+    if (![steps isKindOfClass:[NSArray class]]) return 0;
+    NSInteger n = 0;
+    for (id step in steps) {
+        if (![step isKindOfClass:[NSDictionary class]]) continue;
+        n += 1;
+        n += ZXCountFlowSteps(step[@"Steps"]);
+        n += ZXCountFlowSteps(step[@"Then"]);
+        n += ZXCountFlowSteps(step[@"Else"]);
+    }
+    return n;
+}
+
 @implementation ZXScriptListItem
 
 + (instancetype)itemWithPath:(NSString *)path
@@ -25,7 +40,7 @@
         NSDictionary *flow = [NSDictionary dictionaryWithContentsOfFile:
                               [path stringByAppendingPathComponent:@"flow.plist"]];
         NSArray *steps = [flow[@"Steps"] isKindOfClass:[NSArray class]] ? flow[@"Steps"] : nil;
-        item.stepCount = steps ? (NSInteger)steps.count : -1;
+        item.stepCount = steps ? ZXCountFlowSteps(steps) : -1;
     }
 
     if (item.isFolder) {
