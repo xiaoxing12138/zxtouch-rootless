@@ -68,6 +68,34 @@ NSString * const kFlowWeChat = @"wechat";
 NSString * const kFlowHttp = @"http";
 NSString * const kFlowShell = @"shell";
 
+BOOL FlowStepSupportsArea(NSDictionary *step)
+{
+    NSString *kind = step[@"Kind"];
+    return [kind isEqualToString:kFlowFindColor] || [kind isEqualToString:kFlowCountColor]
+        || [kind isEqualToString:kFlowImage] || [kind isEqualToString:kFlowOCR];
+}
+
+NSString * FlowAreaModeForStep(NSDictionary *step)
+{
+    if ([step[@"Kind"] isEqualToString:kFlowImage]) {
+        id m = step[@"Mode"];
+        NSString *mode = [m isKindOfClass:[NSString class]] ? m : @"full";
+        return [mode isEqualToString:@"area"] ? @"area" : @"full";
+    }
+    id v = step[@"AreaMode"];
+    if ([v isKindOfClass:[NSString class]]) {
+        return [v isEqualToString:@"full"] ? @"full" : @"area";
+    }
+    for (NSString *key in @[@"X1", @"Y1", @"X2", @"Y2"]) {
+        id n = step[key];
+        double d = 0;
+        if ([n isKindOfClass:[NSNumber class]]) d = [n doubleValue];
+        else if ([n isKindOfClass:[NSString class]] && [n length] > 0) d = [n doubleValue];
+        if (d != 0) return @"area";
+    }
+    return @"full";
+}
+
 // 分类固定顺序：触摸 → 判断条件 → 流程 → App 与输入 → 设备 → 提醒
 static NSString * const kCatTouch = @"触摸";
 static NSString * const kCatCondition = @"判断条件";
@@ -498,6 +526,10 @@ static NSString *fwSimValue(id value)
         step[@"ElseEnabled"] = @(NO);
     } else if ([kind isEqualToString:kFlowRepeat]) {
         step[@"Steps"] = [NSMutableArray array];
+    }
+    if ([kind isEqualToString:kFlowFindColor] || [kind isEqualToString:kFlowCountColor]
+        || [kind isEqualToString:kFlowOCR]) {
+        step[@"AreaMode"] = @"full";
     }
     return step;
 }
@@ -1098,23 +1130,29 @@ static NSInteger flowNextCodeSeq(void)
         condition = [NSString stringWithFormat:@"是色(%@, %@, \"%@\", %@)",
                      [self textForValue:step[@"X"]], [self textForValue:step[@"Y"]], color, tolerance];
     } else if ([kind isEqualToString:kFlowFindColor]) {
-        NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
-        NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
-        // 允许用户从右下往左上框，生成前先把角点理顺
-        NSInteger x = MIN(left, right), y = MIN(top, bottom);
-        NSInteger w = labs(right - left), h = labs(bottom - top);
+        NSInteger x = 0, y = 0, w = 0, h = 0;
+        if (![FlowAreaModeForStep(step) isEqualToString:@"full"]) {
+            NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
+            NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
+            // 允许用户从右下往左上框，生成前先把角点理顺
+            x = MIN(left, right); y = MIN(top, bottom);
+            w = labs(right - left); h = labs(bottom - top);
+        }
         condition = [NSString stringWithFormat:@"找色(%ld, %ld, %ld, %ld, \"%@\", %@)",
-                     (long)x, (long)y, (long)MAX(w, 1), (long)MAX(h, 1), color, tolerance];
+                     (long)x, (long)y, (long)w, (long)h, color, tolerance];
     } else if ([kind isEqualToString:kFlowCountColor]) {
-        NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
-        NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
-        NSInteger x = MIN(left, right), y = MIN(top, bottom);
-        NSInteger w = labs(right - left), h = labs(bottom - top);
+        NSInteger x = 0, y = 0, w = 0, h = 0;
+        if (![FlowAreaModeForStep(step) isEqualToString:@"full"]) {
+            NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
+            NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
+            x = MIN(left, right); y = MIN(top, bottom);
+            w = labs(right - left); h = labs(bottom - top);
+        }
         NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"atLeast";
         NSString *want = [self textForValue:step[@"Count"]];
         if (want.length == 0) want = @"0";
         condition = [NSString stringWithFormat:@"(数色(%ld, %ld, %ld, %ld, \"%@\", %@) %@ %@)",
-                     (long)x, (long)y, (long)MAX(w, 1), (long)MAX(h, 1), color, tolerance,
+                     (long)x, (long)y, (long)w, (long)h, color, tolerance,
                      [mode isEqualToString:@"atMost"] ? @"<=" : @">=",
                      want];
     } else if ([kind isEqualToString:kFlowImage]) {
@@ -1131,17 +1169,20 @@ static NSInteger flowNextCodeSeq(void)
         condition = [NSString stringWithFormat:@"找图(\"%@\", %@, %ld, %ld, %ld, %ld)",
                      path, [self textForValue:step[@"Threshold"]], (long)x, (long)y, (long)w, (long)h];
     } else if ([kind isEqualToString:kFlowOCR]) {
-        NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
-        NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
-        NSInteger x = MIN(left, right), y = MIN(top, bottom);
-        NSInteger w = labs(right - left), h = labs(bottom - top);
+        NSInteger x = 0, y = 0, w = 0, h = 0;
+        if (![FlowAreaModeForStep(step) isEqualToString:@"full"]) {
+            NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
+            NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
+            x = MIN(left, right); y = MIN(top, bottom);
+            w = labs(right - left); h = labs(bottom - top);
+        }
         NSString *langs = [step[@"Languages"] isKindOfClass:[NSString class]] ? step[@"Languages"] : @"";
         if (langs.length == 0) langs = @"zh-Hans,en-US";
         NSString *target = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
         target = [target stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
         NSString *match = [step[@"Match"] isKindOfClass:[NSString class]] ? step[@"Match"] : @"contains";
         NSString *call = [NSString stringWithFormat:@"识字(%ld, %ld, %ld, %ld, \"%@\")",
-                          (long)x, (long)y, (long)MAX(w, 1), (long)MAX(h, 1), langs];
+                          (long)x, (long)y, (long)w, (long)h, langs];
         if ([match isEqualToString:@"equals"]) {
             condition = [NSString stringWithFormat:@"(\"%@\" == %@)", target, call];
         } else if ([match isEqualToString:@"notContains"]) {

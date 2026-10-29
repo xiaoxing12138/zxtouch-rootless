@@ -46,6 +46,12 @@ extern NSString * const kFlowWeChat;     // 发微信（占位）
 extern NSString * const kFlowHttp;       // URL 请求
 extern NSString * const kFlowShell;      // 执行命令
 
+/// 判断步骤是不是「可选区域」的（找色 / 数色 / 识图 / 识字）
+extern BOOL FlowStepSupportsArea(NSDictionary *step);
+/// 识别范围：@"full" 全屏 / @"area" 自定义区域。识图用 Mode，其余用 AreaMode；
+/// 老脚本没存 AreaMode 时按坐标判断（全 0 算全屏）
+extern NSString * FlowAreaModeForStep(NSDictionary *step);
+
 /// 在弹窗里追加的「从屏幕取…」动作
 typedef NS_ENUM(NSInteger, FlowPickMode) {
     FlowPickModeNone = 0,

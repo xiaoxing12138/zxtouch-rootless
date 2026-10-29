@@ -2346,7 +2346,27 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
             y += 2;
         }
 
-        if (type.pickMode != FlowPickModeNone) {
+        // 识别范围：全屏 / 自定义区域。放在取点行上面，全屏时区域取点行收起来
+        NSString *areaKey = nil;
+        BOOL areaFull = NO;
+        if (FlowStepSupportsArea(step)) {
+            areaKey = [type.kind isEqualToString:kFlowImage] ? @"Mode" : @"AreaMode";
+            areaFull = [FlowAreaModeForStep(step) isEqualToString:@"full"];
+            y += 2;
+            UIView *areaRow = [strongSelf makeChoiceRow:@"识别范围"
+                                                 titles:@[ @"全屏", @"自定义区域" ]
+                                               selected:(areaFull ? 0 : 1) width:w
+                                               onChange:^(NSInteger idx) {
+                step[areaKey] = idx == 1 ? @"area" : @"full";
+                [weakSelf autosave];
+                [weakSelf rebuildSubAnimated:NO];
+                [weakSelf refreshKeepingScroll];
+            }];
+            y = [strongSelf subAddRow:areaRow y:y];
+            y += 2;
+        }
+
+        if (type.pickMode != FlowPickModeNone && !(areaFull && type.pickMode == FlowPickModeRect)) {
             UIView *pick = [strongSelf makePickRowForStep:step mode:type.pickMode targets:type.pickTargets
                                                     title:type.pickActionTitle width:w
                                                    action:^{ [strongSelf beginPickingForStep:step type:type]; }];
@@ -2383,6 +2403,8 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
         // 取点行已经承载了这些字段（坐标 / 模板名），下面不再重复铺输入框
         [used addObjectsFromArray:type.pickTargets];
         [used addObjectsFromArray:type.pickTargets2];
+        // 识别范围改由上面的标签切换，不再铺旧的「搜索范围」选择行
+        if (areaKey.length > 0) [used addObject:areaKey];
         for (NSDictionary<NSString *, id> *group in groups) {
             // 输入步骤：方式选「剪贴板」时不显示「自定义文字」输入框
             if ([type.kind isEqualToString:kFlowPaste] &&
@@ -2775,12 +2797,15 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                       tolerance, hit ? @"成立 ✓" : @"不成立 ✗"];
         }
     } else if ([kind isEqualToString:kFlowFindColor]) {
-        NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
-        NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
-        NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
-        NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
-        NSInteger x = MIN(left, right), y = MIN(top, bottom);
-        NSInteger w = MAX(labs(right - left), 1), h = MAX(labs(bottom - top), 1);
+        NSInteger x = 0, y = 0, w = 0, h = 0;
+        if (![FlowAreaModeForStep(step) isEqualToString:@"full"]) {
+            NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
+            NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
+            NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
+            NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
+            x = MIN(left, right); y = MIN(top, bottom);
+            w = MAX(labs(right - left), 1), h = MAX(labs(bottom - top), 1);
+        }
         int tr = 0, tg = 0, tb = 0;
         int tolerance = (int)MAX(fwStepNumber(step, @"Tolerance", 10), 0);
         if (!fwParseHexColor(step[@"Color"], &tr, &tg, &tb)) {
@@ -2805,12 +2830,15 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             }
         }
     } else if ([kind isEqualToString:kFlowCountColor]) {
-        NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
-        NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
-        NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
-        NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
-        NSInteger x = MIN(left, right), y = MIN(top, bottom);
-        NSInteger w = MAX(labs(right - left), 1), h = MAX(labs(bottom - top), 1);
+        NSInteger x = 0, y = 0, w = 0, h = 0;
+        if (![FlowAreaModeForStep(step) isEqualToString:@"full"]) {
+            NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
+            NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
+            NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
+            NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
+            x = MIN(left, right); y = MIN(top, bottom);
+            w = MAX(labs(right - left), 1); h = MAX(labs(bottom - top), 1);
+        }
         int tr = 0, tg = 0, tb = 0;
         int tolerance = (int)MAX(fwStepNumber(step, @"Tolerance", 10), 0);
         if (!fwParseHexColor(step[@"Color"], &tr, &tg, &tb)) {
@@ -2862,12 +2890,15 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                       rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, best];
         }
     } else if ([kind isEqualToString:kFlowOCR]) {
-        NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
-        NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
-        NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
-        NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
-        NSInteger x = MIN(left, right), y = MIN(top, bottom);
-        NSInteger w = MAX(labs(right - left), 1), h = MAX(labs(bottom - top), 1);
+        NSInteger x = 0, y = 0, w = 0, h = 0;
+        if (![FlowAreaModeForStep(step) isEqualToString:@"full"]) {
+            NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
+            NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
+            NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
+            NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
+            x = MIN(left, right); y = MIN(top, bottom);
+            w = MAX(labs(right - left), 1); h = MAX(labs(bottom - top), 1);
+        }
         NSString *langs = [step[@"Languages"] isKindOfClass:[NSString class]] ? step[@"Languages"] : @"";
         if (langs.length == 0) langs = @"zh-Hans,en-US";
         // 引擎按 ",," 切语言列表，用户填的是逗号分隔
