@@ -43,6 +43,26 @@
 // 子浮窗宽高：所有脚本共用一套，存公共配置（和选项面板的 panel_state 一样是全局的）
 static char kFWRepeatStepKey;
 
+// 「不成立」分支开关：缺省开（老脚本行为不变）
+static BOOL fwElseEnabled(NSDictionary *step)
+{
+    id v = step[@"ElseEnabled"];
+    return [v isKindOfClass:[NSNumber class]] ? [v boolValue] : YES;
+}
+
+// 拖动时不能把步骤放进自己内部：把这些容器数组全部排除掉
+static void fwCollectContainers(NSDictionary *step, NSMutableSet *out)
+{
+    for (NSString *key in @[@"Steps", @"Then", @"Else"]) {
+        id arr = step[key];
+        if (![arr isKindOfClass:[NSMutableArray class]]) continue;
+        [out addObject:arr];
+        for (id child in arr) {
+            if ([child isKindOfClass:[NSDictionary class]]) fwCollectContainers(child, out);
+        }
+    }
+}
+
 static NSString * const kSubSizeWidthKey  = @"flow_sub_w";
 static NSString * const kSubSizeHeightKey = @"flow_sub_h";
 
@@ -362,6 +382,8 @@ static void fwPersistSchedule(NSString *bundlePath, NSString *startMode, NSStrin
 @property (nonatomic, strong) UIButton *deleteBtn;
 @property (nonatomic, strong) UIView   *dragHandle;  // 右侧把手（自己挂 pan，有 translationInView 可用）
 @property (nonatomic, weak)   NSDictionary *step;    // 排序时靠它把视图和数据对上
+@property (nonatomic, strong) NSMutableArray *ownerSteps; // 这行属于哪一层（根列表 / 重复里 / 成立 / 不成立）
+@property (nonatomic) NSInteger ownerDepth;          // 缩进层数，拖动时用来选落点
 @property (nonatomic) BOOL swipeEnabled;             // 能左滑删除
 @property (nonatomic) BOOL dragEnabled;              // 把手能拖动排序
 @property (nonatomic, copy) void (^onTap)(void);
@@ -562,11 +584,15 @@ static FlowWindow *_fwShared = nil;
     NSMutableArray<NSMutableDictionary *> *_stack;
     BOOL                         _handwritten;   // main.py 是手写的，改动会覆盖它
 
-    NSMutableArray<FWStepRowView *> *_rows;      // 当前这一页的步骤行（排序要用）
-    CGFloat                      _rowsTop;       // 第一行的 y（排序时算目标位置）
+    NSMutableArray<FWStepRowView *> *_rows;      // 当前列表里所有层级的步骤行
+    NSMutableArray<NSDictionary *>  *_spans;     // 每一层容器的纵向区间（选拖动落点用）
     FWStepRowView               *_dragRow;
-    NSInteger                    _dragIndex;
-    CGFloat                      _dragStartY;
+    NSMutableArray               *_dragSourceSteps;
+    NSInteger                     _dragSourceIndex;
+    NSMutableArray               *_dragTargetSteps;
+    NSInteger                     _dragTargetIndex;
+    CGFloat                       _dragStartY;
+    UIView                       *_dragLine;     // 松手后会插到哪里的指示线
 
     BOOL                         _animateTransition;   // 换页时淡入 + 上移
 
@@ -593,7 +619,6 @@ static FlowWindow *_fwShared = nil;
 
     NSMutableDictionary         *_pickDragStep;
     FlowStepType                *_pickDragType;
-    NSMutableArray              *_addTargetSteps;
 
     // 悬浮球自定义图片：取图用独立窗口，取完在预览页里缩放 / 拖动裁圆
     UIWindow                    *_ballPickWindow;
@@ -693,11 +718,6 @@ static FlowWindow *_fwShared = nil;
     [self refresh];
 }
 
-- (void)pushBranchPageForStep:(NSMutableDictionary *)step key:(NSString *)key title:(NSString *)title {
-    if (![step[key] isKindOfClass:[NSMutableArray class]]) step[key] = [NSMutableArray array];
-    [self pushPage:@{ @"kind": kPageList, @"title": title, @"steps": step[key], @"branch": @YES }];
-}
-
 // 加一步：落盘后直接在子浮窗里打开它的参数
 - (void)addStepOfKind:(NSString *)kind toSteps:(NSMutableArray *)steps {
     if (!steps) return;
@@ -718,71 +738,135 @@ static FlowWindow *_fwShared = nil;
     [self showParamsSubForStep:step parentSteps:steps];
 }
 
-#pragma mark - 把手拖动排序
+#pragma mark - 把手拖动调整顺序 / 换层
 
-- (FWStepRowView *)rowForStep:(NSDictionary *)step {
-    for (FWStepRowView *row in _rows) {
-        if (row.step == step) return row;
-    }
-    return nil;
+// 拖拽时所有层级的落点：每层容器在布局时登记一条 top / bottom 区间
+- (void)registerSpan:(NSMutableArray *)steps top:(CGFloat)top bottom:(CGFloat)bottom
+                   x:(CGFloat)x width:(CGFloat)w depth:(NSInteger)depth
+{
+    [_spans addObject:@{ @"steps": steps, @"top": @(top), @"bottom": @(bottom),
+                         @"x": @(x), @"width": @(w), @"depth": @(depth) }];
 }
 
-// 按数据数组的顺序把行摆回各自的位置（被拖的那行不碰，它跟着手指走）
-- (void)layoutRowsExcept:(FWStepRowView *)skip {
-    NSMutableArray *steps = [self currentSteps];
-    if (!steps) return;
-    CGFloat stepH = FW_ROW_H + FW_GAP;
-    for (NSUInteger i = 0; i < steps.count; i++) {
-        FWStepRowView *row = [self rowForStep:steps[i]];
-        if (!row) continue;
-        row.numberLabel.text = [NSString stringWithFormat:@"%lu", (unsigned long)i + 1];
-        if (row == skip) continue;
-        row.frame = CGRectMake(row.frame.origin.x, _rowsTop + i * stepH, row.frame.size.width, FW_ROW_H);
+// 这个数组里已经排好版的行，按数据顺序返回（拖动时算插入位置）
+- (NSMutableArray<FWStepRowView *> *)rowsForSteps:(NSArray *)steps skip:(FWStepRowView *)skip
+{
+    NSMutableArray<FWStepRowView *> *out = [NSMutableArray array];
+    for (id step in steps) {
+        for (FWStepRowView *row in _rows) {
+            if (row != skip && row.step == step) { [out addObject:row]; break; }
+        }
     }
+    return out;
 }
 
 - (void)beginDragRow:(FWStepRowView *)row {
-    NSMutableArray *steps = [self currentSteps];
-    if (!row || !steps) return;
-    NSUInteger index = [steps indexOfObjectIdenticalTo:row.step];
+    if (!row || !row.ownerSteps) return;
+    NSUInteger index = [row.ownerSteps indexOfObjectIdenticalTo:row.step];
     if (index == NSNotFound) return;
     _dragRow = row;
-    _dragIndex = (NSInteger)index;
-    // 从数据算起始位置，别读 row.frame：这时候行上已经挂了缩放，frame 是缩放后的外框
-    _dragStartY = _rowsTop + _dragIndex * (FW_ROW_H + FW_GAP);
-    _scroll.scrollEnabled = NO;   // 排序期间别让列表跟着滚
+    _dragSourceSteps = row.ownerSteps;
+    _dragSourceIndex = (NSInteger)index;
+    _dragTargetSteps = nil;
+    _dragTargetIndex = NSNotFound;
+    // 用 center 算基准：拿起时行上已经挂了缩放，frame 是缩放后的外框
+    _dragStartY = row.center.y - FW_ROW_H / 2.0f;
+    _scroll.scrollEnabled = NO;   // 拖动期间别让列表跟着滚
+    if (!_dragLine) {
+        _dragLine = [[UIView alloc] initWithFrame:CGRectZero];
+        _dragLine.backgroundColor = ZXPalette(ZXPalAccent);
+        _dragLine.layer.cornerRadius = 1.5f;
+        _dragLine.hidden = YES;
+    }
+    if (_dragLine.superview != _scroll) [_scroll addSubview:_dragLine];
     [_scroll bringSubviewToFront:row];
 }
 
 - (void)moveDragRow:(FWStepRowView *)row dy:(CGFloat)dy {
     if (!row || row != _dragRow) return;
-    NSMutableArray *steps = [self currentSteps];
-    if (!steps || steps.count == 0) return;
-
-    CGFloat stepH = FW_ROW_H + FW_GAP;
     CGFloat y = _dragStartY + dy;
-    CGFloat maxY = (CGFloat)(steps.count - 1) * stepH;
+    CGFloat maxY = MAX(0.0f, _scroll.contentSize.height - FW_ROW_H);
     if (y < 0) y = 0;
     if (y > maxY) y = maxY;
     // 拖动中 row 上有缩放 transform，不能碰 frame，只能改 center
     row.center = CGPointMake(row.center.x, y + FW_ROW_H / 2.0f);
 
-    NSInteger target = (NSInteger)llround(y / stepH);
-    if (target < 0) target = 0;
-    if (target > (NSInteger)steps.count - 1) target = (NSInteger)steps.count - 1;
-    if (target == _dragIndex) return;
+    CGFloat pointerY = y + FW_ROW_H / 2.0f;
+    NSMutableSet *excluded = [NSMutableSet set];
+    if (row.step) fwCollectContainers(row.step, excluded);
 
-    NSMutableDictionary *moved = steps[_dragIndex];
-    [steps removeObjectAtIndex:_dragIndex];
-    [steps insertObject:moved atIndex:target];
-    _dragIndex = target;
-    [self layoutRowsExcept:row];
+    // 落在哪一层：取包含指针、且层数最深的那个容器
+    NSDictionary *span = nil;
+    for (NSDictionary *s in _spans) {
+        if ([excluded containsObject:s[@"steps"]]) continue;
+        CGFloat top = [s[@"top"] doubleValue];
+        CGFloat bottom = [s[@"bottom"] doubleValue];
+        if (pointerY < top || pointerY > bottom) continue;
+        if (!span || [s[@"depth"] integerValue] > [span[@"depth"] integerValue]) span = s;
+    }
+    // 不在任何容器里（比如拖到最底下）→ 归到垂直距离最近的一层
+    if (!span) {
+        CGFloat best = CGFLOAT_MAX;
+        for (NSDictionary *s in _spans) {
+            if ([excluded containsObject:s[@"steps"]]) continue;
+            CGFloat top = [s[@"top"] doubleValue];
+            CGFloat bottom = [s[@"bottom"] doubleValue];
+            CGFloat d = (pointerY < top) ? top - pointerY : ((pointerY > bottom) ? pointerY - bottom : 0);
+            if (d < best) { best = d; span = s; }
+        }
+    }
+    if (!span) return;
+
+    NSMutableArray *targetSteps = span[@"steps"];
+    NSArray<FWStepRowView *> *ordered = [self rowsForSteps:targetSteps skip:row];
+    FWStepRowView *beforeRow = nil;
+    for (FWStepRowView *r in ordered) {
+        if (pointerY < CGRectGetMidY(r.frame)) { beforeRow = r; break; }
+    }
+    NSInteger index = beforeRow ? (NSInteger)[targetSteps indexOfObjectIdenticalTo:beforeRow.step]
+                                : (NSInteger)targetSteps.count;
+    if (index == NSNotFound) index = (NSInteger)targetSteps.count;
+
+    CGFloat lineY = beforeRow ? beforeRow.frame.origin.y - 3.0f
+                              : (ordered.count ? CGRectGetMaxY(ordered.lastObject.frame) + 2.0f
+                                               : [span[@"top"] doubleValue] + 2.0f);
+    _dragTargetSteps = targetSteps;
+    _dragTargetIndex = index;
+    _dragLine.frame = CGRectMake([span[@"x"] doubleValue] + 6.0f, lineY,
+                                 MAX([span[@"width"] doubleValue] - 12.0f, 40.0f), 3.0f);
+    _dragLine.hidden = NO;
+    [_scroll bringSubviewToFront:_dragLine];
+    [_scroll bringSubviewToFront:row];
 }
 
 - (void)endDragRow {
+    FWStepRowView *row = _dragRow;
+    NSMutableArray *src = _dragSourceSteps;
+    NSMutableArray *dst = _dragTargetSteps;
+    NSInteger dstIndex = _dragTargetIndex;
     _dragRow = nil;
+    _dragSourceSteps = nil;
+    _dragTargetSteps = nil;
+    _dragTargetIndex = NSNotFound;
+    _dragLine.hidden = YES;
     _scroll.scrollEnabled = YES;
-    [self autosave];   // 新顺序落盘
+
+    BOOL changed = NO;
+    NSDictionary *moved = row.step;   // 行里存的是弱引用：先强持住，免得从数组摘下来那一刻被释放
+    NSUInteger oldIndex = (row && src && moved) ? [src indexOfObjectIdenticalTo:moved] : NSNotFound;
+    if (oldIndex != NSNotFound && dst && dstIndex != NSNotFound) {
+        if (dst == src && dstIndex > (NSInteger)oldIndex) dstIndex -= 1;
+        if (dstIndex < 0) dstIndex = 0;
+        if (dstIndex <= (NSInteger)dst.count) {
+            if (!(dst == src && (NSInteger)oldIndex == dstIndex)) {
+                [src removeObjectAtIndex:oldIndex];
+                if (dstIndex > (NSInteger)dst.count) dstIndex = (NSInteger)dst.count;
+                [dst insertObject:moved atIndex:(NSUInteger)dstIndex];
+                changed = YES;
+            }
+        }
+    }
+    if (changed) [self autosave];
     [self refreshKeepingScroll];    // 重建一遍最省事（顺带恢复行的缩放和阴影）
 }
 
@@ -2016,14 +2100,9 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
 #pragma mark - 子浮窗：添加步骤
 
 - (void)showAddSheet {
-    BOOL branch = [_stack.lastObject[@"branch"] boolValue];
-    NSMutableArray *targetSteps = _addTargetSteps;
-    _addTargetSteps = nil;
-    if (!targetSteps) targetSteps = [self currentSteps];
+    NSMutableArray *targetSteps = [self currentSteps];
     if (!targetSteps) return;
-    // 重复块里和条件分支里都只能放动作，不能放判断
-    BOOL actionsOnly = branch || targetSteps != [self currentSteps];
-    NSArray<FlowStepType *> *all = actionsOnly ? [FlowScript simpleStepTypes] : [FlowScript allStepTypes];
+    NSArray<FlowStepType *> *all = [FlowScript allStepTypes];
     if (all.count == 0) return;
 
     // 按分类分组，分类顺序固定；没归类的兜底放进「其他」
@@ -2228,28 +2307,6 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
             y = [strongSelf subAddSection:@"其他" width:w y:y];
             for (FlowFieldSpec *spec in rest) {
                 y = [strongSelf subAddRow:[strongSelf fieldRowForSpec:spec step:step width:w] y:y];
-            }
-        }
-
-        if (type.isCondition) {
-            y += 6;
-            y = [strongSelf subAddSection:@"成立 / 不成立时要做什么" width:w y:y];
-            NSArray<NSString *> *keys = @[ @"Then", @"Else" ];
-            NSArray<NSString *> *titles = @[ @"成立时", @"不成立时" ];
-            for (NSInteger i = 0; i < 2; i++) {
-                NSString *key = keys[i];
-                NSArray *branchSteps = [step[key] isKindOfClass:[NSArray class]] ? step[key] : @[];
-                NSString *detail = [NSString stringWithFormat:@"%lu 个动作", (unsigned long)branchSteps.count];
-                NSString *branchTitle = titles[i];
-                UIView *row = [strongSelf makeActionRow:branchTitle detail:detail color:ZXPalette(ZXPalText)
-                                                primary:NO width:w
-                                                 action:^{
-                                                     FlowWindow *s = weakSelf;
-                                                     if (!s) return;
-                                                     [s dismissSubAnimated:NO];
-                                                     [s pushBranchPageForStep:step key:key title:branchTitle];
-                                                 }];
-                y = [strongSelf subAddRow:row y:y];
             }
         }
 
@@ -3529,106 +3586,23 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     return row;
 }
 
-// 重复块：次数输入框并进上面的步骤行，下面是嵌套动作和「添加动作」入口
-- (CGFloat)layoutRepeatContentOfStep:(NSMutableDictionary *)step atY:(CGFloat)y x:(CGFloat)x width:(CGFloat)w
+// 一整层步骤：重复的里面、判断的成立 / 不成立都直接铺在主列表里，按层数缩进
+- (CGFloat)layoutSteps:(NSMutableArray *)steps atY:(CGFloat)y x:(CGFloat)x width:(CGFloat)w depth:(NSInteger)depth
 {
-    if (![step[@"Steps"] isKindOfClass:[NSMutableArray class]]) step[@"Steps"] = [NSMutableArray array];
-    NSMutableArray *children = step[@"Steps"];
-    CGFloat inset = 16.0f;
-    CGFloat cx = x + inset;
-    CGFloat cw = MAX(w - inset * 2.0f, 80.0f);
+    if (![steps isKindOfClass:[NSMutableArray class]]) return y;
     __weak typeof(self) weakSelf = self;
+    CGFloat top = y;
 
-    y = [self layoutNestedSteps:children atY:y x:cx width:cw];
-
-    UIView *add = [self makeActionRow:@"＋  添加动作" detail:nil color:ZXPalette(ZXPalAccent) primary:NO width:cw
-                               action:^{
-        FlowWindow *strongSelf = weakSelf;
-        if (!strongSelf) return;
-        strongSelf->_addTargetSteps = children;
-        [strongSelf showAddSheet];
-    }];
-    add.frame = CGRectMake(cx, y, cw, add.frame.size.height);
-    [_scroll addSubview:add];
-    return y + add.frame.size.height + FW_GAP;
-}
-
-// 重复行的标题/副标题交给共享文案会把「几次」也写进标题，这里换成本地组合
-- (NSString *)rowTitleForStep:(NSDictionary *)step
-{
-    if ([step[@"Kind"] isEqualToString:kFlowRepeat]) return @"重复";
-    return [FlowScript summaryForStep:step];
-}
-
-- (NSString *)rowDetailForStep:(NSDictionary *)step
-{
-    if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
-        NSArray *children = [step[@"Steps"] isKindOfClass:[NSArray class]] ? step[@"Steps"] : @[];
-        return [NSString stringWithFormat:@"里面 %lu 个动作", (unsigned long)children.count];
-    }
-    return [FlowScript detailForStep:step];
-}
-
-// 次数输入框塞进步骤行右侧，和标题同一行
-- (void)attachRepeatTimesFieldToRow:(FWStepRowView *)row step:(NSMutableDictionary *)step
-{
-    CGFloat w = row.bounds.size.width;
-    CGFloat rightInset = row.dragEnabled ? 34.0f : 8.0f;
-    CGFloat chipW = 92.0f;
-    CGFloat chipX = w - rightInset - chipW;
-
-    UIView *chip = [[UIView alloc] initWithFrame:CGRectMake(chipX, (FW_ROW_H - 28.0f) / 2.0f, chipW, 28.0f)];
-    chip.backgroundColor = ZXPalette(ZXPalField);
-    chip.layer.cornerRadius = 8.0f;
-    chip.layer.borderWidth = 1.0f;
-    chip.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
-    [row.content addSubview:chip];
-
-    UILabel *suffix = [[UILabel alloc] initWithFrame:CGRectMake(chipW - 26.0f, 0, 18.0f, 28.0f)];
-    suffix.text = @"次";
-    suffix.font = [UIFont systemFontOfSize:11];
-    suffix.textColor = ZXPalette(ZXPalSub);
-    suffix.textAlignment = NSTextAlignmentCenter;
-    [chip addSubview:suffix];
-
-    UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(8.0f, 0, chipW - 36.0f, 28.0f)];
-    field.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightMedium];
-    field.textColor = ZXPalette(ZXPalText);
-    field.keyboardType = UIKeyboardTypeNumberPad;
-    field.textAlignment = NSTextAlignmentRight;
-    field.text = [FlowScript textForValue:step[@"Times"]];
-    [field addTarget:self action:@selector(repeatTimesFieldChanged:) forControlEvents:UIControlEventEditingDidEnd];
-    [field addTarget:self action:@selector(repeatTimesFieldChanged:) forControlEvents:UIControlEventEditingDidEndOnExit];
-    objc_setAssociatedObject(field, &kFWRepeatStepKey, step, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [chip addSubview:field];
-
-    CGFloat textW = MAX(chipX - 6.0f - 79.0f, 40.0f);
-    UILabel *main = [row.content viewWithTag:101];
-    UILabel *sub = [row.content viewWithTag:102];
-    if (main) main.frame = CGRectMake(79.0f, main.frame.origin.y, textW, main.frame.size.height);
-    if (sub) sub.frame = CGRectMake(79.0f, 22.0f, textW, sub.frame.size.height);
-}
-
-- (void)repeatTimesFieldChanged:(UITextField *)field
-{
-    NSMutableDictionary *step = objc_getAssociatedObject(field, &kFWRepeatStepKey);
-    if (!step) return;
-    step[@"Times"] = [FlowScript valueFromText:field.text integer:YES];
-    field.text = [FlowScript textForValue:step[@"Times"]];
-    [self autosave];
-}
-
-- (CGFloat)layoutNestedSteps:(NSMutableArray *)steps atY:(CGFloat)y x:(CGFloat)x width:(CGFloat)w
-{
-    __weak typeof(self) weakSelf = self;
     if (steps.count == 0) {
-        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(x + 4, y, w - 8, 22)];
+        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(x + 22.0f, y, MAX(w - 28.0f, 40.0f), 24.0f)];
+        hint.text = @"空，拖步骤到这里";
         hint.font = [UIFont systemFontOfSize:11];
         hint.textColor = ZXPalette(ZXPalSub);
-        hint.text = @"里面还没有动作，点下面的「添加动作」";
         [_scroll addSubview:hint];
-        return y + 26.0f;
+        [self registerSpan:steps top:y bottom:y + 24.0f x:x width:w depth:depth];
+        return y + 24.0f + FW_GAP;
     }
+
     for (NSInteger i = 0; i < (NSInteger)steps.count; i++) {
         NSDictionary *step = steps[i];
         if (![step isKindOfClass:[NSDictionary class]]) continue;
@@ -3636,11 +3610,11 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         FWStepRowView *row = [self makeStepRow:[self rowTitleForStep:step]
                                      customName:[step[@"Name"] isKindOfClass:[NSString class]] ? step[@"Name"] : nil
                                          detail:[self rowDetailForStep:step]
-                                          index:i
+                                          index:(depth == 0 ? i : -1)
                                          symbol:type.symbolName
                                           color:fwTypeColor(type.kind)
                                       deletable:YES
-                                       sortable:NO
+                                       sortable:YES
                                           width:w
                                           onTap:^{
                                               [weakSelf showParamsSubForStep:(NSMutableDictionary *)step parentSteps:steps];
@@ -3650,18 +3624,142 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                                        }];
         __weak FWStepRowView *weakRow = row;
         row.onCopy = ^{ [weakSelf showCopyMenuForRow:weakRow step:(NSMutableDictionary *)step steps:steps]; };
+        row.onDragBegan = ^{ [weakSelf beginDragRow:weakRow]; };
+        row.onDragMoved = ^(CGFloat dy) { [weakSelf moveDragRow:weakRow dy:dy]; };
+        row.onDragEnded = ^{ [weakSelf endDragRow]; };
         row.step = step;
+        row.ownerSteps = steps;
+        row.ownerDepth = depth;
         row.frame = CGRectMake(x, y, w, FW_ROW_H);
+        [_rows addObject:row];
         [_scroll addSubview:row];
-        if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
+
+        NSString *kind = step[@"Kind"];
+        if ([kind isEqualToString:kFlowRepeat]) {
             [self attachRepeatTimesFieldToRow:row step:(NSMutableDictionary *)step];
-        }
-        y += FW_ROW_H + FW_GAP;
-        if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
-            y = [self layoutRepeatContentOfStep:(NSMutableDictionary *)step atY:y x:x width:w];
+            if (![step[@"Steps"] isKindOfClass:[NSMutableArray class]]) step[@"Steps"] = [NSMutableArray array];
+            y += FW_ROW_H + FW_GAP;
+            y = [self layoutSteps:step[@"Steps"] atY:y x:x + 16.0f width:MAX(w - 16.0f, 80.0f) depth:depth + 1];
+        } else if (type.isCondition) {
+            [self attachElseToggleToRow:row step:(NSMutableDictionary *)step];
+            if (![step[@"Then"] isKindOfClass:[NSMutableArray class]]) step[@"Then"] = [NSMutableArray array];
+            if (![step[@"Else"] isKindOfClass:[NSMutableArray class]]) step[@"Else"] = [NSMutableArray array];
+            y += FW_ROW_H + 4.0f;
+            y = [self layoutBranchTitle:@"成立" atY:y x:x];
+            y = [self layoutSteps:step[@"Then"] atY:y x:x + 16.0f width:MAX(w - 16.0f, 80.0f) depth:depth + 1];
+            if (fwElseEnabled(step)) {
+                y = [self layoutBranchTitle:@"不成立" atY:y x:x];
+                y = [self layoutSteps:step[@"Else"] atY:y x:x + 16.0f width:MAX(w - 16.0f, 80.0f) depth:depth + 1];
+            } else {
+                y += FW_GAP;
+            }
+        } else {
+            y += FW_ROW_H + FW_GAP;
         }
     }
+    [self registerSpan:steps top:top bottom:MAX(y - FW_GAP, top) x:x width:w depth:depth];
     return y;
+}
+
+- (CGFloat)layoutBranchTitle:(NSString *)text atY:(CGFloat)y x:(CGFloat)x
+{
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(x + 20.0f, y, 120.0f, 16.0f)];
+    label.text = text;
+    label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    label.textColor = ZXPalette(ZXPalSub);
+    [_scroll addSubview:label];
+    return y + 18.0f;
+}
+
+- (NSString *)rowTitleForStep:(NSDictionary *)step
+{
+    if ([step[@"Kind"] isEqualToString:kFlowRepeat]) return @"重复";
+    return [FlowScript summaryForStep:step];
+}
+
+- (NSString *)rowDetailForStep:(NSDictionary *)step
+{
+    if ([step[@"Kind"] isEqualToString:kFlowRepeat]) return nil;
+    return [FlowScript detailForStep:step];
+}
+
+// 次数输入框：标题「重复」+ 中间居中输入框 + 后面跟「次」
+- (void)attachRepeatTimesFieldToRow:(FWStepRowView *)row step:(NSMutableDictionary *)step
+{
+    CGFloat fieldX = 79.0f + 36.0f;
+    CGFloat fieldW = 56.0f;
+    CGFloat fieldH = 26.0f;
+    CGFloat fieldY = (FW_ROW_H - fieldH) / 2.0f;
+
+    UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(fieldX, fieldY, fieldW, fieldH)];
+    field.borderStyle = UITextBorderStyleNone;
+    field.backgroundColor = ZXPalette(ZXPalField);
+    field.layer.cornerRadius = 8.0f;
+    field.layer.borderWidth = 1.0f;
+    field.layer.borderColor = ZXPalette(ZXPalLine).CGColor;
+    field.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightMedium];
+    field.textColor = ZXPalette(ZXPalText);
+    field.keyboardType = UIKeyboardTypeNumberPad;
+    field.textAlignment = NSTextAlignmentCenter;
+    field.text = [FlowScript textForValue:step[@"Times"]];
+    [field addTarget:self action:@selector(repeatTimesFieldChanged:) forControlEvents:UIControlEventEditingDidEnd];
+    [field addTarget:self action:@selector(repeatTimesFieldChanged:) forControlEvents:UIControlEventEditingDidEndOnExit];
+    objc_setAssociatedObject(field, &kFWRepeatStepKey, step, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [row.content addSubview:field];
+
+    UILabel *suffix = [[UILabel alloc] initWithFrame:CGRectMake(fieldX + fieldW + 6.0f, fieldY, 18.0f, fieldH)];
+    suffix.text = @"次";
+    suffix.font = [UIFont systemFontOfSize:12];
+    suffix.textColor = ZXPalette(ZXPalSub);
+    [row.content addSubview:suffix];
+
+    UILabel *main = [row.content viewWithTag:101];
+    if (main) main.frame = CGRectMake(79.0f, 0, 34.0f, FW_ROW_H);
+    UILabel *sub = [row.content viewWithTag:102];
+    if (sub) sub.hidden = YES;
+}
+
+// 判断行右侧的「不成立」开关：关掉后不成立分支的步骤连显示都不显示
+- (void)attachElseToggleToRow:(FWStepRowView *)row step:(NSMutableDictionary *)step
+{
+    CGFloat w = row.bounds.size.width;
+    CGFloat toggleW = 62.0f;
+    CGFloat x = w - 34.0f - toggleW - 2.0f;
+    BOOL on = fwElseEnabled(step);
+
+    UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+    btn.frame = CGRectMake(x, (FW_ROW_H - 24.0f) / 2.0f, toggleW, 24.0f);
+    btn.backgroundColor = ZXPalette(ZXPalField);
+    btn.layer.cornerRadius = 8.0f;
+    btn.layer.borderWidth = 1.0f;
+    btn.layer.borderColor = (on ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalLine)).CGColor;
+    btn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+    [btn setTitle:(on ? @"不成立 开" : @"不成立 关") forState:UIControlStateNormal];
+    [btn setTitleColor:(on ? ZXPalette(ZXPalAccent) : ZXPalette(ZXPalSub)) forState:UIControlStateNormal];
+    __weak typeof(self) weakSelf = self;
+    [btn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        FlowWindow *s = weakSelf;
+        if (!s) return;
+        step[@"ElseEnabled"] = @(!fwElseEnabled(step));
+        [s autosave];
+        [s refreshKeepingScroll];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [row.content addSubview:btn];
+
+    UILabel *main = [row.content viewWithTag:101];
+    UILabel *sub = [row.content viewWithTag:102];
+    CGFloat textW = MAX(x - 6.0f - 79.0f, 40.0f);
+    if (main) main.frame = CGRectMake(79.0f, 3.0f, textW, 18.0f);
+    if (sub) sub.frame = CGRectMake(79.0f, 22.0f, textW, 14.0f);
+}
+
+- (void)repeatTimesFieldChanged:(UITextField *)field
+{
+    NSMutableDictionary *step = objc_getAssociatedObject(field, &kFWRepeatStepKey);
+    if (!step) return;
+    step[@"Times"] = [FlowScript valueFromText:field.text integer:YES];
+    field.text = [FlowScript textForValue:step[@"Times"]];
+    [self autosave];
 }
 
 - (void)refresh {
@@ -3677,8 +3775,13 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 
     [scroll endEditing:YES];
     for (UIView *v in scroll.subviews) [v removeFromSuperview];
-    _rows = [NSMutableArray array];   // 每次重建都清空：换页后旧行不该再被排序逻辑引用
+    _rows = [NSMutableArray array];   // 每次重建都清空：换页后旧行不该再被拖动逻辑引用
+    _spans = [NSMutableArray array];
     _dragRow = nil;
+    _dragSourceSteps = nil;
+    _dragTargetSteps = nil;
+    _dragTargetIndex = NSNotFound;
+    _dragLine = nil;
 
     BOOL isRoot = [page[@"isRoot"] boolValue];
     [_host flowHostSetNavigationTitle:page[@"title"] canGoBack:!isRoot];
@@ -3688,7 +3791,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 
     CGFloat y = 8;
 
-    NSArray *steps = page[@"steps"];
+    NSMutableArray *steps = page[@"steps"];
     if (steps.count == 0) {
         UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(12, y, _pw - 24, 38)];
         hint.numberOfLines = 0;
@@ -3699,48 +3802,14 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         [_scroll addSubview:hint];
         y += 46;
     } else {
-        _rowsTop = y;
-        for (NSInteger i = 0; i < (NSInteger)steps.count; i++) {
-            NSDictionary *step = steps[i];
-            if (![step isKindOfClass:[NSDictionary class]]) continue;
-            FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
-            __weak typeof(self) weakSelf = self;
-            FWStepRowView *row = [self makeStepRow:[self rowTitleForStep:step]
-                                         customName:[step[@"Name"] isKindOfClass:[NSString class]] ? step[@"Name"] : nil
-                                             detail:[self rowDetailForStep:step]
-                                             index:i
-                                            symbol:type.symbolName
-                                             color:fwTypeColor(type.kind)
-                                         deletable:YES
-                                          sortable:YES
-                                             width:rowW
-                                             onTap:^{
-                                                 [weakSelf showParamsSubForStep:(NSMutableDictionary *)step
-                                                                   parentSteps:[weakSelf currentSteps]];
-                                             }
-                                          onDelete:^{
-                                              [weakSelf deleteStep:(NSMutableDictionary *)step];
-                                          }];
-            __weak FWStepRowView *weakRow = row;   // 行持有 block、block 又持有行 → 这里必须弱引用，否则漏一组视图
-            row.onCopy = ^{ [weakSelf showCopyMenuForRow:weakRow step:(NSMutableDictionary *)step]; };
-            row.onDragBegan = ^{ [weakSelf beginDragRow:weakRow]; };
-            row.onDragMoved = ^(CGFloat dy) { [weakSelf moveDragRow:weakRow dy:dy]; };
-            row.onDragEnded = ^{ [weakSelf endDragRow]; };
-            row.step = step;
-            [_rows addObject:row];
-            y = [self addRow:row y:y];
-            if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
-                [self attachRepeatTimesFieldToRow:row step:(NSMutableDictionary *)step];
-            }
-            if ([step[@"Kind"] isEqualToString:kFlowRepeat]) {
-                y = [self layoutRepeatContentOfStep:(NSMutableDictionary *)step atY:y x:4.0f width:rowW];
-            }
-        }
+        y = [self layoutSteps:steps atY:y x:4.0f width:rowW depth:0];
     }
 
     UIView *add = [self makeActionRow:@"＋  添加步骤" detail:nil color:ZXPalette(ZXPalAccent) primary:YES
                                 width:rowW action:^{ [self showAddSheet]; }];
-    y = [self addRow:add y:y];
+    add.frame = CGRectMake(4, y, rowW, add.frame.size.height);
+    [_scroll addSubview:add];
+    y += add.frame.size.height + FW_GAP;
 
     scroll.contentSize = CGSizeMake(_pw, y + 8);
     [scroll setContentOffset:CGPointZero animated:NO];

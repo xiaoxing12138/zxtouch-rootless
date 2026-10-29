@@ -32,6 +32,13 @@ static NSString *fwAppDisplayName(NSString *bundle)
     return name.length > 0 ? name : bundle;
 }
 
+// 判断步骤的「不成立」分支可以整体关掉；缺省开（老脚本行为不变）
+static BOOL fwFlowElseEnabled(NSDictionary *step)
+{
+    id v = step[@"ElseEnabled"];
+    return [v isKindOfClass:[NSNumber class]] ? [v boolValue] : YES;
+}
+
 NSString * const kFlowFileName = @"flow.plist";
 NSString * const kFlowTemplateFolder = @"/var/mobile/Library/ZXTouch/tpl";
 
@@ -196,7 +203,7 @@ static NSString *fwSimValue(id value)
         // 重复：把一组动作跑 N 遍，里面还能再放重复
         FlowStepType *repeat = [self type:kFlowRepeat title:@"重复" symbol:@"repeat" condition:NO];
         repeat.category = kCatFlow;
-        repeat.hint = @"「重复」里可以再放动作（也能再放重复）；下面填跑几遍，填 0 就一遍都不跑。";
+        repeat.hint = @"「重复」里面可以再放动作（也能再放重复），直接在列表里缩进显示；步骤行里填跑几遍，填 0 就一遍都不跑。";
         repeat.fields = @[ [FlowFieldSpec key:@"Times" title:@"重复几次" integer:YES def:@"3"] ];
 
         FlowStepType *color = [self type:kFlowColor title:@"识色" symbol:@"eyedropper.halffull" condition:YES];
@@ -705,15 +712,19 @@ static NSString *fwSimValue(id value)
     if (!type.isCondition) return nil;
 
     NSArray *then = [step[@"Then"] isKindOfClass:[NSArray class]] ? step[@"Then"] : @[];
-    NSArray *otherwise = [step[@"Else"] isKindOfClass:[NSArray class]] ? step[@"Else"] : @[];
+    NSArray *otherwise = (fwFlowElseEnabled(step) && [step[@"Else"] isKindOfClass:[NSArray class]])
+        ? step[@"Else"] : @[];
     NSInteger retryTimes = [step[@"RetryTimes"] integerValue];
     NSString *retry = @"";
     if (retryTimes > 0) {
         retry = [NSString stringWithFormat:@" · 找不到每 %@ 秒重试，共 %ld 次",
                  [self textForValue:step[@"RetryInterval"]], (long)retryTimes];
     }
-    return [NSString stringWithFormat:@"成立时 %lu 个动作 · 不成立时 %lu 个动作%@（点这一行编辑）",
-            (unsigned long)then.count, (unsigned long)otherwise.count, retry];
+    NSString *elseText = fwFlowElseEnabled(step)
+        ? [NSString stringWithFormat:@"不成立时 %lu 个动作", (unsigned long)otherwise.count]
+        : @"不成立分支已关闭";
+    return [NSString stringWithFormat:@"成立时 %lu 个动作 · %@%@（点这一行编辑）",
+            (unsigned long)then.count, elseText, retry];
 }
 
 #pragma mark - 流程读写
@@ -1173,13 +1184,19 @@ static NSInteger flowNextCodeSeq(void)
         }
         [self appendLine:out indent:indent text:[NSString stringWithFormat:@"if %@:      # 试满 %ld 次还找不到就不成立", okVar, (long)attempts]];
         [self appendActions:step[@"Then"] to:out indent:indent + 1];
-        [self appendLine:out indent:indent text:@"else:"];
-        [self appendActions:step[@"Else"] to:out indent:indent + 1];
+        id elseActions = fwFlowElseEnabled(step) ? step[@"Else"] : nil;
+        if ([elseActions isKindOfClass:[NSArray class]] && [elseActions count] > 0) {
+            [self appendLine:out indent:indent text:@"else:"];
+            [self appendActions:elseActions to:out indent:indent + 1];
+        }
     } else {
         [self appendLine:out indent:indent text:[NSString stringWithFormat:@"if %@:      # %@", condition, [self shortTitle:kind]]];
         [self appendActions:step[@"Then"] to:out indent:indent + 1];
-        [self appendLine:out indent:indent text:@"else:"];
-        [self appendActions:step[@"Else"] to:out indent:indent + 1];
+        id elseActions = fwFlowElseEnabled(step) ? step[@"Else"] : nil;
+        if ([elseActions isKindOfClass:[NSArray class]] && [elseActions count] > 0) {
+            [self appendLine:out indent:indent text:@"else:"];
+            [self appendActions:elseActions to:out indent:indent + 1];
+        }
     }
 }
 
