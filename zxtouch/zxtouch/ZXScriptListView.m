@@ -75,6 +75,24 @@ static NSString *ZXDateText(NSDate *date)
     return [(year != nowYear ? otherYear : thisYear) stringFromDate:date];
 }
 
+static NSString *ZXModifiedDateText(NSDate *date)
+{
+    NSString *text = ZXDateText(date);
+    if (text.length == 0) return @"";
+    return [NSString stringWithFormat:@"最后修改日期：%@", text];
+}
+
+static NSComparator ZXModifiedDescComparator(void)
+{
+    return ^NSComparisonResult(id a, id b) {
+        ZXScriptListItem *ia = a;
+        ZXScriptListItem *ib = b;
+        NSDate *da = ia.modifiedDate ?: [NSDate distantPast];
+        NSDate *db = ib.modifiedDate ?: [NSDate distantPast];
+        return [db compare:da];
+    };
+}
+
 static UIColor *ZXScriptRowBackground(void)
 {
     return [UIColor secondarySystemBackgroundColor];
@@ -244,7 +262,7 @@ static UIColor *ZXScriptRowBackground(void)
     _folderIcon.hidden = YES;
     _badge.hidden = NO;
     _typeIcon.hidden = NO;
-    _trailingLabel.text = ZXDateText(item.modifiedDate);
+    _trailingLabel.text = ZXModifiedDateText(item.modifiedDate);
 
     if (item.isScript) {
         NSInteger steps = item.stepCount;
@@ -290,7 +308,7 @@ static UIColor *ZXScriptRowBackground(void)
     [_deletePanel viewWithTag:10].frame = _deletePanel.bounds;
     if (CGAffineTransformIsIdentity(_content.transform)) _content.frame = self.bounds;
 
-    CGFloat timeW = MIN(92.0f, w * 0.34f);
+    CGFloat timeW = MIN(150.0f, w * 0.52f);
     CGFloat countW = MIN(122.0f, w * 0.44f);
 
     if (_item.isFolder) {
@@ -387,10 +405,15 @@ NSArray<ZXScriptListItem *> *ZXScriptListScan(NSString *directory, BOOL includeP
         if ([name hasPrefix:@"."]) continue;
         NSString *full = [directory stringByAppendingPathComponent:name];
         ZXScriptListItem *item = [ZXScriptListItem itemWithPath:full];
-        if (item.isFolder) [folders insertObject:item atIndex:0];
+        if (item.isFolder) [folders addObject:item];
         else if (item.isScript) [scripts addObject:item];
         else if (includePlainFiles) [plain addObject:item];
     }
+
+    NSComparator byDateDesc = ZXModifiedDescComparator();
+    [folders sortUsingComparator:byDateDesc];
+    [scripts sortUsingComparator:byDateDesc];
+    [plain sortUsingComparator:byDateDesc];
 
     NSMutableArray<ZXScriptListItem *> *out = [NSMutableArray array];
     [out addObjectsFromArray:folders];

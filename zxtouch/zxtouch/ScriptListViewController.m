@@ -87,6 +87,24 @@ static NSString *ZXDisclaimerText(void) {
     return scriptList;
 }
 
+static NSDate *ZXScriptListModifiedDate(NSString *path) {
+    NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
+    NSDate *date = attrs[NSFileModificationDate];
+    return date ?: [NSDate distantPast];
+}
+
+static void ZXScriptListSortByDateDesc(NSMutableArray<NSString *> *paths) {
+    NSMutableDictionary<NSString *, NSDate *> *dates = [NSMutableDictionary dictionary];
+    for (NSString *path in paths) {
+        dates[path] = ZXScriptListModifiedDate(path);
+    }
+    [paths sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        NSComparisonResult result = [dates[b] compare:dates[a]];
+        if (result == NSOrderedSame) return [a compare:b];
+        return result;
+    }];
+}
+
 - (BOOL) insertFileListIntoArray:(NSMutableArray*)arr fromPath:(NSString*) path {
     NSError *err = nil;
     
@@ -98,24 +116,30 @@ static NSString *ZXDisclaimerText(void) {
         return NO;
     }
     
-    
+    NSMutableArray<NSString *> *folders = [NSMutableArray array];
+    NSMutableArray<NSString *> *others = [NSMutableArray array];
     BOOL isDir = NO;
     for (NSString *fileName in files)
     {
-        if ([[fileName substringWithRange:NSMakeRange(0, 1)] isEqualToString:@"."])
+        if ([fileName hasPrefix:@"."])
         {
             continue;
         }
         NSString *filePath = [NSString stringWithFormat:@"%@/%@", path, fileName];
         if (![[fileName pathExtension] isEqualToString:@"bdl"] && [[NSFileManager defaultManager] fileExistsAtPath:filePath isDirectory:&isDir] && isDir)
         {
-            [arr insertObject:filePath atIndex:0];
+            [folders addObject:filePath];
         }
         else
         {
-            [arr addObject:filePath];
+            [others addObject:filePath];
         }
     }
+
+    ZXScriptListSortByDateDesc(folders);
+    ZXScriptListSortByDateDesc(others);
+    [arr addObjectsFromArray:folders];
+    [arr addObjectsFromArray:others];
     
     return YES;
 }

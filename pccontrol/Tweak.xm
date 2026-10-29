@@ -40,6 +40,7 @@
 #include "TouchCoordinateIndicator.h"
 #include "FloatingMenu.h"
 #include "ScriptFloat.h"
+#include "ScriptFunctions.h"
 #include "Schedule.h"
 #include <roothide.h>
 
@@ -113,6 +114,7 @@ CFRunLoopRef popupListenerRunLoop = NULL;
 #define ZX_ACTION_STOP_SCRIPT @"stop_script"
 #define ZX_ACTION_TOGGLE_RECORDING @"toggle_recording"
 #define ZX_ACTION_RUN_SCRIPT @"run_script"
+#define ZX_ACTION_RUN_CURRENT_SCRIPT @"run_current_script"
 
 #define ZX_TRIGGER_VOLUME_UP @"volume_up"
 #define ZX_TRIGGER_VOLUME_DOWN @"volume_down"
@@ -216,6 +218,20 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
         return;
     }
 
+    if ([action isEqualToString:ZX_ACTION_RUN_CURRENT_SCRIPT])
+    {
+        NSString *current = ZXLastFunctionScriptPath();
+        if (current.length == 0)
+        {
+            showAlertBox(@"小新Lap", @"还没有选择脚本。", 2);
+            return;
+        }
+        NSError *err = nil;
+        playScript((UInt8*)[current UTF8String], &err);
+        if (err) showAlertBox(@"错误", [err localizedDescription], 999);
+        return;
+    }
+
     if ([action isEqualToString:ZX_ACTION_TOGGLE_PANEL])
     {
         showOrHideOptionPanel();
@@ -267,16 +283,27 @@ static NSDictionary *configForTrigger(NSDictionary *config, NSString *triggerKey
     return @{@"enabled": @(NO), @"count": @(2), @"action": ZX_ACTION_SMART_TOGGLE, @"script": @""};
 }
 
+static NSDictionary *triggerActionForCount(NSDictionary *trigger, int count)
+{
+    id counts = trigger[@"counts"];
+    if ([counts isKindOfClass:[NSDictionary class]]) {
+        id entry = counts[[NSString stringWithFormat:@"%d", count]];
+        return [entry isKindOfClass:[NSDictionary class]] ? entry : nil;
+    }
+    int legacyCount = [trigger[@"count"] intValue];
+    if (legacyCount < 1) legacyCount = 1;
+    if (legacyCount > 5) legacyCount = 5;
+    if (count != legacyCount) return nil;
+    return @{ @"action": trigger[@"action"] ?: ZX_ACTION_SMART_TOGGLE,
+              @"script": trigger[@"script"] ?: @"" };
+}
+
 static void handleConfiguredTriggerClick(NSString *triggerKey)
 {
     if (!triggerClickState) triggerClickState = [NSMutableDictionary dictionary];
     NSDictionary *config = [[NSDictionary alloc] initWithContentsOfFile:getCommonConfigFilePath()] ?: @{};
     NSDictionary *trigger = configForTrigger(config, triggerKey);
     if (![trigger[@"enabled"] boolValue]) return;
-
-    int requiredCount = [trigger[@"count"] intValue];
-    if (requiredCount < 1) requiredCount = 1;
-    if (requiredCount > 5) requiredCount = 5;
 
     CFTimeInterval now = CACurrentMediaTime();
     NSMutableDictionary *state = [triggerClickState[triggerKey] mutableCopy] ?: [NSMutableDictionary dictionary];
@@ -294,11 +321,10 @@ static void handleConfiguredTriggerClick(NSString *triggerKey)
 
         NSDictionary *latestConfig = [[NSDictionary alloc] initWithContentsOfFile:getCommonConfigFilePath()] ?: @{};
         NSDictionary *latestTrigger = configForTrigger(latestConfig, triggerKey);
-        int latestRequired = [latestTrigger[@"count"] intValue];
-        if (latestRequired < 1) latestRequired = 1;
-        if (latestRequired > 5) latestRequired = 5;
-        if ([latestTrigger[@"enabled"] boolValue] && count == latestRequired) {
-            runConfiguredTriggerAction(latestTrigger[@"action"], latestTrigger[@"script"]);
+        if (![latestTrigger[@"enabled"] boolValue]) return;
+        NSDictionary *entry = triggerActionForCount(latestTrigger, count);
+        if (entry) {
+            runConfiguredTriggerAction(entry[@"action"], entry[@"script"]);
         }
     });
 }

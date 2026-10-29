@@ -38,6 +38,7 @@
 #define ZX_ACTION_STOP_SCRIPT @"stop_script"
 #define ZX_ACTION_TOGGLE_RECORDING @"toggle_recording"
 #define ZX_ACTION_RUN_SCRIPT @"run_script"
+#define ZX_ACTION_RUN_CURRENT_SCRIPT @"run_current_script"
 
 #define ZX_TRIGGER_VOLUME_UP @"volume_up"
 #define ZX_TRIGGER_VOLUME_DOWN @"volume_down"
@@ -220,6 +221,306 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [self dismissViewControllerAnimated:YES completion:nil];
 }
 @end
+
+#pragma mark - 快捷键设置页
+
+static NSString *ZXShortcutTriggerName(NSString *key)
+{
+    return [key isEqualToString:ZX_TRIGGER_VOLUME_UP] ? @"音量加" : @"音量减";
+}
+
+static NSMutableDictionary *ZXShortcutLoadTrigger(ConfigManager *cm, NSString *key)
+{
+    NSMutableDictionary *all = [[cm getValueFromKey:@"trigger_configs"] mutableCopy];
+    if (![all isKindOfClass:[NSMutableDictionary class]]) all = [NSMutableDictionary dictionary];
+    NSDictionary *existing = all[key];
+    NSMutableDictionary *trigger = [existing isKindOfClass:[NSDictionary class]] ? [existing mutableCopy] : nil;
+
+    BOOL isDown = [key isEqualToString:ZX_TRIGGER_VOLUME_DOWN];
+    if (!trigger) {
+        BOOL enabled = NO;
+        NSString *action = ZX_ACTION_SMART_TOGGLE;
+        NSString *script = @"";
+        if (isDown) {
+            enabled = YES;
+            id legacyEnabled = [cm getValueFromKey:@"double_click_volume_show_popup"];
+            if (legacyEnabled) enabled = [legacyEnabled boolValue];
+            action = [cm getValueFromKey:@"double_click_volume_action"] ?: ZX_ACTION_SMART_TOGGLE;
+            script = [cm getValueFromKey:@"double_click_volume_script"] ?: @"";
+        }
+        trigger = [NSMutableDictionary dictionary];
+        trigger[@"enabled"] = @(enabled);
+        trigger[@"count"] = @(2);
+        trigger[@"counts"] = [@{ @"2": [@{ @"action": action, @"script": script } mutableCopy] } mutableCopy];
+    }
+
+    if (![trigger[@"counts"] isKindOfClass:[NSDictionary class]]) {
+        NSInteger count = [trigger[@"count"] integerValue];
+        if (count < 1 || count > 5) count = 2;
+        NSString *action = trigger[@"action"] ?: ZX_ACTION_SMART_TOGGLE;
+        NSString *script = trigger[@"script"] ?: @"";
+        trigger[@"counts"] = [@{ [NSString stringWithFormat:@"%ld", (long)count]: [@{ @"action": action, @"script": script } mutableCopy] } mutableCopy];
+    }
+    if (![trigger[@"enabled"] isKindOfClass:[NSNumber class]]) trigger[@"enabled"] = @(isDown);
+    return trigger;
+}
+
+static void ZXShortcutSaveTrigger(ConfigManager *cm, NSString *key, NSDictionary *trigger)
+{
+    NSMutableDictionary *all = [[cm getValueFromKey:@"trigger_configs"] mutableCopy];
+    if (![all isKindOfClass:[NSMutableDictionary class]]) all = [NSMutableDictionary dictionary];
+    all[key] = trigger;
+    [cm updateKey:@"trigger_configs" forValue:all];
+    if ([key isEqualToString:ZX_TRIGGER_VOLUME_DOWN]) {
+        [cm updateKey:@"double_click_volume_show_popup" forValue:(trigger[@"enabled"] ?: @YES)];
+    }
+    [cm save];
+}
+
+static NSString *ZXShortcutActionSummary(NSDictionary *entry)
+{
+    NSString *action = entry[@"action"];
+    if ([action isEqualToString:ZX_ACTION_RUN_SCRIPT]) {
+        NSString *scriptPath = [entry[@"script"] isKindOfClass:[NSString class]] ? entry[@"script"] : @"";
+        NSString *name = [[scriptPath lastPathComponent] stringByDeletingPathExtension];
+        return name.length ? [NSString stringWithFormat:@"运行指定脚本：%@", name] : @"运行指定脚本";
+    }
+    if ([action isEqualToString:ZX_ACTION_RUN_CURRENT_SCRIPT]) return @"运行当前选择的脚本";
+    if ([action isEqualToString:ZX_ACTION_STOP_SCRIPT]) return @"停止运行脚本";
+    if ([action isEqualToString:ZX_ACTION_TOGGLE_RECORDING]) return @"开始/停止录制";
+    if ([action isEqualToString:ZX_ACTION_TOGGLE_PANEL]) return @"显示/隐藏选项面板（旧设置）";
+    if ([action isEqualToString:ZX_ACTION_SMART_TOGGLE]) return @"智能切换（旧设置）";
+    return @"未设置";
+}
+
+static NSArray<NSString *> *ZXShortcutScriptPaths(void)
+{
+    NSMutableArray *paths = [NSMutableArray array];
+    NSDirectoryEnumerator *enumerator = [[NSFileManager defaultManager] enumeratorAtPath:SCRIPTS_PATH];
+    NSString *relative = nil;
+    while ((relative = [enumerator nextObject])) {
+        if ([[relative pathExtension] isEqualToString:@"bdl"]) {
+            [paths addObject:[SCRIPTS_PATH stringByAppendingPathComponent:relative]];
+            [enumerator skipDescendants];
+        }
+    }
+    return [paths sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
+
+@interface ZXShortcutSettingsViewController : UIViewController <UITableViewDataSource, UITableViewDelegate>
+@end
+
+@implementation ZXShortcutSettingsViewController
+{
+    UITableView *_table;
+    ConfigManager *_cm;
+    NSArray<NSString *> *_keys;
+    NSMutableDictionary *_triggers;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"快捷键";
+    self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
+
+    _keys = @[ZX_TRIGGER_VOLUME_UP, ZX_TRIGGER_VOLUME_DOWN];
+    _triggers = [NSMutableDictionary dictionary];
+
+    _table = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleGrouped];
+    _table.translatesAutoresizingMaskIntoConstraints = NO;
+    _table.dataSource = self;
+    _table.delegate = self;
+    _table.backgroundColor = [UIColor systemGroupedBackgroundColor];
+    _table.tableFooterView = [[UIView alloc] init];
+    _table.rowHeight = 54.0;
+    [self.view addSubview:_table];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_table.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_table.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_table.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [_table.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
+    ]];
+
+    UINib *switchNib = [UINib nibWithNibName:@"TableViewCellWithSwitch" bundle:nil];
+    [_table registerNib:switchNib forCellReuseIdentifier:@"SwitchCell"];
+    UINib *entryNib = [UINib nibWithNibName:@"TableViewCellWithEntry" bundle:nil];
+    [_table registerNib:entryNib forCellReuseIdentifier:@"EntryCell"];
+
+    [self reloadTriggers];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self reloadTriggers];
+    [_table reloadData];
+}
+
+- (void)reloadTriggers {
+    _cm = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
+    for (NSString *key in _keys) {
+        _triggers[key] = ZXShortcutLoadTrigger(_cm, key);
+    }
+}
+
+- (void)sendReload {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        Socket *socket = [[Socket alloc] init];
+        if ([socket connect:@"127.0.0.1" byPort:6000] == 0) {
+            [socket send:@"901\r\n"];
+            [socket close];
+        }
+    });
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    return (NSInteger)_keys.count;
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return 6;
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    NSString *key = _keys[section];
+    return [NSString stringWithFormat:@"%@（连按 %@ 键）", ZXShortcutTriggerName(key), ZXShortcutTriggerName(key)];
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    if (section == (NSInteger)_keys.count - 1) {
+        return @"只有最后停下来的点击数会触发；没设置的次数点几次都不会执行动作。";
+    }
+    return nil;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    NSString *key = _keys[indexPath.section];
+    NSMutableDictionary *trigger = _triggers[key];
+
+    if (indexPath.row == 0) {
+        TableViewCellWithSwitch *cell = [tableView dequeueReusableCellWithIdentifier:@"SwitchCell" forIndexPath:indexPath];
+        [cell setTitleText:[NSString stringWithFormat:@"启用%@快捷键", ZXShortcutTriggerName(key)]];
+        [cell setBtnInitStatus:[trigger[@"enabled"] boolValue]];
+        [cell.switchBtn removeTarget:self action:@selector(shortcutSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.switchBtn.tag = indexPath.section;
+        [cell.switchBtn addTarget:self action:@selector(shortcutSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        return cell;
+    }
+
+    TableViewCellWithEntry *cell = [tableView dequeueReusableCellWithIdentifier:@"EntryCell" forIndexPath:indexPath];
+    NSArray<NSString *> *cn = @[@"一", @"二", @"三", @"四", @"五"];
+    NSInteger count = indexPath.row;
+    NSString *countKey = [NSString stringWithFormat:@"%ld", (long)count];
+    NSDictionary *entry = trigger[@"counts"][countKey];
+    [cell.title setText:[NSString stringWithFormat:@"点%@次触发", cn[count - 1]]];
+    [cell.subTitle setText:(entry ? ZXShortcutActionSummary(entry) : @"未设置（点这一行设置）")];
+    return cell;
+}
+
+- (void)shortcutSwitchChanged:(UISwitch *)sender {
+    NSInteger section = sender.tag;
+    if (section < 0 || section >= (NSInteger)_keys.count) return;
+    NSString *key = _keys[section];
+    NSMutableDictionary *trigger = _triggers[key];
+    trigger[@"enabled"] = @([sender isOn]);
+    ZXShortcutSaveTrigger(_cm, key, trigger);
+    [self sendReload];
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.row == 0) return;
+
+    NSInteger section = indexPath.section;
+    NSInteger count = indexPath.row;
+    NSString *key = _keys[section];
+    NSArray<NSString *> *cn = @[@"一", @"二", @"三", @"四", @"五"];
+    NSString *title = [NSString stringWithFormat:@"%@ · 点%@次触发", ZXShortcutTriggerName(key), cn[count - 1]];
+
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:title
+        message:@"选择这一步要执行的动作。"
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    [sheet addAction:[UIAlertAction actionWithTitle:@"运行指定脚本…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [weakSelf pickScriptForSection:section count:count fromCell:[tableView cellForRowAtIndexPath:indexPath]];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"运行当前选择的脚本" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [weakSelf setAction:ZX_ACTION_RUN_CURRENT_SCRIPT script:nil section:section count:count];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"停止运行脚本" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [weakSelf setAction:ZX_ACTION_STOP_SCRIPT script:nil section:section count:count];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"开始/停止录制" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [weakSelf setAction:ZX_ACTION_TOGGLE_RECORDING script:nil section:section count:count];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"清除此设置" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        [weakSelf clearActionForSection:section count:count];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *pop = sheet.popoverPresentationController;
+    if (pop) {
+        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+        pop.sourceView = cell;
+        pop.sourceRect = cell.bounds;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)pickScriptForSection:(NSInteger)section count:(NSInteger)count fromCell:(UITableViewCell *)cell {
+    NSArray<NSString *> *scripts = ZXShortcutScriptPaths();
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"运行指定脚本"
+        message:(scripts.count ? @"选择此触发要运行的脚本。" : @"未找到任何 .bdl 脚本。")
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    for (NSString *script in scripts) {
+        NSString *name = [[script lastPathComponent] stringByDeletingPathExtension];
+        [sheet addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [weakSelf setAction:ZX_ACTION_RUN_SCRIPT script:script section:section count:count];
+        }]];
+        if (sheet.actions.count >= 20) break;
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIPopoverPresentationController *pop = sheet.popoverPresentationController;
+    if (pop) {
+        pop.sourceView = cell;
+        pop.sourceRect = cell.bounds;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (NSMutableDictionary *)countsForSection:(NSInteger)section {
+    NSString *key = _keys[section];
+    NSMutableDictionary *trigger = _triggers[key];
+    NSDictionary *existing = trigger[@"counts"];
+    NSMutableDictionary *counts = [existing isKindOfClass:[NSDictionary class]] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
+    trigger[@"counts"] = counts;
+    return counts;
+}
+
+- (void)setAction:(NSString *)action script:(NSString *)script section:(NSInteger)section count:(NSInteger)count {
+    NSString *key = _keys[section];
+    NSMutableDictionary *trigger = _triggers[key];
+    NSMutableDictionary *counts = [self countsForSection:section];
+    counts[[NSString stringWithFormat:@"%ld", (long)count]] = [@{ @"action": action, @"script": script ?: @"" } mutableCopy];
+    trigger[@"enabled"] = @(YES);
+    ZXShortcutSaveTrigger(_cm, key, trigger);
+    [self sendReload];
+    [_table reloadData];
+}
+
+- (void)clearActionForSection:(NSInteger)section count:(NSInteger)count {
+    NSString *key = _keys[section];
+    NSMutableDictionary *trigger = _triggers[key];
+    NSMutableDictionary *counts = [self countsForSection:section];
+    [counts removeObjectForKey:[NSString stringWithFormat:@"%ld", (long)count]];
+    ZXShortcutSaveTrigger(_cm, key, trigger);
+    [self sendReload];
+    [_table reloadData];
+}
+
+@end
+
 @implementation SettingsPageViewController
 {
     NSArray *sections;
@@ -381,7 +682,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     // Do any additional setup after loading the view.
     self.title = @"设置";
     
-    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"检测", @"关于小新Lap"];
+    sections = @[@"远程管理", @"控制", @"工具", @"脚本", @"外观", @"检测", @"关于小新Lap"];
     configManager = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
     BOOL doubleClickPopup = YES;
     if ([configManager getValueFromKey:@"double_click_volume_show_popup"])
@@ -421,10 +722,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 边距", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量减", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
-        ],
-        @[
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"快捷键", @"secondary_title": [self shortcutSummary], @"row_click_handler": NSStringFromSelector(@selector(handleShortcutEntryTap:))},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"脚本完成弹窗", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"示例脚本", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"脚本注册表", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
@@ -485,7 +783,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([configManager getValueFromKey:@"floating_menu_enabled"])
         floatingMenu = [[configManager getValueFromKey:@"floating_menu_enabled"] boolValue];
 
-    sections = @[@"远程管理", @"控制", @"工具", @"自动操作", @"脚本", @"外观", @"检测", @"关于小新Lap"];
+    sections = @[@"远程管理", @"控制", @"工具", @"脚本", @"外观", @"检测", @"关于小新Lap"];
     cellsForEachSection = @[
         [self remoteManagementCells],
         @[
@@ -496,10 +794,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"网速悬浮窗", @"secondary_title": @"开关 / 位置 / 字号 / 边距", @"row_click_handler": NSStringFromSelector(@selector(handleNetSpeedSettingsTap:))}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量加", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"音量减", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
-        ],
-        @[
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"快捷键", @"secondary_title": [self shortcutSummary], @"row_click_handler": NSStringFromSelector(@selector(handleShortcutEntryTap:))},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"脚本完成弹窗", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"示例脚本", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"脚本注册表", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
@@ -527,6 +822,21 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     // existing installs keep their current behaviour.
     [configManager updateKey:@"show_script_finished_popup" forValue:@([s isOn])];
     [configManager save];
+}
+
+- (NSString *)shortcutSummary {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSString *key in @[ZX_TRIGGER_VOLUME_UP, ZX_TRIGGER_VOLUME_DOWN]) {
+        NSDictionary *trigger = ZXShortcutLoadTrigger(configManager, key);
+        [parts addObject:[NSString stringWithFormat:@"%@：%@", ZXShortcutTriggerName(key),
+                         [trigger[@"enabled"] boolValue] ? @"开" : @"关"]];
+    }
+    return [parts componentsJoinedByString:@"，"];
+}
+
+- (void)handleShortcutEntryTap:(id)cell {
+    ZXShortcutSettingsViewController *vc = [[ZXShortcutSettingsViewController alloc] init];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)handlePopupWindowDoubleClick:(UISwitch*)s {
