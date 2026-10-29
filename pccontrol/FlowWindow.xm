@@ -779,6 +779,12 @@ static FlowWindow *_fwShared = nil;
         _dragLine.hidden = YES;
     }
     if (_dragLine.superview != _scroll) [_scroll addSubview:_dragLine];
+    // 拖动容器时，它里面的行先隐掉，免得出现「父行在飞、子行留在原地」的错觉
+    NSMutableSet *excluded = [NSMutableSet set];
+    if (row.step) fwCollectContainers(row.step, excluded);
+    for (FWStepRowView *r in _rows) {
+        if (r != row && [excluded containsObject:r.ownerSteps]) r.alpha = 0.0f;
+    }
     [_scroll bringSubviewToFront:row];
 }
 
