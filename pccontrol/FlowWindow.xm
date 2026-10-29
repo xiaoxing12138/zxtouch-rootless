@@ -3829,15 +3829,43 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     return nil;
 }
 
-// 次数输入框：标题「重复」+ 中间居中输入框 + 后面跟「次」
+// 次数输入框：标题和「输入框 + 次」放在同一条里，输入框跟着标题实际宽度往后挪
 - (void)attachRepeatTimesFieldToRow:(FWStepRowView *)row step:(NSMutableDictionary *)step
 {
-    CGFloat fieldX = 79.0f + 36.0f;
+    CGFloat limitX = row.bounds.size.width - 34.0f - 30.0f - 6.0f;
+    CGFloat lineX = 79.0f;
+    CGFloat lineW = MAX(limitX - lineX, 80.0f);
     CGFloat fieldW = 56.0f;
     CGFloat fieldH = 26.0f;
     CGFloat fieldY = (FW_ROW_H - fieldH) / 2.0f;
+    CGFloat suffixW = 18.0f;
 
-    UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(fieldX, fieldY, fieldW, fieldH)];
+    UIView *line = [[UIView alloc] initWithFrame:CGRectMake(lineX, 0, lineW, FW_ROW_H)];
+    line.clipsToBounds = YES;
+    [row.content addSubview:line];
+
+    CGFloat titleW = 34.0f;
+    UILabel *main = [row.content viewWithTag:101];
+    if (main) {
+        CGFloat natural = 34.0f;
+        if (main.attributedText.length > 0) {
+            natural = [main.attributedText size].width;
+        } else if (main.text.length > 0) {
+            natural = [main.text sizeWithAttributes:@{ NSFontAttributeName: main.font }].width;
+        }
+        CGFloat reserved = fieldW + 6.0f + suffixW + 8.0f;
+        CGFloat available = MAX(lineW - reserved, 40.0f);
+        titleW = MIN(MAX(natural + 4.0f, 34.0f), available);
+        if (available < 60.0f) {
+            fieldW = MAX(lineW - titleW - suffixW - 12.0f, 30.0f);
+            fieldW = MIN(fieldW, 56.0f);
+        }
+        [main removeFromSuperview];
+        main.frame = CGRectMake(0, 0, titleW, FW_ROW_H);
+        [line addSubview:main];
+    }
+
+    UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(titleW + 8.0f, fieldY, fieldW, fieldH)];
     field.borderStyle = UITextBorderStyleNone;
     field.backgroundColor = ZXPalette(ZXPalField);
     field.layer.cornerRadius = 8.0f;
@@ -3851,16 +3879,14 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     [field addTarget:self action:@selector(repeatTimesFieldChanged:) forControlEvents:UIControlEventEditingDidEnd];
     [field addTarget:self action:@selector(repeatTimesFieldChanged:) forControlEvents:UIControlEventEditingDidEndOnExit];
     objc_setAssociatedObject(field, &kFWRepeatStepKey, step, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [row.content addSubview:field];
+    [line addSubview:field];
 
-    UILabel *suffix = [[UILabel alloc] initWithFrame:CGRectMake(fieldX + fieldW + 6.0f, fieldY, 18.0f, fieldH)];
+    UILabel *suffix = [[UILabel alloc] initWithFrame:CGRectMake(titleW + fieldW + 14.0f, fieldY, suffixW, fieldH)];
     suffix.text = @"次";
     suffix.font = [UIFont systemFontOfSize:12];
     suffix.textColor = ZXPalette(ZXPalSub);
-    [row.content addSubview:suffix];
+    [line addSubview:suffix];
 
-    UILabel *main = [row.content viewWithTag:101];
-    if (main) main.frame = CGRectMake(79.0f, 0, 34.0f, FW_ROW_H);
     UILabel *sub = [row.content viewWithTag:102];
     if (sub) sub.hidden = YES;
 }
@@ -3927,7 +3953,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     [row.content addSubview:tri];
 
     UILabel *main = [row.content viewWithTag:101];
-    if (main) {
+    if (main && main.superview == row.content) {
         CGFloat available = triX - 6.0f - main.frame.origin.x;
         if (available > 60.0f) {
             main.frame = CGRectMake(main.frame.origin.x, main.frame.origin.y,
