@@ -893,12 +893,32 @@ static FlowWindow *_fwShared = nil;
     if (row.step) fwCollectContainers(row.step, excluded);
 
     NSDictionary *span = nil;
-    for (NSDictionary *s in _spans) {
-        if ([excluded containsObject:s[@"steps"]]) continue;
-        CGFloat top = [s[@"top"] doubleValue];
-        CGFloat bottom = [s[@"bottom"] doubleValue];
-        if (pointerY < top || pointerY > bottom) continue;
-        if (!span || [s[@"depth"] integerValue] > [span[@"depth"] integerValue]) span = s;
+    BOOL appendToBranch = NO;
+    // 指针压在判断条件的行上时，直接放进它的「成立」分支，而不是排到条件后面
+    for (FWStepRowView *r in _rows) {
+        if (r == row) continue;
+        CGFloat ry = r.frame.origin.y;
+        if (pointerY < ry || pointerY > ry + FW_ROW_H) continue;
+        NSDictionary *st = r.step;
+        if (![st[@"Kind"] isKindOfClass:[NSString class]]) continue;
+        if (![FlowScript typeForKind:st[@"Kind"]].isCondition) continue;
+        id then = st[@"Then"];
+        if (![then isKindOfClass:[NSMutableArray class]] || [excluded containsObject:then]) continue;
+        for (NSDictionary *s in _spans) {
+            if (s[@"steps"] != then) continue;
+            span = s;
+            break;
+        }
+        if (span) { appendToBranch = YES; break; }
+    }
+    if (!span) {
+        for (NSDictionary *s in _spans) {
+            if ([excluded containsObject:s[@"steps"]]) continue;
+            CGFloat top = [s[@"top"] doubleValue];
+            CGFloat bottom = [s[@"bottom"] doubleValue];
+            if (pointerY < top || pointerY > bottom) continue;
+            if (!span || [s[@"depth"] integerValue] > [span[@"depth"] integerValue]) span = s;
+        }
     }
     if (!span) {
         CGFloat best = CGFLOAT_MAX;
@@ -915,7 +935,7 @@ static FlowWindow *_fwShared = nil;
     if (!span) return;
 
     NSMutableArray *targetSteps = span[@"steps"];
-    NSArray<FWStepRowView *> *ordered = [self rowsForSteps:targetSteps skip:row];
+    NSArray<FWStepRowView *> *ordered = appendToBranch ? @[] : [self rowsForSteps:targetSteps skip:row];
     FWStepRowView *beforeRow = nil;
     for (FWStepRowView *r in ordered) {
         if (pointerY < CGRectGetMidY(r.frame)) { beforeRow = r; break; }
@@ -1845,7 +1865,8 @@ static FlowWindow *_fwShared = nil;
     UILabel *l = _subTitleLabel;
     if (!f || !l) return;
     UIView *under = l.superview.subviews.count > 1 ? l.superview.subviews[1] : nil;
-    f.text = l.text;
+    NSString *name = [_subStep[@"Name"] isKindOfClass:[NSString class]] ? _subStep[@"Name"] : @"";
+    f.text = name.length ? name : _subTitle;
     l.hidden = YES; under.hidden = YES; f.hidden = NO;
     [f becomeFirstResponder];
 }
@@ -3737,9 +3758,12 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         CGFloat blockBottom = 0.0f;
         if ([kind isEqualToString:kFlowRepeat]) {
             [self attachRepeatTimesFieldToRow:row step:(NSMutableDictionary *)step];
+            [self attachCollapseToggleToRow:row step:(NSMutableDictionary *)step];
             if (![step[@"Steps"] isKindOfClass:[NSMutableArray class]]) step[@"Steps"] = [NSMutableArray array];
             y += FW_ROW_H + FW_GAP;
-            y = [self layoutSteps:step[@"Steps"] atY:y x:x + 16.0f width:MAX(w - 16.0f, 80.0f) depth:depth + 1];
+            if (!fwCollapsed(step)) {
+                y = [self layoutSteps:step[@"Steps"] atY:y x:x + 16.0f width:MAX(w - 16.0f, 80.0f) depth:depth + 1];
+            }
             blockBottom = y - FW_GAP;
         } else if (type.isCondition) {
             [self attachElseToggleToRow:row step:(NSMutableDictionary *)step];
@@ -3845,7 +3869,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 - (void)attachElseToggleToRow:(FWStepRowView *)row step:(NSMutableDictionary *)step
 {
     CGFloat w = row.bounds.size.width;
-    CGFloat triW = 26.0f;
+    CGFloat triW = 30.0f;
     CGFloat triX = w - 34.0f - triW;
     CGFloat toggleW = 62.0f;
     CGFloat toggleH = 30.0f;
@@ -3870,13 +3894,29 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         [s refreshKeepingScroll];
     }] forControlEvents:UIControlEventTouchUpInside];
     [row.content addSubview:btn];
+    [self attachCollapseToggleToRow:row step:step];
 
+    UILabel *main = [row.content viewWithTag:101];
+    UILabel *sub = [row.content viewWithTag:102];
+    CGFloat textW = MAX(x - 6.0f - 79.0f, 40.0f);
+    if (main) main.frame = CGRectMake(79.0f, 0, textW, FW_ROW_H);
+    if (sub) sub.hidden = YES;
+}
+
+// 能装分支的步骤（判断条件 / 重复）右侧的收起与展开
+- (void)attachCollapseToggleToRow:(FWStepRowView *)row step:(NSMutableDictionary *)step
+{
+    CGFloat w = row.bounds.size.width;
+    CGFloat triW = 30.0f;
+    CGFloat triX = w - 34.0f - triW;
     BOOL collapsed = fwCollapsed(step);
+
     UIButton *tri = [UIButton buttonWithType:UIButtonTypeSystem];
     tri.frame = CGRectMake(triX, 0, triW, FW_ROW_H);
     tri.tintColor = ZXPalette(ZXPalSub);
-    [tri setImage:[UIImage systemImageNamed:(collapsed ? @"arrowtriangle.right" : @"arrowtriangle.down")]
+    [tri setImage:[UIImage systemImageNamed:(collapsed ? @"chevron.down" : @"chevron.up")]
           forState:UIControlStateNormal];
+    __weak typeof(self) weakSelf = self;
     [tri addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
         FlowWindow *s = weakSelf;
         if (!s) return;
@@ -3887,10 +3927,13 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     [row.content addSubview:tri];
 
     UILabel *main = [row.content viewWithTag:101];
-    UILabel *sub = [row.content viewWithTag:102];
-    CGFloat textW = MAX(x - 6.0f - 79.0f, 40.0f);
-    if (main) main.frame = CGRectMake(79.0f, 0, textW, FW_ROW_H);
-    if (sub) sub.hidden = YES;
+    if (main) {
+        CGFloat available = triX - 6.0f - main.frame.origin.x;
+        if (available > 60.0f) {
+            main.frame = CGRectMake(main.frame.origin.x, main.frame.origin.y,
+                                    available, main.frame.size.height);
+        }
+    }
 }
 
 - (void)repeatTimesFieldChanged:(UITextField *)field

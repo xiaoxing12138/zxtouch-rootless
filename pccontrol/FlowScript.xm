@@ -592,16 +592,12 @@ static NSString *fwSimValue(id value)
                 step[@"Color"] ?: @"", [self textForValue:step[@"Tolerance"]]];
     }
     if ([kind isEqualToString:kFlowFindColor]) {
-        return [NSString stringWithFormat:@"如果 (%@,%@)-(%@,%@) 里有 #%@（±%@）",
-                [self textForValue:step[@"X1"]], [self textForValue:step[@"Y1"]],
-                [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]],
+        return [NSString stringWithFormat:@"如果区域里有 #%@（±%@）",
                 step[@"Color"] ?: @"", [self textForValue:step[@"Tolerance"]]];
     }
     if ([kind isEqualToString:kFlowCountColor]) {
         NSString *mode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"atLeast";
-        return [NSString stringWithFormat:@"如果 (%@,%@)-(%@,%@) 里 #%@（±%@）的像素%@ %@",
-                [self textForValue:step[@"X1"]], [self textForValue:step[@"Y1"]],
-                [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]],
+        return [NSString stringWithFormat:@"如果区域里 #%@（±%@）的像素%@ %@",
                 step[@"Color"] ?: @"", [self textForValue:step[@"Tolerance"]],
                 [mode isEqualToString:@"atMost"] ? @"至多" : @"至少",
                 [self textForValue:step[@"Count"]]];
@@ -611,9 +607,7 @@ static NSString *fwSimValue(id value)
         NSString *imageMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"full";
         NSString *where = @"全屏";
         if ([imageMode isEqualToString:@"area"]) {
-            where = [NSString stringWithFormat:@"(%@,%@)-(%@,%@)",
-                     [self textForValue:step[@"X1"]], [self textForValue:step[@"Y1"]],
-                     [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]]];
+            where = @"区域";
         }
         return [NSString stringWithFormat:@"如果 %@ 里有模板「%@」（≥%@）",
                 where, name.length ? name : @"未框选", [self textForValue:step[@"Threshold"]]];
