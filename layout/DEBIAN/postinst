@@ -141,7 +141,9 @@ if [ -x "$DAEMON" ]; then
     BOOTED=0
     if [ -f "$DAEMON_PLIST" ] && [ -x "$LAUNCHCTL" ]; then
         "$LAUNCHCTL" bootstrap system "$DAEMON_PLIST" 2>/dev/null && BOOTED=1
-        "$LAUNCHCTL" kickstart -k system/com.zjx.zxrunner 2>/dev/null || true
+        # 不要加 -k：ThrottleInterval 是 10 秒，杀掉后 launchd 要等满 10 秒才重开，
+        # 而 kickstart 会一直等到新实例起来，安装就会卡 10 秒。
+        "$LAUNCHCTL" kickstart system/com.zjx.zxrunner 2>/dev/null || true
         # 已经装载过（bootstrap 报 already bootstrapped）也算装载成功
         "$LAUNCHCTL" print system/com.zjx.zxrunner >/dev/null 2>&1 && BOOTED=1
     fi
