@@ -3604,8 +3604,8 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     }
 
     for (NSInteger i = 0; i < (NSInteger)steps.count; i++) {
-        NSDictionary *step = steps[i];
-        if (![step isKindOfClass:[NSDictionary class]]) continue;
+        NSMutableDictionary *step = steps[i];
+        if (![step isKindOfClass:[NSMutableDictionary class]]) continue;
         FlowStepType *type = [FlowScript typeForKind:step[@"Kind"]];
         FWStepRowView *row = [self makeStepRow:[self rowTitleForStep:step]
                                      customName:[step[@"Name"] isKindOfClass:[NSString class]] ? step[@"Name"] : nil
