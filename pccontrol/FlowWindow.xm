@@ -3651,11 +3651,9 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             if (![step[@"Then"] isKindOfClass:[NSMutableArray class]]) step[@"Then"] = [NSMutableArray array];
             if (![step[@"Else"] isKindOfClass:[NSMutableArray class]]) step[@"Else"] = [NSMutableArray array];
             y += FW_ROW_H + 4.0f;
-            y = [self layoutBranchTitle:@"成立" atY:y x:x];
-            y = [self layoutSteps:step[@"Then"] atY:y x:x + 16.0f width:MAX(w - 16.0f, 80.0f) depth:depth + 1];
+            y = [self layoutBranch:@"成立" atY:y x:x width:w depth:depth steps:step[@"Then"]];
             if (fwElseEnabled(step)) {
-                y = [self layoutBranchTitle:@"不成立" atY:y x:x];
-                y = [self layoutSteps:step[@"Else"] atY:y x:x + 16.0f width:MAX(w - 16.0f, 80.0f) depth:depth + 1];
+                y = [self layoutBranch:@"不成立" atY:y x:x width:w depth:depth steps:step[@"Else"]];
             } else {
                 y += FW_GAP;
             }
@@ -3664,6 +3662,19 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         }
     }
     [self registerSpan:steps top:top bottom:MAX(y - FW_GAP, top) x:x width:w depth:depth];
+    return y;
+}
+
+- (CGFloat)layoutBranch:(NSString *)text atY:(CGFloat)y x:(CGFloat)x width:(CGFloat)w
+                  depth:(NSInteger)depth steps:(NSMutableArray *)steps
+{
+    CGFloat titleY = y;
+    CGFloat branchX = x + 16.0f;
+    CGFloat branchW = MAX(w - 16.0f, 80.0f);
+    y = [self layoutBranchTitle:text atY:y x:x];
+    y = [self layoutSteps:steps atY:y x:branchX width:branchW depth:depth + 1];
+    [self registerSpan:steps top:titleY bottom:MAX(y - FW_GAP, titleY)
+                     x:branchX width:branchW depth:depth + 1];
     return y;
 }
 
@@ -3685,8 +3696,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 
 - (NSString *)rowDetailForStep:(NSDictionary *)step
 {
-    if ([step[@"Kind"] isEqualToString:kFlowRepeat]) return nil;
-    return [FlowScript detailForStep:step];
+    return nil;
 }
 
 // 次数输入框：标题「重复」+ 中间居中输入框 + 后面跟「次」
@@ -3730,11 +3740,12 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 {
     CGFloat w = row.bounds.size.width;
     CGFloat toggleW = 62.0f;
+    CGFloat toggleH = 30.0f;
     CGFloat x = w - 34.0f - toggleW - 2.0f;
     BOOL on = fwElseEnabled(step);
 
     UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
-    btn.frame = CGRectMake(x, (FW_ROW_H - 24.0f) / 2.0f, toggleW, 24.0f);
+    btn.frame = CGRectMake(x, (FW_ROW_H - toggleH) / 2.0f, toggleW, toggleH);
     btn.backgroundColor = ZXPalette(ZXPalField);
     btn.layer.cornerRadius = 8.0f;
     btn.layer.borderWidth = 1.0f;
@@ -3755,8 +3766,8 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     UILabel *main = [row.content viewWithTag:101];
     UILabel *sub = [row.content viewWithTag:102];
     CGFloat textW = MAX(x - 6.0f - 79.0f, 40.0f);
-    if (main) main.frame = CGRectMake(79.0f, 3.0f, textW, 18.0f);
-    if (sub) sub.frame = CGRectMake(79.0f, 22.0f, textW, 14.0f);
+    if (main) main.frame = CGRectMake(79.0f, 0, textW, FW_ROW_H);
+    if (sub) sub.hidden = YES;
 }
 
 - (void)repeatTimesFieldChanged:(UITextField *)field

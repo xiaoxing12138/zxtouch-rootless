@@ -495,6 +495,7 @@ static NSString *fwSimValue(id value)
     if (type.isCondition) {
         step[@"Then"] = [NSMutableArray array];
         step[@"Else"] = [NSMutableArray array];
+        step[@"ElseEnabled"] = @(NO);
     } else if ([kind isEqualToString:kFlowRepeat]) {
         step[@"Steps"] = [NSMutableArray array];
     }
