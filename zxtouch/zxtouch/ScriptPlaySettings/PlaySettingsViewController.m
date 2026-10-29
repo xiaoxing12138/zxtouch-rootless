@@ -69,7 +69,7 @@
         
         [currentConfiguration setObject:@"0"
                   forKey:@"repeat_times"];
-        [currentConfiguration setObject:@"0"
+        [currentConfiguration setObject:@"0.01"
                   forKey:@"interval"];
         [currentConfiguration setObject:@"1.0"
                   forKey:@"speed"];
