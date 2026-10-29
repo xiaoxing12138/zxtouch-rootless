@@ -446,7 +446,11 @@ static int handle_ocr_tess_locked(int client, NSDictionary *cmd)
     void *pix = p_pixRead(path.fileSystemRepresentation);
     if (!pix)
     {
-        send_json_object(client, @{ @"type": @"error", @"msg": @"cannot read image" });
+        BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path];
+        NSString *msg = exists
+            ? [NSString stringWithFormat:@"cannot read image (decode failed: %@)", path]
+            : [NSString stringWithFormat:@"cannot read image (not found: %@)", path];
+        send_json_object(client, @{ @"type": @"error", @"msg": msg });
         return -1;
     }
 

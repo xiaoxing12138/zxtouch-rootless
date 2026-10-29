@@ -462,7 +462,7 @@ Return the string from a area
     [[NSFileManager defaultManager] createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:NULL];
 
     NSString *tag = [NSString stringWithFormat:@"ocr_%d_%u", (int)getpid(), arc4random()];
-    NSString *imagePath = [folder stringByAppendingPathComponent:[tag stringByAppendingString:@".jpg"]];
+    NSString *imagePath = [folder stringByAppendingPathComponent:[tag stringByAppendingString:@".png"]];
 
     CGRect area = sourceRect;
     CGFloat upscale = (area.size.height > 0 && area.size.height <= 50.0) ? 2.0 : 1.0;
@@ -487,7 +487,7 @@ Return the string from a area
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;文字识别（OCR）失败：无法生成识别用图片。\r\n"}];
         return nil;
     }
-    NSData *jpeg = UIImageJPEGRepresentation([[UIImage alloc] initWithCGImage:cgImage], 0.92);
+    NSData *jpeg = UIImagePNGRepresentation([[UIImage alloc] initWithCGImage:cgImage]);
     CGImageRelease(cgImage);
     if (!jpeg || ![jpeg writeToFile:imagePath atomically:YES])
     {
