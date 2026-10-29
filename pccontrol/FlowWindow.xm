@@ -50,8 +50,16 @@ static BOOL fwElseEnabled(NSDictionary *step)
     return [v isKindOfClass:[NSNumber class]] ? [v boolValue] : YES;
 }
 
+// 判断分支是否收起：缺省展开
+static BOOL fwCollapsed(NSDictionary *step)
+{
+    id v = step[@"Collapsed"];
+    return [v isKindOfClass:[NSNumber class]] ? [v boolValue] : NO;
+}
+
 // 拖动时不能把步骤放进自己内部：把这些容器数组全部排除掉
-static void fwCollectContainers(NSDictionary *step, NSMutableSet *out)
+// 用指针相等的集合：空的 Then/Else 内容彼此 isEqual，用 Set 会把别的分支也误排除
+static void fwCollectContainers(NSDictionary *step, NSHashTable *out)
 {
     for (NSString *key in @[@"Steps", @"Then", @"Else"]) {
         id arr = step[key];
@@ -384,6 +392,7 @@ static void fwPersistSchedule(NSString *bundlePath, NSString *startMode, NSStrin
 @property (nonatomic, weak)   NSDictionary *step;    // 排序时靠它把视图和数据对上
 @property (nonatomic, strong) NSMutableArray *ownerSteps; // 这行属于哪一层（根列表 / 重复里 / 成立 / 不成立）
 @property (nonatomic) NSInteger ownerDepth;          // 缩进层数，拖动时用来选落点
+@property (nonatomic) CGFloat blockBottom;            // 这一步连同子步骤的底边（拖动时收空档用）
 @property (nonatomic) BOOL swipeEnabled;             // 能左滑删除
 @property (nonatomic) BOOL dragEnabled;              // 把手能拖动排序
 @property (nonatomic, copy) void (^onTap)(void);
@@ -586,6 +595,7 @@ static FlowWindow *_fwShared = nil;
 
     NSMutableArray<FWStepRowView *> *_rows;      // 当前列表里所有层级的步骤行
     NSMutableArray<NSDictionary *>  *_spans;     // 每一层容器的纵向区间（选拖动落点用）
+    NSMutableArray<NSDictionary *>  *_branchLabels; // 分支标题 / 空分支提示（拖动容器时一起隐藏）
     FWStepRowView               *_dragRow;
     NSMutableArray               *_dragSourceSteps;
     NSInteger                     _dragSourceIndex;
@@ -593,6 +603,8 @@ static FlowWindow *_fwShared = nil;
     NSInteger                     _dragTargetIndex;
     CGFloat                       _dragStartY;
     UIView                       *_dragLine;     // 松手后会插到哪里的指示线
+    NSTimer                      *_dragScrollTimer; // 拖动到上下边缘时的自动滚动
+    CGFloat                       _dragDisplayY;  // 拖动行当前在内容坐标里的顶部（自动滚动时累加）
 
     BOOL                         _animateTransition;   // 换页时淡入 + 上移
 
@@ -744,8 +756,9 @@ static FlowWindow *_fwShared = nil;
 - (void)registerSpan:(NSMutableArray *)steps top:(CGFloat)top bottom:(CGFloat)bottom
                    x:(CGFloat)x width:(CGFloat)w depth:(NSInteger)depth
 {
-    [_spans addObject:@{ @"steps": steps, @"top": @(top), @"bottom": @(bottom),
-                         @"x": @(x), @"width": @(w), @"depth": @(depth) }];
+    [_spans addObject:[NSMutableDictionary dictionaryWithDictionary:
+        @{ @"steps": steps, @"top": @(top), @"bottom": @(bottom),
+           @"x": @(x), @"width": @(w), @"depth": @(depth) }]];
 }
 
 // 这个数组里已经排好版的行，按数据顺序返回（拖动时算插入位置）
@@ -771,7 +784,8 @@ static FlowWindow *_fwShared = nil;
     _dragTargetIndex = NSNotFound;
     // 用 center 算基准：拿起时行上已经挂了缩放，frame 是缩放后的外框
     _dragStartY = row.center.y - FW_ROW_H / 2.0f;
-    _scroll.scrollEnabled = NO;   // 拖动期间别让列表跟着滚
+    _dragDisplayY = _dragStartY;
+    _scroll.scrollEnabled = NO;
     if (!_dragLine) {
         _dragLine = [[UIView alloc] initWithFrame:CGRectZero];
         _dragLine.backgroundColor = ZXPalette(ZXPalAccent);
@@ -780,28 +794,104 @@ static FlowWindow *_fwShared = nil;
     }
     if (_dragLine.superview != _scroll) [_scroll addSubview:_dragLine];
     // 拖动容器时，它里面的行先隐掉，免得出现「父行在飞、子行留在原地」的错觉
-    NSMutableSet *excluded = [NSMutableSet set];
+    NSHashTable *excluded = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
     if (row.step) fwCollectContainers(row.step, excluded);
     for (FWStepRowView *r in _rows) {
         if (r != row && [excluded containsObject:r.ownerSteps]) r.alpha = 0.0f;
     }
+    for (NSDictionary *rec in _branchLabels) {
+        if ([excluded containsObject:rec[@"steps"]]) [(UILabel *)rec[@"label"] setAlpha:0.0f];
+    }
+    [self collapseDraggedBlock:row];
     [_scroll bringSubviewToFront:row];
+
+    [_dragScrollTimer invalidate];
+    _dragScrollTimer = [NSTimer timerWithTimeInterval:1.0 / 60.0
+                                               target:self
+                                             selector:@selector(autoScrollDuringDrag:)
+                                             userInfo:nil
+                                              repeats:YES];
+    [[NSRunLoop mainRunLoop] addTimer:_dragScrollTimer forMode:NSRunLoopCommonModes];
 }
 
-- (void)moveDragRow:(FWStepRowView *)row dy:(CGFloat)dy {
+- (void)moveDragRow:(FWStepRowView *)row dy:(CGFloat)dy
+{
     if (!row || row != _dragRow) return;
-    CGFloat y = _dragStartY + dy;
+    [self positionDragRowAt:_dragStartY + dy];
+}
+
+- (void)positionDragRowAt:(CGFloat)y
+{
+    FWStepRowView *row = _dragRow;
+    if (!row) return;
     CGFloat maxY = MAX(0.0f, _scroll.contentSize.height - FW_ROW_H);
     if (y < 0) y = 0;
     if (y > maxY) y = maxY;
     // 拖动中 row 上有缩放 transform，不能碰 frame，只能改 center
     row.center = CGPointMake(row.center.x, y + FW_ROW_H / 2.0f);
+    _dragDisplayY = y;
+    [self updateDragTargetAtPointerY:y + FW_ROW_H / 2.0f];
+}
 
-    CGFloat pointerY = y + FW_ROW_H / 2.0f;
-    NSMutableSet *excluded = [NSMutableSet set];
+- (void)autoScrollDuringDrag:(NSTimer *)timer
+{
+    if (!_dragRow || !_scroll) {
+        [timer invalidate];
+        _dragScrollTimer = nil;
+        return;
+    }
+    CGFloat visibleH = _scroll.bounds.size.height;
+    CGFloat screenY = _dragRow.center.y - _scroll.contentOffset.y;
+    CGFloat edge = 46.0f;
+    CGFloat step = 0.0f;
+    if (screenY < edge) step = -MIN((edge - screenY) * 0.35f + 3.0f, 14.0f);
+    else if (screenY > visibleH - edge) step = MIN((screenY - (visibleH - edge)) * 0.35f + 3.0f, 14.0f);
+    if (step == 0.0f) return;
+
+    CGFloat maxOffset = MAX(0.0f, _scroll.contentSize.height - visibleH);
+    CGFloat target = MAX(0.0f, MIN(_scroll.contentOffset.y + step, maxOffset));
+    CGFloat delta = target - _scroll.contentOffset.y;
+    if (delta == 0.0f) return;
+    _scroll.contentOffset = CGPointMake(0, target);
+    [self positionDragRowAt:_dragDisplayY + delta];
+}
+
+- (void)collapseDraggedBlock:(FWStepRowView *)row
+{
+    CGFloat top = row.frame.origin.y;
+    CGFloat bottom = MAX(row.blockBottom, top + FW_ROW_H);
+    CGFloat delta = bottom - top;
+    if (delta <= 0.0f) return;
+
+    for (FWStepRowView *r in _rows) {
+        if (r != row && r.frame.origin.y >= bottom) r.frame = CGRectOffset(r.frame, 0, -delta);
+    }
+    for (NSDictionary *rec in _branchLabels) {
+        UILabel *label = rec[@"label"];
+        if (label.frame.origin.y >= bottom) label.frame = CGRectOffset(label.frame, 0, -delta);
+    }
+    for (NSDictionary *dict in _spans) {
+        NSMutableDictionary *s = (NSMutableDictionary *)dict;
+        CGFloat sTop = [s[@"top"] doubleValue];
+        CGFloat sBottom = [s[@"bottom"] doubleValue];
+        if (sTop >= bottom) {
+            s[@"top"] = @(sTop - delta);
+            s[@"bottom"] = @(sBottom - delta);
+        } else if (sBottom >= bottom) {
+            s[@"bottom"] = @(sBottom - delta);
+        }
+    }
+    CGSize size = _scroll.contentSize;
+    _scroll.contentSize = CGSizeMake(size.width, MAX(size.height - delta, 0.0f));
+}
+
+- (void)updateDragTargetAtPointerY:(CGFloat)pointerY
+{
+    FWStepRowView *row = _dragRow;
+    if (!row) return;
+    NSHashTable *excluded = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
     if (row.step) fwCollectContainers(row.step, excluded);
 
-    // 落在哪一层：取包含指针、且层数最深的那个容器
     NSDictionary *span = nil;
     for (NSDictionary *s in _spans) {
         if ([excluded containsObject:s[@"steps"]]) continue;
@@ -810,7 +900,6 @@ static FlowWindow *_fwShared = nil;
         if (pointerY < top || pointerY > bottom) continue;
         if (!span || [s[@"depth"] integerValue] > [span[@"depth"] integerValue]) span = s;
     }
-    // 不在任何容器里（比如拖到最底下）→ 归到垂直距离最近的一层
     if (!span) {
         CGFloat best = CGFLOAT_MAX;
         for (NSDictionary *s in _spans) {
@@ -818,7 +907,9 @@ static FlowWindow *_fwShared = nil;
             CGFloat top = [s[@"top"] doubleValue];
             CGFloat bottom = [s[@"bottom"] doubleValue];
             CGFloat d = (pointerY < top) ? top - pointerY : ((pointerY > bottom) ? pointerY - bottom : 0);
-            if (d < best) { best = d; span = s; }
+            if (d < best - 0.01f) { best = d; span = s; }
+            else if (fabs(d - best) <= 0.01f && span &&
+                     [s[@"depth"] integerValue] < [span[@"depth"] integerValue]) span = s;
         }
     }
     if (!span) return;
@@ -834,8 +925,7 @@ static FlowWindow *_fwShared = nil;
     if (index == NSNotFound) index = (NSInteger)targetSteps.count;
 
     CGFloat lineY = beforeRow ? beforeRow.frame.origin.y - 3.0f
-                              : (ordered.count ? CGRectGetMaxY(ordered.lastObject.frame) + 2.0f
-                                               : [span[@"top"] doubleValue] + 2.0f);
+                              : [span[@"bottom"] doubleValue] + 2.0f;
     _dragTargetSteps = targetSteps;
     _dragTargetIndex = index;
     _dragLine.frame = CGRectMake([span[@"x"] doubleValue] + 6.0f, lineY,
@@ -856,6 +946,8 @@ static FlowWindow *_fwShared = nil;
     _dragTargetIndex = NSNotFound;
     _dragLine.hidden = YES;
     _scroll.scrollEnabled = YES;
+    [_dragScrollTimer invalidate];
+    _dragScrollTimer = nil;
 
     BOOL changed = NO;
     NSDictionary *moved = row.step;   // 行里存的是弱引用：先强持住，免得从数组摘下来那一刻被释放
@@ -3600,13 +3692,14 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     CGFloat top = y;
 
     if (steps.count == 0) {
-        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(x + 22.0f, y, MAX(w - 28.0f, 40.0f), 24.0f)];
+        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(x + 22.0f, y, MAX(w - 28.0f, 40.0f), 28.0f)];
         hint.text = @"空，拖步骤到这里";
         hint.font = [UIFont systemFontOfSize:11];
         hint.textColor = ZXPalette(ZXPalSub);
         [_scroll addSubview:hint];
-        [self registerSpan:steps top:y bottom:y + 24.0f x:x width:w depth:depth];
-        return y + 24.0f + FW_GAP;
+        [_branchLabels addObject:@{ @"label": hint, @"steps": steps }];
+        [self registerSpan:steps top:y bottom:y + 28.0f x:x width:w depth:depth];
+        return y + 28.0f + FW_GAP;
     }
 
     for (NSInteger i = 0; i < (NSInteger)steps.count; i++) {
@@ -3641,39 +3734,51 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         [_scroll addSubview:row];
 
         NSString *kind = step[@"Kind"];
+        CGFloat blockBottom = 0.0f;
         if ([kind isEqualToString:kFlowRepeat]) {
             [self attachRepeatTimesFieldToRow:row step:(NSMutableDictionary *)step];
             if (![step[@"Steps"] isKindOfClass:[NSMutableArray class]]) step[@"Steps"] = [NSMutableArray array];
             y += FW_ROW_H + FW_GAP;
             y = [self layoutSteps:step[@"Steps"] atY:y x:x + 16.0f width:MAX(w - 16.0f, 80.0f) depth:depth + 1];
+            blockBottom = y - FW_GAP;
         } else if (type.isCondition) {
             [self attachElseToggleToRow:row step:(NSMutableDictionary *)step];
             if (![step[@"Then"] isKindOfClass:[NSMutableArray class]]) step[@"Then"] = [NSMutableArray array];
             if (![step[@"Else"] isKindOfClass:[NSMutableArray class]]) step[@"Else"] = [NSMutableArray array];
-            y += FW_ROW_H + 4.0f;
-            y = [self layoutBranch:@"成立" atY:y x:x width:w depth:depth steps:step[@"Then"]];
-            if (fwElseEnabled(step)) {
-                y = [self layoutBranch:@"不成立" atY:y x:x width:w depth:depth steps:step[@"Else"]];
+            if (fwCollapsed(step)) {
+                y += FW_ROW_H + FW_GAP;
+                blockBottom = y - FW_GAP;
             } else {
-                y += FW_GAP;
+                CGFloat rowBottom = row.frame.origin.y + FW_ROW_H;
+                y += FW_ROW_H + 4.0f;
+                y = [self layoutBranch:@"成立" atY:y x:x width:w depth:depth steps:step[@"Then"] spanTop:rowBottom];
+                blockBottom = y - FW_GAP;
+                if (fwElseEnabled(step)) {
+                    y = [self layoutBranch:@"不成立" atY:y x:x width:w depth:depth steps:step[@"Else"] spanTop:y - FW_GAP];
+                    blockBottom = y - FW_GAP;
+                } else {
+                    y += FW_GAP;
+                }
             }
         } else {
             y += FW_ROW_H + FW_GAP;
+            blockBottom = y - FW_GAP;
         }
+        row.blockBottom = blockBottom;
     }
     [self registerSpan:steps top:top bottom:MAX(y - FW_GAP, top) x:x width:w depth:depth];
     return y;
 }
 
 - (CGFloat)layoutBranch:(NSString *)text atY:(CGFloat)y x:(CGFloat)x width:(CGFloat)w
-                  depth:(NSInteger)depth steps:(NSMutableArray *)steps
+                  depth:(NSInteger)depth steps:(NSMutableArray *)steps spanTop:(CGFloat)spanTop
 {
-    CGFloat titleY = y;
     CGFloat branchX = x + 16.0f;
     CGFloat branchW = MAX(w - 16.0f, 80.0f);
-    y = [self layoutBranchTitle:text atY:y x:x];
+    UILabel *label = [self layoutBranchTitle:text atY:y x:x];
+    [_branchLabels addObject:@{ @"label": label, @"steps": steps }];
     y = [self layoutSteps:steps atY:y x:branchX width:branchW depth:depth + 1];
-    [self registerSpan:steps top:titleY bottom:MAX(y - FW_GAP, titleY)
+    [self registerSpan:steps top:spanTop bottom:MAX(y - FW_GAP, spanTop)
                      x:branchX width:branchW depth:depth + 1];
     return y;
 }
@@ -3739,9 +3844,11 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 - (void)attachElseToggleToRow:(FWStepRowView *)row step:(NSMutableDictionary *)step
 {
     CGFloat w = row.bounds.size.width;
+    CGFloat triW = 26.0f;
+    CGFloat triX = w - 34.0f - triW;
     CGFloat toggleW = 62.0f;
     CGFloat toggleH = 30.0f;
-    CGFloat x = w - 34.0f - toggleW - 2.0f;
+    CGFloat x = triX - 6.0f - toggleW;
     BOOL on = fwElseEnabled(step);
 
     UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -3762,6 +3869,21 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         [s refreshKeepingScroll];
     }] forControlEvents:UIControlEventTouchUpInside];
     [row.content addSubview:btn];
+
+    BOOL collapsed = fwCollapsed(step);
+    UIButton *tri = [UIButton buttonWithType:UIButtonTypeSystem];
+    tri.frame = CGRectMake(triX, 0, triW, FW_ROW_H);
+    tri.tintColor = ZXPalette(ZXPalSub);
+    [tri setImage:[UIImage systemImageNamed:(collapsed ? @"arrowtriangle.right" : @"arrowtriangle.down")]
+          forState:UIControlStateNormal];
+    [tri addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        FlowWindow *s = weakSelf;
+        if (!s) return;
+        step[@"Collapsed"] = @(!fwCollapsed(step));
+        [s autosave];
+        [s refreshKeepingScroll];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [row.content addSubview:tri];
 
     UILabel *main = [row.content viewWithTag:101];
     UILabel *sub = [row.content viewWithTag:102];
@@ -3794,11 +3916,14 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     for (UIView *v in scroll.subviews) [v removeFromSuperview];
     _rows = [NSMutableArray array];   // 每次重建都清空：换页后旧行不该再被拖动逻辑引用
     _spans = [NSMutableArray array];
+    _branchLabels = [NSMutableArray array];
     _dragRow = nil;
     _dragSourceSteps = nil;
     _dragTargetSteps = nil;
     _dragTargetIndex = NSNotFound;
     _dragLine = nil;
+    [_dragScrollTimer invalidate];
+    _dragScrollTimer = nil;
 
     BOOL isRoot = [page[@"isRoot"] boolValue];
     [_host flowHostSetNavigationTitle:page[@"title"] canGoBack:!isRoot];

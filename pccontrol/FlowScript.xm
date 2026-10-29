@@ -623,9 +623,7 @@ static NSString *fwSimValue(id value)
         NSString *match = [step[@"Match"] isKindOfClass:[NSString class]] ? step[@"Match"] : @"contains";
         NSString *word = [match isEqualToString:@"equals"] ? @"等于"
                        : ([match isEqualToString:@"notContains"] ? @"不含" : @"包含");
-        return [NSString stringWithFormat:@"如果 (%@,%@)-(%@,%@) 的文字%@「%@」",
-                [self textForValue:step[@"X1"]], [self textForValue:step[@"Y1"]],
-                [self textForValue:step[@"X2"]], [self textForValue:step[@"Y2"]],
+        return [NSString stringWithFormat:@"如果区域%@「%@」",
                 word, text.length ? text : @"（没填）"];
     }
     if ([kind isEqualToString:kFlowAppSwitch]) {
