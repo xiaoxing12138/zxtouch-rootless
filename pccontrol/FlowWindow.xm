@@ -3777,20 +3777,21 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     CGFloat branchW = MAX(w - 16.0f, 80.0f);
     UILabel *label = [self layoutBranchTitle:text atY:y x:x];
     [_branchLabels addObject:@{ @"label": label, @"steps": steps }];
+    y += 18.0f;
     y = [self layoutSteps:steps atY:y x:branchX width:branchW depth:depth + 1];
     [self registerSpan:steps top:spanTop bottom:MAX(y - FW_GAP, spanTop)
                      x:branchX width:branchW depth:depth + 1];
     return y;
 }
 
-- (CGFloat)layoutBranchTitle:(NSString *)text atY:(CGFloat)y x:(CGFloat)x
+- (UILabel *)layoutBranchTitle:(NSString *)text atY:(CGFloat)y x:(CGFloat)x
 {
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(x + 20.0f, y, 120.0f, 16.0f)];
     label.text = text;
     label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
     label.textColor = ZXPalette(ZXPalSub);
     [_scroll addSubview:label];
-    return y + 18.0f;
+    return label;
 }
 
 - (NSString *)rowTitleForStep:(NSDictionary *)step
