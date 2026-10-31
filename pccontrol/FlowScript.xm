@@ -284,20 +284,14 @@ static NSString *fwSimValue(id value)
 
         FlowStepType *image = [self type:kFlowImage title:@"识图" symbol:@"photo.fill" condition:YES];
         image.category = kCatCondition;
-        image.hint = @"「找不到时隔几秒再找」「最多重试几次」：重试用完还没找到模板，才执行「不成立时」里的动作；填 0 次就是只判断一次。";
-        image.pickActionTitle = @"从屏幕框选模板";
-        image.pickMode = FlowPickModeTemplate;
-        image.pickTargets = @[@"Template"];
-        image.pickActionTitle2 = @"从屏幕框选识别区域";
-        image.pickMode2 = FlowPickModeRect;
-        image.pickTargets2 = @[@"X1", @"Y1", @"X2", @"Y2"];
-        image.pick2GateKey = @"Mode";
-        image.pick2GateValue = @"area";
+        image.hint = @"「找不到时隔几秒再找」「最多重试几次」：重试用完还没在识别区域内找到目标，才执行「不成立时」里的动作；填 0 次就是只判断一次。";
+        image.pickActionTitle = @"从屏幕框选识别区域";
+        image.pickMode = FlowPickModeRect;
+        image.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
         FlowFieldSpec *imageMode = [FlowFieldSpec key:@"Mode" title:@"搜索范围" integer:NO def:@"full"];
         imageMode.choiceTitles = @[ @"全屏", @"自定义区域" ];
         imageMode.choiceValues = @[ @"full", @"area" ];
         image.fields = [@[
-            [FlowFieldSpec key:@"Template" title:@"模板图（用下面的按钮框选）" integer:NO def:@""],
             [FlowFieldSpec numKey:@"Threshold" title:@"相似度（0-1）" integer:NO def:@"0.8"],
             imageMode,
             [FlowFieldSpec key:@"X1" title:@"区域左" integer:YES def:@"0"],
@@ -635,14 +629,13 @@ static NSString *fwSimValue(id value)
                 [self textForValue:step[@"Count"]]];
     }
     if ([kind isEqualToString:kFlowImage]) {
-        NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
         NSString *imageMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"full";
         NSString *where = @"全屏";
         if ([imageMode isEqualToString:@"area"]) {
             where = @"区域";
         }
-        return [NSString stringWithFormat:@"如果 %@ 里有模板「%@」（≥%@）",
-                where, name.length ? name : @"未框选", [self textForValue:step[@"Threshold"]]];
+        return [NSString stringWithFormat:@"如果 %@ 里匹配到目标（相似度≥%@）",
+                where, [self textForValue:step[@"Threshold"]]];
     }
     if ([kind isEqualToString:kFlowOCR]) {
         NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
