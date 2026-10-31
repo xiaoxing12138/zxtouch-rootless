@@ -32,7 +32,7 @@ static NSString *fwAppDisplayName(NSString *bundle)
     return name.length > 0 ? name : bundle;
 }
 
-// 判断步骤的「不成立」分支可以整体关掉；缺省开（老脚本行为不变）
+// 判断步骤的「不成立」分支可以整体关掉；缺省开
 static BOOL fwFlowElseEnabled(NSDictionary *step)
 {
     id v = step[@"ElseEnabled"];
@@ -77,11 +77,6 @@ BOOL FlowStepSupportsArea(NSDictionary *step)
 
 NSString * FlowAreaModeForStep(NSDictionary *step)
 {
-    if ([step[@"Kind"] isEqualToString:kFlowImage]) {
-        id m = step[@"Mode"];
-        NSString *mode = [m isKindOfClass:[NSString class]] ? m : @"full";
-        return [mode isEqualToString:@"area"] ? @"area" : @"full";
-    }
     id v = step[@"AreaMode"];
     if ([v isKindOfClass:[NSString class]]) {
         return [v isEqualToString:@"full"] ? @"full" : @"area";
@@ -120,7 +115,7 @@ static FlowFieldSpec *flowSimFieldSpec(void)
     return sim;
 }
 
-// 每个判断条件都带一组「找不到就重试」：0 次 = 只判断一次（老脚本的默认行为）
+// 每个判断条件都带一组「找不到就重试」：0 次 = 只判断一次
 static NSArray<FlowFieldSpec *> *flowRetryFieldSpecs(void)
 {
     FlowFieldSpec *interval = [FlowFieldSpec numKey:@"RetryInterval" title:@"找不到时隔几秒再找" integer:NO def:@"1"];
@@ -476,9 +471,6 @@ static NSString *fwSimValue(id value)
     type.pickActionTitle = @"";
     type.pickMode = FlowPickModeNone;
     type.pickTargets = @[];
-    type.pickMode2 = FlowPickModeNone;
-    type.pickActionTitle2 = @"";
-    type.pickTargets2 = @[];
     type.fields = @[];
     return type;
 }
@@ -625,13 +617,8 @@ static NSString *fwSimValue(id value)
                 [self textForValue:step[@"Count"]]];
     }
     if ([kind isEqualToString:kFlowImage]) {
-        NSString *imageMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"full";
-        NSString *where = @"全屏";
-        if ([imageMode isEqualToString:@"area"]) {
-            where = @"区域";
-        }
-        return [NSString stringWithFormat:@"如果 %@ 里匹配到目标（相似度≥%@）",
-                where, [self textForValue:step[@"Threshold"]]];
+        return [NSString stringWithFormat:@"如果屏幕里匹配到目标（相似度≥%@）",
+                [self textForValue:step[@"Threshold"]]];
     }
     if ([kind isEqualToString:kFlowOCR]) {
         NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
@@ -1147,16 +1134,8 @@ static NSInteger flowNextCodeSeq(void)
     } else if ([kind isEqualToString:kFlowImage]) {
         NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
         NSString *path = [kFlowTemplateFolder stringByAppendingPathComponent:name.length ? name : @"未框选.png"];
-        NSString *imageMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"full";
-        NSInteger x = 0, y = 0, w = 0, h = 0;
-        if ([imageMode isEqualToString:@"area"]) {
-            NSInteger left = [step[@"X1"] integerValue], top = [step[@"Y1"] integerValue];
-            NSInteger right = [step[@"X2"] integerValue], bottom = [step[@"Y2"] integerValue];
-            x = MIN(left, right); y = MIN(top, bottom);
-            w = labs(right - left); h = labs(bottom - top);
-        }
-        condition = [NSString stringWithFormat:@"找图(\"%@\", %@, %ld, %ld, %ld, %ld)",
-                     path, [self textForValue:step[@"Threshold"]], (long)x, (long)y, (long)w, (long)h];
+        condition = [NSString stringWithFormat:@"找图(\"%@\", %@, 0, 0, 0, 0)",
+                     path, [self textForValue:step[@"Threshold"]]];
     } else if ([kind isEqualToString:kFlowOCR]) {
         NSInteger x = 0, y = 0, w = 0, h = 0;
         if (![FlowAreaModeForStep(step) isEqualToString:@"full"]) {

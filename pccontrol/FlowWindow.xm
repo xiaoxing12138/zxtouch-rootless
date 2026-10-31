@@ -43,7 +43,7 @@
 // 子浮窗宽高：所有脚本共用一套，存公共配置（和选项面板的 panel_state 一样是全局的）
 static char kFWRepeatStepKey;
 
-// 「不成立」分支开关：缺省开（老脚本行为不变）
+// 「不成立」分支开关：缺省开
 static BOOL fwElseEnabled(NSDictionary *step)
 {
     id v = step[@"ElseEnabled"];
@@ -2381,28 +2381,10 @@ static void fwFetchLatestVersion(NSUInteger index, void (^completion)(NSString *
             y = [strongSelf subAddRow:pick y:y];
         }
 
-        if (type.pickMode2 != FlowPickModeNone) {
-            BOOL showAlt = YES;
-            if (type.pick2GateKey.length > 0) {
-                id gate = step[type.pick2GateKey];
-                showAlt = [gate isKindOfClass:[NSString class]] && [gate isEqualToString:type.pick2GateValue];
-            }
-            if (showAlt) {
-                y += 2;
-                UIView *alt = [strongSelf makePickRowForStep:step mode:type.pickMode2 targets:type.pickTargets2
-                                                       title:type.pickActionTitle2 width:w
-                                                      action:^{
-                    [strongSelf beginPickingForStep:step mode:type.pickMode2 targets:type.pickTargets2];
-                }];
-                y = [strongSelf subAddRow:alt y:y];
-            }
-        }
-
         NSArray<NSDictionary<NSString *, id> *> *groups = fwGroupsForKind(step[@"Kind"]);
         NSMutableSet<NSString *> *used = [NSMutableSet set];
         // 取点行已经承载了这些字段（坐标 / 模板名），下面不再重复铺输入框
         [used addObjectsFromArray:type.pickTargets];
-        [used addObjectsFromArray:type.pickTargets2];
         // 识别范围改由上面的标签切换，不再铺旧的「搜索范围」选择行
         if (areaKey.length > 0) [used addObject:areaKey];
         for (NSDictionary<NSString *, id> *group in groups) {
@@ -2867,18 +2849,8 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         NSString *name = [step[@"Template"] isKindOfClass:[NSString class]] ? step[@"Template"] : @"";
         NSString *path = [kFlowTemplateFolder stringByAppendingPathComponent:name.length ? name : @"未框选.png"];
         double threshold = fwStepNumber(step, @"Threshold", 0.8);
-        NSInteger x = 0, y = 0, w = 0, h = 0;
-        NSString *imageMode = [step[@"Mode"] isKindOfClass:[NSString class]] ? step[@"Mode"] : @"full";
-        if ([imageMode isEqualToString:@"area"]) {
-            NSInteger left = (NSInteger)llround(fwStepNumber(step, @"X1", 0));
-            NSInteger top = (NSInteger)llround(fwStepNumber(step, @"Y1", 0));
-            NSInteger right = (NSInteger)llround(fwStepNumber(step, @"X2", 0));
-            NSInteger bottom = (NSInteger)llround(fwStepNumber(step, @"Y2", 0));
-            x = MIN(left, right); y = MIN(top, bottom);
-            w = labs(right - left); h = labs(bottom - top);
-        }
         NSMutableData *keep = nil;
-        UInt8 *raw = fwRawBuffer([NSString stringWithFormat:@"%@;;0;;%@;;0.8;;%ld;;%ld;;%ld;;%ld", path, [FlowScript textForValue:@(threshold)], (long)x, (long)y, (long)w, (long)h], &keep);
+        UInt8 *raw = fwRawBuffer([NSString stringWithFormat:@"%@;;0;;%@;;0.8;;0;;0;;0;;0", path, [FlowScript textForValue:@(threshold)]], &keep);
         float best = 0;
         CGRect rect = screenMatchFromRawData(raw, &error, &best);
         if (error) {

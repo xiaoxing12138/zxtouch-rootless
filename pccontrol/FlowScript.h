@@ -46,10 +46,9 @@ extern NSString * const kFlowWeChat;     // 发微信（占位）
 extern NSString * const kFlowHttp;       // URL 请求
 extern NSString * const kFlowShell;      // 执行命令
 
-/// 判断步骤是不是「可选区域」的（找色 / 数色 / 识图 / 识字）
+/// 判断步骤是不是「可选区域」的（找色 / 数色 / 识字）
 extern BOOL FlowStepSupportsArea(NSDictionary *step);
-/// 识别范围：@"full" 全屏 / @"area" 自定义区域。识图用 Mode，其余用 AreaMode；
-/// 老脚本没存 AreaMode 时按坐标判断（全 0 算全屏）
+/// 识别范围：@"full" 全屏 / @"area" 自定义区域；按 AreaMode 判断，没存时按坐标判断（全 0 算全屏）
 extern NSString * FlowAreaModeForStep(NSDictionary *step);
 
 /// 在弹窗里追加的「从屏幕取…」动作
@@ -91,13 +90,6 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 @property (nonatomic, copy) NSString *pickActionTitle;  // 空串 = 这个类型没有取点动作
 @property (nonatomic) FlowPickMode pickMode;
 @property (nonatomic, copy) NSArray<NSString *> *pickTargets;
-/// 同一个步骤里的第二个取点动作（例如识图：先选模板，再框选搜索区域）
-@property (nonatomic) FlowPickMode pickMode2;
-@property (nonatomic, copy) NSString *pickActionTitle2;
-@property (nonatomic, copy) NSArray<NSString *> *pickTargets2;
-/// 第二个取点动作只在某个字段等于某个值时才显示（空 = 一直显示）
-@property (nonatomic, copy, nullable) NSString *pick2GateKey;
-@property (nonatomic, copy, nullable) NSString *pick2GateValue;
 @property (nonatomic, copy) NSArray<FlowFieldSpec *> *fields;
 @end
 
