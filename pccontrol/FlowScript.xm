@@ -72,7 +72,7 @@ BOOL FlowStepSupportsArea(NSDictionary *step)
 {
     NSString *kind = step[@"Kind"];
     return [kind isEqualToString:kFlowFindColor] || [kind isEqualToString:kFlowCountColor]
-        || [kind isEqualToString:kFlowImage] || [kind isEqualToString:kFlowOCR];
+        || [kind isEqualToString:kFlowOCR];
 }
 
 NSString * FlowAreaModeForStep(NSDictionary *step)
@@ -284,16 +284,12 @@ static NSString *fwSimValue(id value)
 
         FlowStepType *image = [self type:kFlowImage title:@"识图" symbol:@"photo.fill" condition:YES];
         image.category = kCatCondition;
-        image.hint = @"「找不到时隔几秒再找」「最多重试几次」：重试用完还没在识别区域内找到目标，才执行「不成立时」里的动作；填 0 次就是只判断一次。";
-        image.pickActionTitle = @"从屏幕框选识别区域";
-        image.pickMode = FlowPickModeRect;
+        image.hint = @"「找不到时隔几秒再找」「最多重试几次」：重试用完还没在屏幕上找到目标，才执行「不成立时」里的动作；填 0 次就是只判断一次。框选的区域会被后台保存成模板图，用来在全屏里找这个图案。";
+        image.pickActionTitle = @"从屏幕框选要找的区域";
+        image.pickMode = FlowPickModeTemplate;
         image.pickTargets = @[@"X1", @"Y1", @"X2", @"Y2"];
-        FlowFieldSpec *imageMode = [FlowFieldSpec key:@"Mode" title:@"搜索范围" integer:NO def:@"full"];
-        imageMode.choiceTitles = @[ @"全屏", @"自定义区域" ];
-        imageMode.choiceValues = @[ @"full", @"area" ];
         image.fields = [@[
             [FlowFieldSpec numKey:@"Threshold" title:@"相似度（0-1）" integer:NO def:@"0.8"],
-            imageMode,
             [FlowFieldSpec key:@"X1" title:@"区域左" integer:YES def:@"0"],
             [FlowFieldSpec key:@"Y1" title:@"区域上" integer:YES def:@"0"],
             [FlowFieldSpec key:@"X2" title:@"区域右" integer:YES def:@"0"],

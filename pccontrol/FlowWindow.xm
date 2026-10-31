@@ -1049,7 +1049,7 @@ static FlowWindow *_fwShared = nil;
         NSNumber *x = fwStepCoordNumber(step, targets[0]);
         NSNumber *y = fwStepCoordNumber(step, targets[1]);
         if (x && y) { pickStart = CGPointMake(x.doubleValue, y.doubleValue); hasPickStart = YES; }
-    } else if ((mode == FlowPickModePath || mode == FlowPickModeRect) && targets.count >= 4) {
+    } else if ((mode == FlowPickModePath || mode == FlowPickModeRect || mode == FlowPickModeTemplate) && targets.count >= 4) {
         NSNumber *x1 = fwStepCoordNumber(step, targets[0]);
         NSNumber *y1 = fwStepCoordNumber(step, targets[1]);
         NSNumber *x2 = fwStepCoordNumber(step, targets[2]);
@@ -1120,7 +1120,7 @@ static FlowWindow *_fwShared = nil;
     if (targets.count == 0) return;
 
     if (mode == FlowPickModePoint || mode == FlowPickModePath ||
-        mode == FlowPickModeRect) {
+        mode == FlowPickModeRect || mode == FlowPickModeTemplate) {
         // 起点 / 终点分开写：滑动要的是方向，不能被外接矩形抹掉
         CGPoint start = [result[kPickStart] CGPointValue];
         CGPoint end = [result[kPickEnd] CGPointValue];
@@ -1134,8 +1134,10 @@ static FlowWindow *_fwShared = nil;
         step[targets[0]] = @(llround(point.x));
         if (targets.count > 1) step[targets[1]] = @(llround(point.y));
         if ([result[kPickHex] length] > 0) step[@"Color"] = result[kPickHex];
-    } else if (mode == FlowPickModeTemplate) {
-        if ([result[kPickTemplate] length] > 0) step[targets[0]] = result[kPickTemplate];
+    }
+    // 识图（模板）取点时，除了记下区域坐标，还要把后台保存的模板图文件名存进 Template
+    if (mode == FlowPickModeTemplate) {
+        if ([result[kPickTemplate] length] > 0) step[@"Template"] = result[kPickTemplate];
     }
 }
 
@@ -1155,10 +1157,8 @@ static FlowWindow *_fwShared = nil;
             return [NSString stringWithFormat:@"%@,%@ → %@,%@", v(0), v(1), v(2), v(3)];
         case FlowPickModeRect:
             return [NSString stringWithFormat:@"%@,%@ → %@,%@", v(0), v(1), v(2), v(3)];
-        case FlowPickModeTemplate: {
-            NSString *name = v(0);
-            return name.length ? name : @"还没框选";
-        }
+        case FlowPickModeTemplate:
+            return [NSString stringWithFormat:@"%@,%@ → %@,%@", v(0), v(1), v(2), v(3)];
         default:
             return nil;
     }
