@@ -281,6 +281,8 @@ static void ZXOcrDebugLog(NSString *text)
             errorResult = error;
         }];
 
+        request.usesCPUOnly = YES;
+
         // may cause crash
         if (SYSTEM_VERSION_LESS_THAN(@"14.0"))
         {

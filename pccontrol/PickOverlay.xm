@@ -66,6 +66,16 @@ static UIButton *pkMakeButton(NSString *title, UIColor *color)
 @end
 
 @implementation PKRootViewController
+- (BOOL)shouldAutorotate { return NO; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    UIInterfaceOrientation o = [UIApplication sharedApplication].statusBarOrientation;
+    if (o == UIInterfaceOrientationUnknown) o = UIInterfaceOrientationPortrait;
+    return 1U << o;
+}
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {
+    UIInterfaceOrientation o = [UIApplication sharedApplication].statusBarOrientation;
+    return o == UIInterfaceOrientationUnknown ? UIInterfaceOrientationPortrait : o;
+}
 - (void)loadView {
     PKRootView *v = [[PKRootView alloc] initWithFrame:[UIScreen mainScreen].bounds];
     v.backgroundColor = [UIColor clearColor];

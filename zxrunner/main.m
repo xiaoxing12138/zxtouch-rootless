@@ -387,6 +387,7 @@ static int handle_ocr(int client, NSDictionary *cmd)
     VNRecognizeTextRequest *req = [[VNRecognizeTextRequest alloc] init];
     req.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
     req.usesLanguageCorrection = YES;
+    req.usesCPUOnly = YES;
     @try {
         req.revision = (NSUInteger)rev.integerValue;
     } @catch (NSException *e) {
