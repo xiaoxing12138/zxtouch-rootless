@@ -13,6 +13,13 @@ static NSMutableDictionary *socketClientBuffers = NULL;
 static NSMutableDictionary *socketClientQueues = NULL;
 void report_memory(void);
 
+static volatile BOOL zxSocketBound = NO;
+
+BOOL ZXSocketServerReady(void)
+{
+    return zxSocketBound;
+}
+
 // Reference: https://www.jianshu.com/p/9353105a9129
 
 void socketServer()
@@ -42,11 +49,10 @@ void socketServer()
         
         if (CFSocketSetAddress(_socket, address) != kCFSocketSuccess) {
             NSLog(@"### com.zjx.springboard: failed to bind socket on port %d", PORT);
-            [@"socket-bind-failed" writeToFile:@"/var/mobile/d_sockfail.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
             if (_socket) CFRelease(_socket);
             return;
         }
-        [@"socket-bound-ok" writeToFile:@"/var/mobile/d_sockbound.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        zxSocketBound = YES;
         
         socketClients = [[NSMutableDictionary alloc] init];
         socketClientBuffers = [[NSMutableDictionary alloc] init];

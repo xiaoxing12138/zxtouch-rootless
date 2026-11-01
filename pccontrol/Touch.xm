@@ -27,9 +27,103 @@ IOHIDEventSystemClientRef ioHIDEventSystemForSenderID = NULL;
 // touch event sender id
 unsigned long long int senderID = 0x0;
 
+// 注入统计：真发出去几条、被丢掉几条、最近一次失败原因
+static volatile NSInteger zxPostedCount = 0;
+static volatile NSInteger zxDroppedCount = 0;
+static NSString *zxLastTouchError = @"";
+
+// 服务属性探测用的私有接口（不保证存在，取不到就当没有）
+extern CFArrayRef IOHIDEventSystemClientCopyServices(IOHIDEventSystemClientRef client);
+extern CFTypeRef IOHIDServiceClientCopyProperty(void *service, CFStringRef key);
 
 // valid type x y
 static int eventsToAppend[MAX_FINGER_INDEX][4];
+
+BOOL ZXTouchSenderReady(void) { return senderID != 0x0; }
+uint64_t ZXTouchSenderID(void) { return senderID; }
+NSInteger ZXTouchPostedCount(void) { return zxPostedCount; }
+NSInteger ZXTouchDroppedCount(void) { return zxDroppedCount; }
+NSString *ZXTouchLastError(void) { return zxLastTouchError ?: @""; }
+static void setLastTouchError(NSString *message)
+{
+    zxLastTouchError = [message copy] ?: @"";
+}
+
+/*
+从系统 HID 服务的属性里直接问一个 senderID。
+手指触摸嗅探拿不到时（比如刚重启、或者嗅探回调没生效）用这条兜底，
+拿到的值同样能派发事件；拿不到就返回 0，行为和以前一样（不冒险瞎发）。
+*/
+static uint64_t senderIDFromServices(void)
+{
+    uint64_t found = 0;
+    IOHIDEventSystemClientRef client = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+    if (!client) return 0;
+
+    CFArrayRef services = NULL;
+    @try {
+        services = IOHIDEventSystemClientCopyServices(client);
+    } @catch (NSException *exception) {
+        services = NULL;
+    }
+
+    if (services) {
+        CFIndex count = CFArrayGetCount(services);
+        for (CFIndex i = 0; i < count && found == 0; i++) {
+            void *service = (void *)CFArrayGetValueAtIndex(services, i);
+            if (!service) continue;
+
+            // 只要触摸屏那一路（Digitizer Page = 0x0D），别的服务给了也不能点
+            CFTypeRef page = NULL;
+            @try {
+                page = IOHIDServiceClientCopyProperty(service, CFSTR("PrimaryUsagePage"));
+            } @catch (NSException *exception) {
+                page = NULL;
+            }
+            BOOL isDigitizer = NO;
+            if (page) {
+                if (CFGetTypeID(page) == CFNumberGetTypeID()) {
+                    long long pageValue = -1;
+                    if (CFNumberGetValue((CFNumberRef)page, kCFNumberLongLongType, &pageValue)) {
+                        isDigitizer = (pageValue == 0x0D);
+                    }
+                }
+                CFRelease(page);
+            }
+            if (!isDigitizer) continue;
+
+            CFTypeRef value = NULL;
+            @try {
+                value = IOHIDServiceClientCopyProperty(service, CFSTR("SenderID"));
+            } @catch (NSException *exception) {
+                value = NULL;
+            }
+            if (!value) continue;
+            if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+                long long raw = 0;
+                if (CFNumberGetValue((CFNumberRef)value, kCFNumberLongLongType, &raw) && raw != 0) {
+                    found = (uint64_t)raw;
+                }
+            }
+            CFRelease(value);
+        }
+        CFRelease(services);
+    }
+    CFRelease(client);
+    return found;
+}
+
+/// 兜底 senderID：只问一次系统，结果缓存。给自检和注入共用，避免两边结论不一致
+uint64_t ZXTouchFallbackSenderID(void)
+{
+    static uint64_t cached = 0;
+    static BOOL tried = NO;
+    if (!tried) {
+        tried = YES;
+        cached = senderIDFromServices();
+    }
+    return cached;
+}
 
 /*
 get count from data array by socket
@@ -156,7 +250,7 @@ static void appendChildEvent(IOHIDEventRef parent, int type, int index, float x,
 /**
 Perform touch events with data received from socket
 */
-void performTouchFromRawData(UInt8 *eventData)
+BOOL performTouchFromRawData(UInt8 *eventData)
 {
     // generate a parent event
 	IOHIDEventRef parent = IOHIDEventCreateDigitizerEvent(kCFAllocatorDefault, mach_absolute_time(), 3, 99, 1, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0, 0); 
@@ -215,36 +309,56 @@ void performTouchFromRawData(UInt8 *eventData)
     IOHIDEventSetIntegerValue(parent, 0xb0007, 0x23);
     IOHIDEventSetIntegerValue(parent, 0xb0008, 0x1);
     IOHIDEventSetIntegerValue(parent, 0xb0009, 0x1);
-
     IOHIDEventSetIntegerValue(parent, ZX_SCRIPT_INJECT_FIELD, ZX_SCRIPT_INJECT_VALUE);
-    ZXScriptInjectionNote((uint64_t)IOHIDEventGetTimeStamp(parent));
 
-    postIOHIDEvent(parent);
+    BOOL posted = postIOHIDEvent(parent);
+    if (posted) {
+        ZXScriptInjectionNote((uint64_t)IOHIDEventGetTimeStamp(parent));
+    }
     CFRelease(parent);
 
     // 画面马上要变了，作废当前帧缓存，让下一次取色 / 匹配重新抓屏
     [Screen invalidateFrame];
+    return posted;
 }
 
 /**
 Post the parent event
 */
-static void postIOHIDEvent(IOHIDEventRef event)
+static BOOL postIOHIDEvent(IOHIDEventRef event)
 {
     static IOHIDEventSystemClientRef ioSystemClient = NULL;
+
     if (!ioSystemClient){
         ioSystemClient = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
     }
-    if (senderID == 0) {
-        // 懒加载：第一次发触摸时才初始化 senderID（避免 SpringBoard 启动时就注册全局 HID 回调）
+
+    uint64_t effectiveID = senderID;
+    if (effectiveID == 0) {
+        // 懒加载：万一开机时的预热没跑（老版本升级上来、SpringBoard 没走到初始化），这里再补一次
         initSenderId();
-        if (senderID == 0) {
-            NSLog(@"### com.zjx.springboard: sender id still 0 after init, skip event");
-            return;
-        }
+        effectiveID = senderID;
     }
-    IOHIDEventSetSenderID(event, senderID);
+    if (effectiveID == 0) {
+        // 真实触摸还没抓到过：直接问系统要一个触摸屏服务的 senderID。
+        // 只作兜底——真值一旦被嗅探到就立刻盖过去，不会被这个猜的值长期占据。
+        effectiveID = ZXTouchFallbackSenderID();
+    }
+
+    if (effectiveID == 0) {
+        // 这里以前是「静默丢弃」：脚本照常往下跑，屏幕一点反应都没有，自检还显示可用。
+        // 现在记下次数和原因，让自检能明确报出来。
+        zxDroppedCount += 1;
+        setLastTouchError(@"还没拿到系统触摸 ID（先在屏幕上用手指点几下，再重试）");
+        NSLog(@"### com.zjx.springboard: sender id still 0 after init, skip event");
+        return NO;
+    }
+
+    IOHIDEventSetSenderID(event, effectiveID);
     IOHIDEventSystemClientDispatchEvent(ioSystemClient, event);
+    zxPostedCount += 1;
+    setLastTouchError(@"");
+    return YES;
 }
 
 /*
@@ -252,6 +366,11 @@ Get sender id. If the device has not been rebooted, read senderid from file. Oth
 */
 void initSenderId()
 {
+    if (senderID != 0x0)
+    {
+        return;
+    }
+
     NSString *plistPath = [NSString stringWithFormat:@"%@/coreutils/touching/%@", getDocumentRoot(), TOUCH_SENDER_ID_PLIST_FILE_NAME];
     if ([[NSFileManager defaultManager] fileExistsAtPath:plistPath])
     {
@@ -263,10 +382,11 @@ void initSenderId()
         
         NSDictionary *data = [NSDictionary dictionaryWithContentsOfFile:plistPath];
         NSInteger lastRebootTime = [data[@"lastReboot"] longValue];
+        unsigned long long cachedSenderID = [data[@"senderID"] longLongValue];
         
-        if (abs(lastRebootTime - thisRebootTime) <= 3)
+        if (abs(lastRebootTime - thisRebootTime) <= 3 && cachedSenderID != 0x0)
         {
-            senderID = [data[@"senderID"] longLongValue];
+            senderID = cachedSenderID;
             NSLog(@"com.zjx.springboard: since the device has not been rebooted. Read sender id from the file. SenderID get: %qX", senderID);
             return;
         }
@@ -274,28 +394,12 @@ void initSenderId()
     
     NSLog(@"com.zjx.springboard: cannot read the sender id from file because the file doesn't exist or the device has restarted. Start set senderid callback.");
     startSetSenderIDCallBack();
-
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        // I know the code here is bad here, change this later.
-        while (true)
-        {
-            [NSThread sleepForTimeInterval:2.0f];
-
-            if (ioHIDEventSystemForSenderID != NULL && senderID != 0x0) // unregister the callback
-            {
-                IOHIDEventSystemClientUnregisterEventCallback(ioHIDEventSystemForSenderID);
-                IOHIDEventSystemClientUnscheduleWithRunLoop(ioHIDEventSystemForSenderID, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
-                NSLog(@"com.zjx.springboard: unregister get sender id callback!");
-                break;
-            }
-        }
-    });
-
 }
 
 
 /*
-Get the sender id and unregister itself.
+Get the sender id。回调常驻：senderID 只能靠「抓到一个真实触摸」拿到，
+刚开机或嗅探注册晚了都还是 0，注销掉就再也抓不到，所以拿到后也不注销。
 */
 static void setSenderIdCallback(void* target, void* refcon, IOHIDServiceRef service, IOHIDEventRef event)
 {
@@ -310,6 +414,10 @@ static void setSenderIdCallback(void* target, void* refcon, IOHIDServiceRef serv
             }
 
 			senderID = IOHIDEventGetSenderID(event);
+            if (senderID == 0x0)
+            {
+                return;
+            }
 
             NSInteger currentTime = [[NSDate date] timeIntervalSince1970];
             NSInteger timeSinceReboot = [NSProcessInfo processInfo].systemUptime;
@@ -329,6 +437,10 @@ Start the callback for setting sender id
 */
 void startSetSenderIDCallBack()
 {
+    if (ioHIDEventSystemForSenderID != NULL)
+    {
+        return;
+    }
     ioHIDEventSystemForSenderID = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
     // 必须注册到主线程 runloop：initSenderId 是懒加载、可能在后台线程调用，
     // 后台线程的 runloop 默认不运行，回调永远收不到真实触摸事件，senderID 一直是 0，

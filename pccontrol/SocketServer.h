@@ -18,3 +18,6 @@ static void TCPServerAcceptCallBack(CFSocketRef socket, CFSocketCallBackType typ
 int notifyClient(UInt8* msg, CFWriteStreamRef client);
 int notifyClientData(const UInt8 *data, CFIndex length, CFWriteStreamRef client);
 
+/// 6000 端口是否已经绑好并在跑（自检用：脚本连不上这里就什么都做不了）
+BOOL ZXSocketServerReady(void);
+

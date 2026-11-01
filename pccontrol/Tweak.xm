@@ -458,22 +458,21 @@ Boolean init()
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            [@"1-block-started" writeToFile:@"/var/mobile/d1.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
-
             // nativeBounds is always in portrait physical pixels, unaffected by rotation
             CGRect nativeBounds = [UIScreen mainScreen].nativeBounds;
             CGFloat width = nativeBounds.size.width;
             CGFloat height = nativeBounds.size.height;
             [Screen setScreenSize:(width<height?width:height) height:(width>height?width:height)];
-            [@"3-screen-set" writeToFile:@"/var/mobile/d3.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
             initTouchGetScreenSize();
+            // senderID 是注入触摸的前提，只能在「抓到一次真实触摸」时确定。
+            // 开机就把嗅探挂上，用户随便点一下屏幕就存好了；等到脚本跑起来才挂，
+            // 那时屏幕前没人碰，senderID 永远是 0，点击全部被丢弃（表现为「能跑但没反应」）。
+            initSenderId();
             init();  // 读 config、启动触摸指示器等
             ZXReloadPopupListener();  // 按配置决定是否启动键盘监听
-            [@"5-sender-init" writeToFile:@"/var/mobile/d5.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
             call_system("chown -R mobile:mobile /var/mobile/Library/ZXTouch");
-            [@"7-before-socketServer" writeToFile:@"/var/mobile/d7.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
             socketServer();
         });

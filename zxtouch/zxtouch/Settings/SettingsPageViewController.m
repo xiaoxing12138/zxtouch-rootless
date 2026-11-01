@@ -1203,12 +1203,26 @@ static NSString *ZXExitText(id value) {
                     NSDictionary *prA = [dict[@"spawn_probe_A_shell"] isKindOfClass:[NSDictionary class]] ? dict[@"spawn_probe_A_shell"] : nil;
                     NSDictionary *prB = [dict[@"spawn_probe_B_direct"] isKindOfClass:[NSDictionary class]] ? dict[@"spawn_probe_B_direct"] : nil;
                     NSDictionary *daemon = [dict[@"daemon_probe"] isKindOfClass:[NSDictionary class]] ? dict[@"daemon_probe"] : nil;
+                    NSDictionary *touch = [dict[@"touch"] isKindOfClass:[NSDictionary class]] ? dict[@"touch"] : nil;
 
                     NSString *daemonExit = [daemon[@"python_spawn_exit"] isKindOfClass:[NSString class]] ? daemon[@"python_spawn_exit"] : @"";
                     BOOL springboardOK = ZXExitZero(prA[@"exit"]) || ZXExitZero(prB[@"exit"]);
                     BOOL daemonOK = [daemonExit isEqualToString:@"0"];
-                    usable = springboardOK || daemonOK;
-                    verdictText = usable ? @"✅ 本机可用连点器" : @"❌ 本机暂不可用连点器";
+                    // Python 跑得起来只是「能有脚本」，真正决定能不能点是触摸注入。
+                    // 以前这里只看 Python，于是注入全废时仍然报「可用」。
+                    BOOL pythonOK = springboardOK || daemonOK;
+                    BOOL senderReady = [touch[@"sender_ready"] boolValue];
+                    NSString *fallbackID = [touch[@"fallback_id"] isKindOfClass:[NSString class]] ? touch[@"fallback_id"] : @"0x0";
+                    BOOL fallbackOK = ![fallbackID isEqualToString:@"0x0"];
+                    BOOL touchOK = senderReady || fallbackOK;
+                    usable = pythonOK && touchOK;
+                    if (!pythonOK) {
+                        verdictText = @"❌ 本机暂不可用连点器";
+                    } else if (!touchOK) {
+                        verdictText = @"❌ Python 正常，但触摸注入没就绪";
+                    } else {
+                        verdictText = @"✅ 本机可用连点器";
+                    }
 
                     double ramGB = [dev[@"ram_bytes"] doubleValue] / 1073741824.0;
                     double batHealth = [bat[@"health_percent"] doubleValue];
@@ -1250,12 +1264,29 @@ static NSString *ZXExitText(id value) {
                     [panelText appendFormat:@"守护进程代跑 Python：%@\n",
                      daemonOK ? @"✅ 成功" : (daemonExit.length > 0 ? [NSString stringWithFormat:@"❌ exit=%@", daemonExit] : @"❌ 无结果")];
 
+                    [panelText appendString:@"\n【触摸注入】\n"];
+                    if (touch) {
+                        [panelText appendFormat:@"状态：%@\n", touchOK ? @"✅ 可注入" : @"❌ 未就绪"];
+                        if (senderReady) {
+                            [panelText appendFormat:@"触摸 ID：%@\n", touch[@"sender_id"] ?: @"?"];
+                        } else {
+                            [panelText appendString:@"触摸 ID：没抓到（先用手指在屏幕上点几下，再重新检测）\n"];
+                        }
+                    } else {
+                        [panelText appendString:@"无数据（tweak 版本过旧）\n"];
+                    }
+
                     // ---------- 完整结果（剪贴板）----------
                     [full appendString:@"【结论】\n"];
-                    [full appendFormat:@"  %@（SpringBoard 直跑=%@，守护进程代跑=%@）\n",
+                    [full appendFormat:@"  %@（SpringBoard 直跑=%@，守护进程代跑=%@，触摸注入=%@）\n",
                      usable ? @"本机可用连点器" : @"本机暂不可用连点器",
                      springboardOK ? @"可用" : @"不可用",
-                     daemonOK ? @"成功" : @"失败"];
+                     daemonOK ? @"成功" : @"失败",
+                     touchOK ? @"就绪" : @"未就绪"];
+                    if (pythonOK && !touchOK) {
+                        [full appendString:@"  → Python 能跑，但脚本点了没反应就是这个原因：触摸 ID 还没抓到。\n"
+                                          "     先用手指在屏幕上点几下，再重新检测；之后跑脚本就有反应了。\n"];
+                    }
                     [full appendString:@"\n【设备信息】\n"];
                     [full appendFormat:@"  机型：%@ （%@）\n", dev[@"marketing"] ?: @"?", dev[@"machine"] ?: @"?"];
                     [full appendFormat:@"  设备名：%@\n", dev[@"name"] ?: @"?"];
@@ -1312,6 +1343,20 @@ static NSString *ZXExitText(id value) {
                         [full appendString:@"\n执行链路对比（SpringBoard 进程内）：\n"];
                         [full appendFormat:@"  A  shell间接  sh -c '<python> --version' → exit=%@\n     输出：%@\n", ZXExitText(prA[@"exit"]), [prA[@"output"] length] ? prA[@"output"] : @"(无)"];
                         [full appendFormat:@"  B  直接exec   posix_spawn(python)     → exit=%@\n     输出：%@\n", ZXExitText(prB[@"exit"]), [prB[@"output"] length] ? prB[@"output"] : @"(无)"];
+                    }
+
+                    [full appendString:@"\n【触摸注入】\n"];
+                    if (touch) {
+                        [full appendFormat:@"  系统触摸 ID：%@\n", touch[@"sender_id"] ?: @"?"];
+                        [full appendFormat:@"  已抓到真实触摸：%@\n", senderReady ? @"是" : @"否"];
+                        [full appendFormat:@"  服务兜底 ID：%@\n", fallbackID];
+                        [full appendFormat:@"  已发出事件：%@ 条 / 被丢弃：%@ 条\n",
+                         touch[@"posted"] ?: @0, touch[@"dropped"] ?: @0];
+                        NSString *touchErr = [touch[@"last_error"] isKindOfClass:[NSString class]] ? touch[@"last_error"] : @"";
+                        if (touchErr.length > 0) [full appendFormat:@"  最近一次失败原因：%@\n", touchErr];
+                        [full appendFormat:@"  SpringBoard 端口 6000：%@\n", [touch[@"socket_ready"] boolValue] ? @"已监听" : @"未监听"];
+                    } else {
+                        [full appendString:@"  无数据（tweak 版本过旧，请升级小新Lap）\n"];
                     }
 
                     NSString *jbPrefix = dict[@"jbroot_prefix"];

@@ -1089,6 +1089,23 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                 root[@"env_info_error"] = exception.reason ?: @"采集失败";
             }
 
+            // ---- 触摸注入：这才是「脚本能不能点」的关键，光有 Python 跑得起来不够 ----
+            @try {
+                root[@"touch"] = @{
+                    @"sender_id": [NSString stringWithFormat:@"0x%llX", ZXTouchSenderID()],
+                    @"sender_ready": @(ZXTouchSenderReady()),
+                    @"fallback_id": [NSString stringWithFormat:@"0x%llX", ZXTouchFallbackSenderID()],
+                    @"posted": @(ZXTouchPostedCount()),
+                    @"dropped": @(ZXTouchDroppedCount()),
+                    @"last_error": ZXTouchLastError(),
+                    @"socket_ready": @(ZXSocketServerReady()),
+                    @"screen_w": @([Screen getScreenWidth]),
+                    @"screen_h": @([Screen getScreenHeight]),
+                };
+            } @catch (NSException *exception) {
+                root[@"touch"] = @{ @"error": exception.reason ?: @"采集失败" };
+            }
+
             NSError *jsonErr = nil;
             NSData *jsonData = [NSJSONSerialization dataWithJSONObject:root options:NSJSONWritingPrettyPrinted error:&jsonErr];
             NSString *json = jsonData ? [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding] : @"-1;;JSON 序列化失败";
