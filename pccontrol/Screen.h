@@ -43,14 +43,17 @@
 方向判定的唯一入口。触摸注入、取色、找色、识图、框选画面的旋转全都问这一个函数——
 任何一处自己判断方向，都会和别处差 90°。
 
-优先级：前台 App 方向 > 状态栏方向 > 竖屏。
+只有一条来源：前台 App 的方向。读不到就按竖屏。
 
-**不允许用设备物理方向（UIDevice.orientation）兜底**：手机可以横着拿而界面锁竖屏
-（主屏、竖屏 App），按设备方向去转会把一张本来正常的竖屏截图凭空转 90°。
-设备方向只表示「手机怎么拿的」，不表示「界面朝哪」，两者不是一回事。
+**不要给这里加任何兜底**（设备物理方向、状态栏方向都试过，全部翻车）：
+- 设备方向 = 「手机怎么拿的」，不是「界面朝哪」；手机横着拿而界面锁竖屏时会转错 90°。
+- 状态栏方向 = 「SpringBoard 认为前台是谁」，主屏横屏布局时也会转错 90°。
+- 「读不到」本身就意味着「没有前台 App，界面是 SpringBoard 自己的」，那它就是竖屏。
 */
 int ZXEffectiveOrientation(void);
-int ZXStatusBarOrientation(void);       // 原始读值，-1 = 无效
+int ZXStatusBarOrientation(void);       // 仅自检诊断用，-1 = 无效
+CGFloat ZXMainWindowWidth(void);        // 仅自检诊断用：SpringBoard 窗口宽（判断界面横竖）
+CGFloat ZXMainWindowHeight(void);
 UIInterfaceOrientation ZXInterfaceFromDeviceOrientation(UIDeviceOrientation deviceOrientation);  // 仅触摸指示器用
 
 CGPoint ZXFramePointFromIndicatorPoint(CGPoint indicatorPoint);

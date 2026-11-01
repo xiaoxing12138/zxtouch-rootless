@@ -160,18 +160,53 @@ int ZXStatusBarOrientation(void)
 }
 #pragma clang diagnostic pop
 
+// SpringBoard 自己的窗口尺寸。这是「用户眼前的坐标系到底横还是竖」最直接的证据：
+// 窗口横 → 界面就是横的，窗口竖 → 界面就是竖的。只给自检用，不参与方向判定
+// （游戏横屏时 SpringBoard 窗口可能不跟着转，拿它判定会把游戏场景判错）。
+static CGRect ZXMainWindowBounds(void)
+{
+    __block CGRect result = CGRectZero;
+
+    void (^read)(void) = ^{
+        UIWindow *found = nil;
+        if (@available(iOS 13.0, *)) {
+            for (UIScene *scene in [[UIApplication sharedApplication] connectedScenes]) {
+                if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+                UIWindowScene *windowScene = (UIWindowScene *)scene;
+                for (UIWindow *window in windowScene.windows) {
+                    if (window.isKeyWindow) { found = window; break; }
+                }
+                if (!found && windowScene.windows.count > 0) found = windowScene.windows.firstObject;
+                if (found) break;
+            }
+        }
+        if (!found) found = [[UIApplication sharedApplication] keyWindow];
+        if (found) result = found.bounds;
+    };
+
+    if ([NSThread isMainThread]) {
+        read();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), read);
+    }
+    return result;
+}
+
+CGFloat ZXMainWindowWidth(void) { return ZXMainWindowBounds().size.width; }
+CGFloat ZXMainWindowHeight(void) { return ZXMainWindowBounds().size.height; }
+
 int ZXEffectiveOrientation(void)
 {
     int front = [Screen getScreenOrientation];
     if (ZXIsValidOrientation(front)) return front;
 
-    // 前台方向读不到时问状态栏：在 SpringBoard 里状态栏跟着前台 App 转，
-    // 横屏游戏就返回 3/4，竖屏 App/主屏就返回 1。
-    int bar = ZXStatusBarOrientation();
-    if (ZXIsValidOrientation(bar)) return bar;
-
-    // 都读不到就按竖屏。**绝不能拿设备物理方向兜底**：手机可以横着拿而界面锁竖屏
-    // （主屏、竖屏 App），按设备方向转会把一张好好的竖屏截图凭空转 90°。
+    // 读不到前台 App 方向，说明当前压根没有前台 App（在 SpringBoard 主屏、刚回主屏）。
+    // 这时界面就是 SpringBoard 自己那一套，按竖屏算 —— 3.1.83 以前一直这么做，
+    // 取点器的截图方向也是对的。
+    //
+    // 别拿状态栏、更别拿设备物理方向兜底：主屏可以摆成横屏布局、手机也可以横着拿而
+    // 界面锁竖屏，这两个值都会给出「横屏」，把一张本来正常的竖屏截图凭空转 90°。
+    // 3.1.84 用设备方向、3.1.87 用状态栏，连踩两次，都是同一个坑。
     return UIInterfaceOrientationPortrait;
 }
 

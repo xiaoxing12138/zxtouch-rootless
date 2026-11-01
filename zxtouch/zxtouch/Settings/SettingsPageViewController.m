@@ -1367,6 +1367,10 @@ static NSString *ZXExitText(id value) {
                         [full appendFormat:@"  前台读值=%@  状态栏读值=%@（-1 表示读不到）\n",
                          touch[@"orientation_front"] ?: @"?", touch[@"orientation_bar"] ?: @"?"];
                         [full appendFormat:@"  屏幕像素：%@ × %@\n", touch[@"screen_w"] ?: @"?", touch[@"screen_h"] ?: @"?"];
+                        [full appendFormat:@"  抓屏帧：%@ × %@   SpringBoard 窗口：%@ × %@\n",
+                         touch[@"frame_w"] ?: @"?", touch[@"frame_h"] ?: @"?",
+                         touch[@"window_w"] ?: @"?", touch[@"window_h"] ?: @"?"];
+                        [full appendFormat:@"  屏幕像素：%@ × %@\n", touch[@"screen_w"] ?: @"?", touch[@"screen_h"] ?: @"?"];
                     } else {
                         [full appendString:@"  无数据（tweak 版本过旧，请升级小新Lap）\n"];
                     }

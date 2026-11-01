@@ -1091,6 +1091,8 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
 
             // ---- 触摸注入：这才是「脚本能不能点」的关键，光有 Python 跑得起来不够 ----
             @try {
+                int frameW = 0, frameH = 0;
+                [Screen framePixelsWithStride:NULL width:&frameW height:&frameH];
                 root[@"touch"] = @{
                     @"sender_id": [NSString stringWithFormat:@"0x%llX", ZXTouchSenderID()],
                     @"sender_ready": @(ZXTouchSenderReady()),
@@ -1101,9 +1103,13 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                     @"socket_ready": @(ZXSocketServerReady()),
                     @"screen_w": @([Screen getScreenWidth]),
                     @"screen_h": @([Screen getScreenHeight]),
+                    @"frame_w": @(frameW),
+                    @"frame_h": @(frameH),
                     @"orientation": @(ZXEffectiveOrientation()),
                     @"orientation_front": @([Screen getScreenOrientation]),
                     @"orientation_bar": @(ZXStatusBarOrientation()),
+                    @"window_w": @(ZXMainWindowWidth()),
+                    @"window_h": @(ZXMainWindowHeight()),
                 };
             } @catch (NSException *exception) {
                 root[@"touch"] = @{ @"error": exception.reason ?: @"采集失败" };
