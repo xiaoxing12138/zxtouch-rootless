@@ -33,8 +33,15 @@ static volatile NSInteger zxDroppedCount = 0;
 static NSString *zxLastTouchError = @"";
 
 // 服务属性探测用的私有接口（不保证存在，取不到就当没有）
-extern CFArrayRef IOHIDEventSystemClientCopyServices(IOHIDEventSystemClientRef client);
-extern CFTypeRef IOHIDServiceClientCopyProperty(void *service, CFStringRef key);
+// Touch.xm 按 Objective-C++ 编译，这里必须显式 extern "C"，否则符号被 C++ 改名、链接失败
+#ifdef __cplusplus
+extern "C" {
+#endif
+CFArrayRef IOHIDEventSystemClientCopyServices(IOHIDEventSystemClientRef client);
+CFTypeRef IOHIDServiceClientCopyProperty(void *service, CFStringRef key);
+#ifdef __cplusplus
+}
+#endif
 
 // valid type x y
 static int eventsToAppend[MAX_FINGER_INDEX][4];
