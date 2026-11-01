@@ -125,8 +125,16 @@ static int ZXEffectiveOrientation(void)
     {
         return o;
     }
-    // 读不到方向（SpringBoard 早期、无前台 app）时按竖屏算，与触摸指示器的兜底一致
-    return UIInterfaceOrientationPortrait;
+    // 读不到前台方向（SpringBoard 早期、无前台 app、刚切回主屏）时按设备物理方向兜底，
+    // 与触摸指示器的判据保持一致——两边判据不同的话，「指示器显示的坐标」和
+    // 「注入时换算用的方向」会差一个 90°，横屏下怎么点都点不到看到的位置。
+    switch ([[UIDevice currentDevice] orientation])
+    {
+        case UIDeviceOrientationPortraitUpsideDown: return UIInterfaceOrientationPortraitUpsideDown;
+        case UIDeviceOrientationLandscapeLeft:      return UIInterfaceOrientationLandscapeLeft;
+        case UIDeviceOrientationLandscapeRight:     return UIInterfaceOrientationLandscapeRight;
+        default:                                    return UIInterfaceOrientationPortrait;
+    }
 }
 
 CGPoint ZXFramePointFromIndicatorPoint(CGPoint p)
@@ -137,8 +145,8 @@ CGPoint ZXFramePointFromIndicatorPoint(CGPoint p)
     switch (ZXEffectiveOrientation())
     {
         case UIInterfaceOrientationPortraitUpsideDown: return CGPointMake(w - p.x, h - p.y);
-        case UIInterfaceOrientationLandscapeRight:     return CGPointMake(w - p.y, p.x);   // 3
-        case UIInterfaceOrientationLandscapeLeft:      return CGPointMake(p.y, h - p.x);   // 4
+        case UIInterfaceOrientationLandscapeRight:     return CGPointMake(w - p.y, p.x);   // 4
+        case UIInterfaceOrientationLandscapeLeft:      return CGPointMake(p.y, h - p.x);   // 3
         default:                                       return p;                           // 1
     }
 }

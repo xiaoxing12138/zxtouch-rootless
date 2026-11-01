@@ -1471,7 +1471,10 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
     return buf;
 }
 
-// 把竖屏原始帧转成用户眼里的方向：转好之后图上像素坐标正好等于触摸指示器坐标
+// 把竖屏原始帧转成用户眼里的方向：转好之后图上像素坐标正好等于触摸指示器坐标。
+// 方向常量的约定必须与 Screen.h 的 ZXFramePointFromIndicatorPoint 完全一致，否则横屏下
+// 「框选看到的画面」和「引擎按坐标取的那块像素」差一个 90°，框出来的是镜像位置。
+// 新图 (u,v) 取源图 (X,Y)：ori 3 → X=v, Y=h-u；ori 4 → X=w-v, Y=u。
 - (UIImage *)rotatedImage:(UIImage *)raw orientation:(NSInteger)orientation {
     if (orientation == 1) return raw;
 
@@ -1485,12 +1488,12 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
             CGContextRotateCTM(ctx, M_PI);
             break;
         case 3:
-            CGContextTranslateCTM(ctx, 0, newSize.height);
-            CGContextRotateCTM(ctx, -M_PI_2);
-            break;
-        case 4:
             CGContextTranslateCTM(ctx, newSize.width, 0);
             CGContextRotateCTM(ctx, M_PI_2);
+            break;
+        case 4:
+            CGContextTranslateCTM(ctx, 0, newSize.height);
+            CGContextRotateCTM(ctx, -M_PI_2);
             break;
         default:
             break;
