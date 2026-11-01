@@ -775,6 +775,33 @@ static void ZXWarmUpOCRForScript(NSString *bundlePath, NSString *entryFilePath, 
     if (!stoppedByUser) [self playHasStopped];
 }
 
+// 日志每行是「MM-DD-YYYY HH:MM:SS: 内容」（前缀固定 21 个字符）。
+// 弹窗里要的是报错本身，把时间前缀和「开始运行脚本」那行都剥掉，只留最后几行。
+static NSString *tailOfLog(NSString *log, NSInteger maxLines)
+{
+    if (log.length == 0) return @"";
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    for (NSString *raw in [log componentsSeparatedByString:@"\n"]) {
+        NSString *line = raw;
+        if (line.length > 21 && [line characterAtIndex:19] == ':' && [line characterAtIndex:20] == ' ') {
+            line = [line substringFromIndex:21];
+        }
+        line = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (line.length == 0) continue;
+        if ([line hasPrefix:@"开始运行脚本"]) continue;
+        [lines addObject:line];
+    }
+    if (lines.count == 0) return @"";
+    NSInteger from = MAX(0, (NSInteger)lines.count - maxLines);
+    NSMutableArray<NSString *> *keep = [NSMutableArray array];
+    for (NSInteger i = from; i < (NSInteger)lines.count; i++) {
+        NSString *line = lines[i];
+        if (line.length > 240) line = [[line substringToIndex:240] stringByAppendingString:@"…"];
+        [keep addObject:line];
+    }
+    return [keep componentsJoinedByString:@"\n"];
+}
+
 - (void)reportPythonFailure:(int)pythonExitCode outputLog:(NSString *)outputLog
 {
     if (pythonExitCode == 0) return;
@@ -791,7 +818,10 @@ static void ZXWarmUpOCRForScript(NSString *bundlePath, NSString *entryFilePath, 
         title = @"脚本无法启动";
         message = [NSString stringWithFormat:@"小新Lap 无法启动 Python（posix_spawn 异常，退出码 %d）。\n\n请打开 Console.app，搜索 com.zjx.springboard 查看详情。", pythonExitCode];
     } else {
-        message = [NSString stringWithFormat:@"Python 脚本异常退出，退出码 %d。请打开日志查看详细报错。", pythonExitCode];
+        NSString *tail = tailOfLog(logTail, 6);
+        message = tail.length
+                ? [NSString stringWithFormat:@"Python 脚本异常退出，退出码 %d。\n\n%@", pythonExitCode, tail]
+                : [NSString stringWithFormat:@"Python 脚本异常退出，退出码 %d。请打开日志查看详细报错。", pythonExitCode];
     }
     NSLog(@"com.zjx.springboard: %@ — %@", title, message);
     showAlertBox(title, message, 999);
