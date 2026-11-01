@@ -115,29 +115,64 @@ Get the size of the screen and set them.
 
 #pragma mark - 方向判定（唯一实现，见 Screen.h 注释）
 
+static BOOL ZXIsValidOrientation(int o)
+{
+    return o == UIInterfaceOrientationPortrait || o == UIInterfaceOrientationPortraitUpsideDown ||
+           o == UIInterfaceOrientationLandscapeLeft || o == UIInterfaceOrientationLandscapeRight;
+}
+
+// 只给触摸指示器用（红点要不要跟着设备转，它有自己的 mask 策略）。
+// 注意 UIDeviceOrientation 与 UIInterfaceOrientation 的横屏定义是**相反**的，
+// 设备往左转 = 界面 LandscapeRight，直接强转必然差 90°。
 UIInterfaceOrientation ZXInterfaceFromDeviceOrientation(UIDeviceOrientation deviceOrientation)
 {
     switch (deviceOrientation)
     {
         case UIDeviceOrientationPortrait:           return UIInterfaceOrientationPortrait;
         case UIDeviceOrientationPortraitUpsideDown: return UIInterfaceOrientationPortraitUpsideDown;
-        // 横屏两个方向是反的，别强转
         case UIDeviceOrientationLandscapeLeft:      return UIInterfaceOrientationLandscapeRight;
         case UIDeviceOrientationLandscapeRight:     return UIInterfaceOrientationLandscapeLeft;
         default:                                    return UIInterfaceOrientationPortrait;
     }
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+int ZXStatusBarOrientation(void)
+{
+    __block int result = -1;
+
+    void (^readOrientation)(void) = ^{
+        @try {
+            result = (int)[[UIApplication sharedApplication] statusBarOrientation];
+        } @catch (NSException *exception) {
+            result = -1;
+        }
+    };
+
+    if ([NSThread isMainThread]) {
+        readOrientation();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), readOrientation);
+    }
+
+    return result;
+}
+#pragma clang diagnostic pop
+
 int ZXEffectiveOrientation(void)
 {
-    int o = [Screen getScreenOrientation];
-    if (o == UIInterfaceOrientationPortrait || o == UIInterfaceOrientationPortraitUpsideDown ||
-        o == UIInterfaceOrientationLandscapeLeft || o == UIInterfaceOrientationLandscapeRight)
-    {
-        return o;
-    }
-    // 读不到前台方向（SpringBoard 早期、无前台 app、刚切回主屏）时按设备物理方向兜底
-    return (int)ZXInterfaceFromDeviceOrientation([[UIDevice currentDevice] orientation]);
+    int front = [Screen getScreenOrientation];
+    if (ZXIsValidOrientation(front)) return front;
+
+    // 前台方向读不到时问状态栏：在 SpringBoard 里状态栏跟着前台 App 转，
+    // 横屏游戏就返回 3/4，竖屏 App/主屏就返回 1。
+    int bar = ZXStatusBarOrientation();
+    if (ZXIsValidOrientation(bar)) return bar;
+
+    // 都读不到就按竖屏。**绝不能拿设备物理方向兜底**：手机可以横着拿而界面锁竖屏
+    // （主屏、竖屏 App），按设备方向转会把一张好好的竖屏截图凭空转 90°。
+    return UIInterfaceOrientationPortrait;
 }
 
 CGPoint ZXFramePointFromIndicatorPoint(CGPoint p)
