@@ -1103,7 +1103,6 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
                     @"screen_h": @([Screen getScreenHeight]),
                     @"orientation": @(ZXEffectiveOrientation()),
                     @"orientation_raw": @([Screen getScreenOrientation]),
-                    @"orientation_override": @(ZXOrientationOverride()),
                 };
             } @catch (NSException *exception) {
                 root[@"touch"] = @{ @"error": exception.reason ?: @"采集失败" };

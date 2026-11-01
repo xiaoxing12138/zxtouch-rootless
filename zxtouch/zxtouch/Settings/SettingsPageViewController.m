@@ -1363,9 +1363,8 @@ static NSString *ZXExitText(id value) {
                             case 4: oriName = @"横屏右"; break;
                             default: oriName = @"未知"; break;
                         }
-                        [full appendFormat:@"  方向判定：%@（=%@）  原始读值=%@  手动覆盖=%@\n",
-                         oriName, touch[@"orientation"] ?: @"?", touch[@"orientation_raw"] ?: @"?",
-                         [touch[@"orientation_override"] intValue] == 0 ? @"无" : touch[@"orientation_override"]];
+                        [full appendFormat:@"  方向判定：%@（=%@）  原始读值=%@\n",
+                         oriName, touch[@"orientation"] ?: @"?", touch[@"orientation_raw"] ?: @"?"];
                         [full appendFormat:@"  屏幕像素：%@ × %@\n", touch[@"screen_w"] ?: @"?", touch[@"screen_h"] ?: @"?"];
                     } else {
                         [full appendString:@"  无数据（tweak 版本过旧，请升级小新Lap）\n"];
