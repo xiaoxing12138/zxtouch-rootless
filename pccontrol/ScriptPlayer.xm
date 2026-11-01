@@ -504,7 +504,7 @@ static void ZXWarmUpOCRForScript(NSString *bundlePath, NSString *entryFilePath, 
     if (!pythonPath)
     {
         showAlertBox(@"未安装 Python",
-                     @"小新Lap 在此设备上找不到可用的 python3。\n\n请打开 Sileo，安装 Procursus 源中的 python3 软件包，然后重新安装 小新Lap，以便注册新的解释器。",
+                     @"小新Lap 在此设备上找不到可用的 python3，脚本无法运行。\n\n打开 Sileo，搜索 python3 安装（Procursus 源，Python 3.9 或更新版本）。装好回到小新Lap 直接再点播放即可，不用重装。",
                      999);
         isPlaying = false;
         return;
@@ -786,7 +786,7 @@ static void ZXWarmUpOCRForScript(NSString *bundlePath, NSString *entryFilePath, 
                                 [logTail rangeOfString:@"libpython" options:0].location != NSNotFound;
     if (pythonExitCode == 134 && dyldLibpythonMissing) {
         title = @"Python 解释器已损坏";
-        message = @"已安装的 python3 启动时中止，因为 dyld 找不到它的 libpython 动态库。\n\n请在 Sileo（Procursus）中安装 python3 软件包（3.9 或更新版本），然后重新安装 小新Lap，使其重新选择可用的解释器。";
+        message = @"已安装的 python3 启动时中止，因为 dyld 找不到它的 libpython 动态库。\n\n在 Sileo 里先把 python3 卸载再重装（Procursus 源，3.9 或更新版本），装好直接重试脚本。";
     } else if (pythonExitCode < 0) {
         title = @"脚本无法启动";
         message = [NSString stringWithFormat:@"小新Lap 无法启动 Python（posix_spawn 异常，退出码 %d）。\n\n请打开 Console.app，搜索 com.zjx.springboard 查看详情。", pythonExitCode];

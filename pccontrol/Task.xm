@@ -941,14 +941,14 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             {
                 NSMutableDictionary *daemonInfo = [NSMutableDictionary dictionary];
 
-                // 1. plist 存在性检查（LaunchAgents 路径，rootless）
-                NSString *agentPlist = @"/var/jb/Library/LaunchAgents/com.zjx.zxrunner.plist";
+                // 1. plist 存在性检查（LaunchDaemons / system domain）
+                NSString *agentPlist = jbroot(@"/Library/LaunchDaemons/com.zjx.zxrunner.plist");
                 BOOL plistExists = [[NSFileManager defaultManager] fileExistsAtPath:agentPlist];
                 daemonInfo[@"plist_path"] = agentPlist;
                 daemonInfo[@"plist_exists"] = @(plistExists);
 
                 // 2. daemon 二进制存在性
-                NSString *binPath = @"/var/jb/usr/libexec/zxrunner";
+                NSString *binPath = jbroot(@"/usr/libexec/zxrunner");
                 BOOL binExists = [[NSFileManager defaultManager] fileExistsAtPath:binPath];
                 daemonInfo[@"bin_path"] = binPath;
                 daemonInfo[@"bin_exists"] = @(binExists);

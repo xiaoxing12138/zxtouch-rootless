@@ -1296,7 +1296,16 @@ static NSString *ZXExitText(id value) {
                         NSString *ver = dict[@"version"];
                         if (ver.length > 0) [full appendFormat:@"  版本：%@\n", ver];
                     } else {
-                        [full appendString:@"  全部候选不可用（access / posix_spawn 均 EPERM）\n"];
+                        BOOL anyExists = NO;
+                        for (NSDictionary *c in dict[@"candidates"]) {
+                            if ([c isKindOfClass:[NSDictionary class]] && [c[@"exists"] boolValue]) { anyExists = YES; break; }
+                        }
+                        if (anyExists) {
+                            [full appendString:@"  ❌ 有 python3 文件但都无法执行（access EPERM）\n"];
+                        } else {
+                            [full appendString:@"  ❌ 这台设备没有安装 python3（所有候选路径都不存在）\n"
+                                              "     → 脚本功能不可用。打开 Sileo 搜索 python3 安装即可，装完直接重试，不用重装 App。\n"];
+                        }
                     }
 
                     if (prA || prB) {

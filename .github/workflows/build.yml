@@ -1,6 +1,6 @@
 name: Build ZXTouch Package
 
-run-name: v3.1.79
+run-name: v3.1.80
 
 on:
   push:
@@ -234,7 +234,7 @@ jobs:
           1. 下载对应自己越狱方式的 \`.deb\`
           2. 用 Filza 打开安装，或 SSH 执行 \`dpkg -i <file>.deb && killall SpringBoard\`
 
-          > \`.py\` 脚本需要 Procursus 源的 Python 3。
+          > \`.py\` 脚本需要 Python 3：安装本包时会自动从 Procursus 源带上 \`python3\`，不用另外装。
           EOF
 
           if gh release view "$TAG" >/dev/null 2>&1; then
