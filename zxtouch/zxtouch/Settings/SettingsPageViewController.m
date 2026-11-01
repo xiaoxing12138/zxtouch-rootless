@@ -1264,6 +1264,15 @@ static NSString *ZXExitText(id value) {
                     [panelText appendFormat:@"守护进程代跑 Python：%@\n",
                      daemonOK ? @"✅ 成功" : (daemonExit.length > 0 ? [NSString stringWithFormat:@"❌ exit=%@", daemonExit] : @"❌ 无结果")];
 
+                    NSString *oriName = nil;
+                    switch ([touch[@"orientation"] intValue]) {
+                        case 1: oriName = @"竖屏"; break;
+                        case 2: oriName = @"竖屏倒置"; break;
+                        case 3: oriName = @"横屏左"; break;
+                        case 4: oriName = @"横屏右"; break;
+                        default: oriName = @"未知"; break;
+                    }
+
                     [panelText appendString:@"\n【触摸注入】\n"];
                     if (touch) {
                         [panelText appendFormat:@"状态：%@\n", touchOK ? @"✅ 可注入" : @"❌ 未就绪"];
@@ -1272,6 +1281,13 @@ static NSString *ZXExitText(id value) {
                         } else {
                             [panelText appendString:@"触摸 ID：没抓到（先用手指在屏幕上点几下，再重新检测）\n"];
                         }
+                        // 方向这几行必须上屏：截图就能定位「截图为什么歪」，不用去剪贴板捞
+                        [panelText appendFormat:@"方向：%@（=%@）  前台=%@  状态栏=%@\n",
+                         oriName, touch[@"orientation"] ?: @"?",
+                         touch[@"orientation_front"] ?: @"?", touch[@"orientation_bar"] ?: @"?"];
+                        [panelText appendFormat:@"抓屏帧：%@ × %@  窗口：%@ × %@\n",
+                         touch[@"frame_w"] ?: @"?", touch[@"frame_h"] ?: @"?",
+                         touch[@"window_w"] ?: @"?", touch[@"window_h"] ?: @"?"];
                     } else {
                         [panelText appendString:@"无数据（tweak 版本过旧）\n"];
                     }
@@ -1355,14 +1371,6 @@ static NSString *ZXExitText(id value) {
                         NSString *touchErr = [touch[@"last_error"] isKindOfClass:[NSString class]] ? touch[@"last_error"] : @"";
                         if (touchErr.length > 0) [full appendFormat:@"  最近一次失败原因：%@\n", touchErr];
                         [full appendFormat:@"  SpringBoard 端口 6000：%@\n", [touch[@"socket_ready"] boolValue] ? @"已监听" : @"未监听"];
-                        NSString *oriName = nil;
-                        switch ([touch[@"orientation"] intValue]) {
-                            case 1: oriName = @"竖屏"; break;
-                            case 2: oriName = @"竖屏倒置"; break;
-                            case 3: oriName = @"横屏左"; break;
-                            case 4: oriName = @"横屏右"; break;
-                            default: oriName = @"未知"; break;
-                        }
                         [full appendFormat:@"  方向判定：%@（=%@）\n", oriName, touch[@"orientation"] ?: @"?"];
                         [full appendFormat:@"  前台读值=%@  状态栏读值=%@（-1 表示读不到）\n",
                          touch[@"orientation_front"] ?: @"?", touch[@"orientation_bar"] ?: @"?"];
@@ -1370,7 +1378,6 @@ static NSString *ZXExitText(id value) {
                         [full appendFormat:@"  抓屏帧：%@ × %@   SpringBoard 窗口：%@ × %@\n",
                          touch[@"frame_w"] ?: @"?", touch[@"frame_h"] ?: @"?",
                          touch[@"window_w"] ?: @"?", touch[@"window_h"] ?: @"?"];
-                        [full appendFormat:@"  屏幕像素：%@ × %@\n", touch[@"screen_w"] ?: @"?", touch[@"screen_h"] ?: @"?"];
                     } else {
                         [full appendString:@"  无数据（tweak 版本过旧，请升级小新Lap）\n"];
                     }
