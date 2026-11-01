@@ -1476,23 +1476,25 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
 // 也就是 ZXIndicatorPointFromFramePoint 的那一套（引擎的 ZXFramePointFromIndicatorPoint 是它的逆）。
 // 这张图是「看到什么就能选什么」的唯一依据，别再拿引擎的换算去反推它——那等于让显示跟着错的走。
 - (UIImage *)rotatedImage:(UIImage *)raw orientation:(int)orientation {
-    if (orientation == UIInterfaceOrientationPortrait) return raw;
+    if (orientation == 1) return raw;   // 1 = Portrait
 
     CGSize size = raw.size;
-    CGSize newSize = (orientation == UIInterfaceOrientationPortraitUpsideDown)
-                     ? size : CGSizeMake(size.height, size.width);
+    CGSize newSize = (orientation == 2) ? size : CGSizeMake(size.height, size.width);
     UIGraphicsBeginImageContextWithOptions(newSize, NO, 1.0);
     CGContextRef ctx = UIGraphicsGetCurrentContext();
+    // 这里只能用数字 3/4，绝不能换成 UIInterfaceOrientationLandscapeLeft/Right：
+    // UIKit 里 **LandscapeLeft == 4、LandscapeRight == 3**（与直觉相反），
+    // 3.1.86 把数字改成常量名时整体对调，横屏下显示图正好转了 180°。
     switch (orientation) {
-        case UIInterfaceOrientationPortraitUpsideDown:
+        case 2:     // PortraitUpsideDown
             CGContextTranslateCTM(ctx, size.width, size.height);
             CGContextRotateCTM(ctx, M_PI);
             break;
-        case UIInterfaceOrientationLandscapeLeft:
+        case 3:     // LandscapeRight（值 3）
             CGContextTranslateCTM(ctx, 0, newSize.height);
             CGContextRotateCTM(ctx, -M_PI_2);
             break;
-        case UIInterfaceOrientationLandscapeRight:
+        case 4:     // LandscapeLeft（值 4）
             CGContextTranslateCTM(ctx, newSize.width, 0);
             CGContextRotateCTM(ctx, M_PI_2);
             break;

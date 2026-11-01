@@ -217,12 +217,15 @@ CGPoint ZXFramePointFromIndicatorPoint(CGPoint p)
 
     // 横屏的两个方向以「框选/取点那张转正的图」为准（旧版实测正确的那一套），
     // 这里是它的逆运算：图上的点 → 原始竖屏帧的点。
+    // 只能用数字 3/4：UIKit 里 LandscapeLeft == 4、LandscapeRight == 3，写常量名必翻。
+    // 图侧（rotatedImage）值3 显示 (u,v)=(fy, w-fx)、值4 显示 (u,v)=(h-fy, fx)，
+    // 下面两行就是它们的逆。
     switch (ZXEffectiveOrientation())
     {
-        case UIInterfaceOrientationPortraitUpsideDown: return CGPointMake(w - p.x, h - p.y);
-        case UIInterfaceOrientationLandscapeLeft:      return CGPointMake(w - p.y, p.x);
-        case UIInterfaceOrientationLandscapeRight:     return CGPointMake(p.y, h - p.x);
-        default:                                       return p;
+        case 2:  return CGPointMake(w - p.x, h - p.y);
+        case 3:  return CGPointMake(w - p.y, p.x);
+        case 4:  return CGPointMake(p.y, h - p.x);
+        default: return p;
     }
 }
 
@@ -233,10 +236,10 @@ CGPoint ZXIndicatorPointFromFramePoint(CGPoint p)
 
     switch (ZXEffectiveOrientation())
     {
-        case UIInterfaceOrientationPortraitUpsideDown: return CGPointMake(w - p.x, h - p.y);
-        case UIInterfaceOrientationLandscapeLeft:      return CGPointMake(p.y, w - p.x);
-        case UIInterfaceOrientationLandscapeRight:     return CGPointMake(h - p.y, p.x);
-        default:                                       return p;
+        case 2:  return CGPointMake(w - p.x, h - p.y);
+        case 3:  return CGPointMake(p.y, w - p.x);
+        case 4:  return CGPointMake(h - p.y, p.x);
+        default: return p;
     }
 }
 
