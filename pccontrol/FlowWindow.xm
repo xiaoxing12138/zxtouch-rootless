@@ -2961,7 +2961,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                                             onChange:^(NSString *text) {
                                                 FlowWindow *s = weakSelf;
                                                 if (!s) return;
-                                                s->_flow[@"LoopTimes"] = [FlowScript valueFromText:text integer:YES];
+                                                s->_flow[@"LoopTimes"] = [FlowScript valueFromText:text integer:YES numeric:YES];
                                                 [s autosave];
                                             }];
         y = [strongSelf subAddRow:loopTimes y:y];
@@ -2970,7 +2970,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                                               onChange:^(NSString *text) {
                                                   FlowWindow *s = weakSelf;
                                                   if (!s) return;
-                                                  s->_flow[@"LoopInterval"] = [FlowScript valueFromText:text integer:NO];
+                                                  s->_flow[@"LoopInterval"] = [FlowScript valueFromText:text integer:NO numeric:YES];
                                                   [s autosave];
                                               }];
         y = [strongSelf subAddRow:loopInterval y:y];
@@ -3056,7 +3056,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
         if ([endMode isEqualToString:kModeDuration]) {
             UIView *durRow = [strongSelf makeValueRow:@"跑够多少分钟" value:@(durationMinutes) integer:YES width:w
                                              onChange:^(NSString *text) {
-                                                 NSInteger m = [[FlowScript valueFromText:text integer:YES] integerValue];
+                                                 NSInteger m = [[FlowScript valueFromText:text integer:YES numeric:YES] integerValue];
                                                  if (m <= 0) return;
                                                  durationMinutes = m;
                                                  persist();
@@ -3152,7 +3152,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
             y += 2;
             y = [strongSelf subAddSection:type.title width:w y:y];
             for (FlowFieldSpec *spec in type.fields) {
-                id current = savedDefaults[spec.key] ?: [FlowScript valueFromText:spec.defaultValue integer:spec.integer];
+                id current = savedDefaults[spec.key] ?: [FlowScript valueFromText:spec.defaultValue integer:spec.integer numeric:spec.numeric];
                 UIView *row = nil;
                 if (spec.choiceTitles.count > 0) {
                     NSArray<NSString *> *values = (spec.choiceValues.count == spec.choiceTitles.count)
@@ -3167,10 +3167,11 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
                     NSString *key = spec.key;
                     NSString *kind = type.kind;
                     BOOL integer = spec.integer;
+                    BOOL numeric = spec.numeric;
                     row = [strongSelf makeValueRow:spec.title value:current integer:integer stepper:spec.numeric
                                          stepValue:spec.stepperStep width:w
                                          onChange:^(NSString *text) {
-                                             setDefault(kind, key, [FlowScript valueFromText:text integer:integer]);
+                                             setDefault(kind, key, [FlowScript valueFromText:text integer:integer numeric:numeric]);
                                          }];
                 }
                 y = [strongSelf subAddRow:row y:y];
@@ -3418,7 +3419,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
     return [self makeValueRow:spec.title value:step[key] integer:integer stepper:spec.numeric
                     stepValue:spec.stepperStep width:w
                      onChange:^(NSString *text) {
-                         step[key] = [FlowScript valueFromText:text integer:integer];
+                         step[key] = [FlowScript valueFromText:text integer:integer numeric:spec.numeric];
                          [weakSelf autosave];   // 每敲一个字都落盘
                          [weakSelf refreshKeepingScroll];
                      }];
@@ -3972,7 +3973,7 @@ static UInt8 *fwRawBuffer(NSString *text, NSMutableData **outKeepAlive)
 {
     NSMutableDictionary *step = objc_getAssociatedObject(field, &kFWRepeatStepKey);
     if (!step) return;
-    step[@"Times"] = [FlowScript valueFromText:field.text integer:YES];
+    step[@"Times"] = [FlowScript valueFromText:field.text integer:YES numeric:YES];
     field.text = [FlowScript textForValue:step[@"Times"]];
     [self autosave];
 }

@@ -500,7 +500,7 @@ static NSString *fwSimValue(id value)
     NSMutableDictionary *step = [NSMutableDictionary dictionary];
     step[@"Kind"] = kind;
     for (FlowFieldSpec *spec in type.fields) {
-        step[spec.key] = [self valueFromText:spec.defaultValue integer:spec.integer];
+        step[spec.key] = [self valueFromText:spec.defaultValue integer:spec.integer numeric:spec.numeric];
     }
     if (type.isCondition) {
         step[@"Then"] = [NSMutableArray array];
@@ -516,20 +516,14 @@ static NSString *fwSimValue(id value)
     return step;
 }
 
-/// 弹窗里拿到的是字符串，落盘前按类型转成数字，免得生成代码时出现 "400" 这样的字符串
-+ (id)valueFromText:(NSString *)text integer:(BOOL)integer
+/// 弹窗里拿到的是字符串，落盘前按字段类型转成数字，免得生成代码时出现 "400" 这样的字符串。
+/// 只有整数 / 数值字段才转：文字、号码、颜色、URL 这些字段写「123」就是「123」，
+/// 不能靠「看着像数字」猜，否则输入步骤写纯数字会被当成数字、摘要显示成「没填文字」。
++ (id)valueFromText:(NSString *)text integer:(BOOL)integer numeric:(BOOL)numeric
 {
     NSString *trimmed = [(text ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (integer) return @((NSInteger)llround(trimmed.doubleValue));
-    if (trimmed.length == 0) return @"";
-    // 纯数字（含小数点、负号）转成数字，其他（颜色、文字、模板名）保持字符串
-    static NSCharacterSet *nonNumeric = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        nonNumeric = [[NSCharacterSet characterSetWithCharactersInString:@"0123456789.-"] invertedSet];
-    });
-    if (trimmed.length == 0) return @"";
-    if ([trimmed rangeOfCharacterFromSet:nonNumeric].location != NSNotFound) return trimmed;
+    if (!numeric || trimmed.length == 0) return trimmed ?: @"";
     return @(trimmed.doubleValue);
 }
 
@@ -646,7 +640,7 @@ static NSString *fwSimValue(id value)
     if ([kind isEqualToString:kFlowPaste]) {
         NSString *mode = [self pasteModeForStep:step];
         if ([mode isEqualToString:@"text"]) {
-            NSString *text = [step[@"Text"] isKindOfClass:[NSString class]] ? step[@"Text"] : @"";
+            NSString *text = [self textForValue:step[@"Text"]];
             return text.length ? [NSString stringWithFormat:@"输入「%@」", text] : @"输入（没填文字）";
         }
         return @"粘贴剪贴板内容";

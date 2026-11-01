@@ -105,8 +105,9 @@ typedef NS_ENUM(NSInteger, FlowPickMode) {
 /// 深拷贝一步（含成立/不成立分支，全部转成可变），用于「复制到下方」
 + (NSMutableDictionary *)mutableStepFromStep:(NSDictionary *)step;
 
-/// 编辑弹窗里拿到的是字符串，这里按字段类型转成 plist 里该存的值
-+ (id)valueFromText:(nullable NSString *)text integer:(BOOL)integer;
+/// 编辑弹窗里拿到的是字符串，这里按字段类型转成 plist 里该存的值：
+/// integer / numeric 的字段转成数字，其余（文字、号码、颜色、URL…）原样存字符串
++ (id)valueFromText:(nullable NSString *)text integer:(BOOL)integer numeric:(BOOL)numeric;
 /// plist 里的值转成弹窗/列表上显示的文字
 + (NSString *)textForValue:(nullable id)value;
 
