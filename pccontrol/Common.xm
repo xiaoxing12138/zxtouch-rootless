@@ -1538,7 +1538,7 @@ BOOL ZXSaveScreenshot(NSString **pathOut, NSError **error)
     UIImage *image = nil;
     @try {
         UIImageOrientation orientation = UIImageOrientationUp;
-        int screenOrientation = [Screen getScreenOrientation];
+        int screenOrientation = ZXEffectiveOrientation();
         if (screenOrientation == 4) orientation = UIImageOrientationRight;
         else if (screenOrientation == 3) orientation = UIImageOrientationLeft;
         else if (screenOrientation == 2) orientation = UIImageOrientationDown;

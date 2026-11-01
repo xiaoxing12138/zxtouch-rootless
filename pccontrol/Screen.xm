@@ -113,10 +113,59 @@ Get the size of the screen and set them.
     return [UIScreen mainScreen].bounds;
 }
 
-#pragma mark - 方向换算（唯一实现，见 Screen.h 注释）
+#pragma mark - 方向判定（唯一实现，见 Screen.h 注释）
 
-static int ZXEffectiveOrientation(void)
+static NSString * const kZXOrientationOverrideKey = @"zxOrientOverride";
+
+int ZXOrientationOverride(void)
 {
+    NSInteger v = [[NSUserDefaults standardUserDefaults] integerForKey:kZXOrientationOverrideKey];
+    return (v >= 1 && v <= 4) ? (int)v : 0;
+}
+
+void ZXSetOrientationOverride(int orientation)
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if (orientation >= 1 && orientation <= 4) {
+        [defaults setInteger:orientation forKey:kZXOrientationOverrideKey];
+    } else {
+        [defaults removeObjectForKey:kZXOrientationOverrideKey];
+    }
+    [defaults synchronize];
+    NSLog(@"com.zjx.springboard: 方向覆盖 = %d", orientation);
+}
+
+UIInterfaceOrientation ZXInterfaceFromDeviceOrientation(UIDeviceOrientation deviceOrientation)
+{
+    switch (deviceOrientation)
+    {
+        case UIDeviceOrientationPortrait:           return UIInterfaceOrientationPortrait;
+        case UIDeviceOrientationPortraitUpsideDown: return UIInterfaceOrientationPortraitUpsideDown;
+        // 横屏两个方向是反的，别强转
+        case UIDeviceOrientationLandscapeLeft:      return UIInterfaceOrientationLandscapeRight;
+        case UIDeviceOrientationLandscapeRight:     return UIInterfaceOrientationLandscapeLeft;
+        default:                                    return UIInterfaceOrientationPortrait;
+    }
+}
+
+NSString *ZXOrientationName(int orientation)
+{
+    switch (orientation)
+    {
+        case UIInterfaceOrientationPortrait:           return @"竖屏";
+        case UIInterfaceOrientationPortraitUpsideDown: return @"竖屏倒置";
+        case UIInterfaceOrientationLandscapeLeft:      return @"横屏左";
+        case UIInterfaceOrientationLandscapeRight:     return @"横屏右";
+        default:                                       return @"未知";
+    }
+}
+
+int ZXEffectiveOrientation(void)
+{
+    // 用户在框选面板里手动定过方向就一直按他定的来：显示、取色、注入同一套
+    int forced = ZXOrientationOverride();
+    if (forced) return forced;
+
     int o = [Screen getScreenOrientation];
     if (o == UIInterfaceOrientationPortrait ||
         o == UIInterfaceOrientationPortraitUpsideDown ||
@@ -128,13 +177,7 @@ static int ZXEffectiveOrientation(void)
     // 读不到前台方向（SpringBoard 早期、无前台 app、刚切回主屏）时按设备物理方向兜底，
     // 与触摸指示器的判据保持一致——两边判据不同的话，「指示器显示的坐标」和
     // 「注入时换算用的方向」会差一个 90°，横屏下怎么点都点不到看到的位置。
-    switch ([[UIDevice currentDevice] orientation])
-    {
-        case UIDeviceOrientationPortraitUpsideDown: return UIInterfaceOrientationPortraitUpsideDown;
-        case UIDeviceOrientationLandscapeLeft:      return UIInterfaceOrientationLandscapeLeft;
-        case UIDeviceOrientationLandscapeRight:     return UIInterfaceOrientationLandscapeRight;
-        default:                                    return UIInterfaceOrientationPortrait;
-    }
+    return (int)ZXInterfaceFromDeviceOrientation([[UIDevice currentDevice] orientation]);
 }
 
 CGPoint ZXFramePointFromIndicatorPoint(CGPoint p)

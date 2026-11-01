@@ -448,6 +448,8 @@ static void PKDrawDiagonalArrows(CGPoint c, CGFloat s)
 #pragma mark - 取点器
 
 @interface PickOverlay ()
+- (UIImage *)shownImageWithOrientation:(int)orientation;
+- (void)refreshOrientationUI;
 @end
 
 static PickOverlay *_pkShared = nil;
@@ -471,6 +473,7 @@ static PickOverlay *_pkShared = nil;
     PKMagnifierView  *_mag;
     PKNudgePadView   *_pad;
     UIButton         *_confirmBtn, *_cancelBtn, *_recaptureBtn;
+    UIButton         *_orientBtn;       // 方向：自动 / 1 / 3 / 4 / 2，点一次换一个
 
     FlowPickMode  _mode;
     void (^_completion)(NSDictionary *);
@@ -481,6 +484,7 @@ static PickOverlay *_pkShared = nil;
     CGRect    _imageFrame;      // 显示图在 root 坐标系里的位置
     UInt8    *_pixels;          // _rawFrame 的 BGRA 拷贝：冻屏后取色读它，按下标换算与运行时同一份
     size_t    _pixelW, _pixelH, _pixelStride;
+    int       _orientation;     // 冻帧用的方向（= ZXEffectiveOrientation()）
 
     CGPoint   _crosshair;       // Point / Color 模式的准心（root 坐标）
     CGPoint   _start, _end;     // Path 模式的两个选择器
@@ -864,6 +868,18 @@ static PickOverlay *_pkShared = nil;
         [self confirmTapped];
     }] forControlEvents:UIControlEventTouchUpInside];
     [_panel addSubview:_confirmBtn];
+
+    // 方向：自动判定不对时用户自己点，转到画面正过来为止。
+    // 改的是全局方向（ZXSetOrientationOverride），所以显示 / 取色 / 模板裁剪 / 点击落点一起跟着变。
+    _orientBtn = pkMakeButton(@"方向", ZXPalette(ZXPalSub));
+    [_orientBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
+        [self cycleOrientationTapped];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    int override = ZXOrientationOverride();
+    [_orientBtn setTitle:(override == 0 ? @"方向 自动"
+                                        : [NSString stringWithFormat:@"方向 %d", override])
+                forState:UIControlStateNormal];
+    [_panel addSubview:_orientBtn];
 }
 
 - (UILabel *)makeReadoutLabel {
@@ -1003,9 +1019,10 @@ static PickOverlay *_pkShared = nil;
                             PK_MAG_SIZE, PK_MAG_SIZE);
     y += ctrlH;
 
-    CGFloat btnW = (w - PK_GAP) / 2.0f;
+    CGFloat btnW = (w - PK_GAP * 2) / 3.0f;
     _cancelBtn.frame = CGRectMake(PK_PAD, y + PK_GAP, btnW, PK_FOOT_H);
-    _confirmBtn.frame = CGRectMake(PK_PAD + btnW + PK_GAP, y + PK_GAP, btnW, PK_FOOT_H);
+    _orientBtn.frame = CGRectMake(PK_PAD + btnW + PK_GAP, y + PK_GAP, btnW, PK_FOOT_H);
+    _confirmBtn.frame = CGRectMake(PK_PAD + (btnW + PK_GAP) * 2, y + PK_GAP, btnW, PK_FOOT_H);
 }
 
 - (void)layoutOverlay {
@@ -1428,14 +1445,14 @@ static PickOverlay *_pkShared = nil;
     if (!raw) return NO;
 
     _rawFrame = raw;
-    NSInteger orientation = [Screen getScreenOrientation];
-    if (orientation < 1 || orientation > 4) orientation = 1;
-    _shownFrame = [self rotatedImage:raw orientation:orientation];
-    if (!_shownFrame) _shownFrame = raw;
 
     free(_pixels);
     _pixels = PKCopyPixels(_rawFrame, &_pixelW, &_pixelH, &_pixelStride);
     if (!_pixels) return NO;
+
+    _orientation = ZXEffectiveOrientation();
+    _shownFrame = [self shownImageWithOrientation:_orientation];
+    if (!_shownFrame) _shownFrame = raw;
 
     _freezeView.image = _shownFrame;
     [_mag setSourceImage:_shownFrame.CGImage];
@@ -1471,37 +1488,47 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
     return buf;
 }
 
-// 把竖屏原始帧转成用户眼里的方向：转好之后图上像素坐标正好等于触摸指示器坐标。
-// 方向常量的约定必须与 Screen.h 的 ZXFramePointFromIndicatorPoint 完全一致，否则横屏下
-// 「框选看到的画面」和「引擎按坐标取的那块像素」差一个 90°，框出来的是镜像位置。
-// 新图 (u,v) 取源图 (X,Y)：ori 3 → X=v, Y=h-u；ori 4 → X=w-v, Y=u。
-- (UIImage *)rotatedImage:(UIImage *)raw orientation:(NSInteger)orientation {
-    if (orientation == 1) return raw;
+// 生成「用户眼里的画面」：不是拿 CTM 转图（方向常量一旦和引擎反了就镜像，且看不出来），
+// 而是逐像素反查 ZXFramePointFromIndicatorPoint —— 显示图上的每个像素都问引擎「你这个坐标
+// 该取原始帧的哪颗」，所以「框选看到的画面」「取色读到的像素」「模板裁出来的图」「点击落点」
+// 四者永远同步，方向常量怎么改都不会再出现「看到 A、点到 B」。
+- (UIImage *)shownImageWithOrientation:(int)orientation {
+    if (!_pixels || _pixelW == 0 || _pixelH == 0) return nil;
 
-    CGSize size = raw.size;
-    CGSize newSize = (orientation == 2) ? size : CGSizeMake(size.height, size.width);
-    UIGraphicsBeginImageContextWithOptions(newSize, NO, 1.0);
-    CGContextRef ctx = UIGraphicsGetCurrentContext();
-    switch (orientation) {
-        case 2:
-            CGContextTranslateCTM(ctx, size.width, size.height);
-            CGContextRotateCTM(ctx, M_PI);
-            break;
-        case 3:
-            CGContextTranslateCTM(ctx, newSize.width, 0);
-            CGContextRotateCTM(ctx, M_PI_2);
-            break;
-        case 4:
-            CGContextTranslateCTM(ctx, 0, newSize.height);
-            CGContextRotateCTM(ctx, -M_PI_2);
-            break;
-        default:
-            break;
+    BOOL landscape = (orientation == UIInterfaceOrientationLandscapeLeft ||
+                      orientation == UIInterfaceOrientationLandscapeRight);
+    size_t ow = landscape ? _pixelH : _pixelW;
+    size_t oh = landscape ? _pixelW : _pixelH;
+
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(NULL, ow, oh, 8, ow * 4, space,
+                                             kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    CGColorSpaceRelease(space);
+    if (!ctx) return nil;
+
+    UInt8 *dst = (UInt8 *)CGBitmapContextGetData(ctx);
+    size_t dstStride = CGBitmapContextGetBytesPerRow(ctx);
+    if (!dst) { CGContextRelease(ctx); return nil; }
+
+    NSInteger maxX = (NSInteger)_pixelW - 1, maxY = (NSInteger)_pixelH - 1;
+    for (size_t v = 0; v < oh; v++) {
+        UInt8 *row = dst + v * dstStride;
+        for (size_t u = 0; u < ow; u++) {
+            // 取像素中心，避免方向常量里的 ±1 落在边界上
+            CGPoint f = ZXFramePointFromIndicatorPoint(CGPointMake((CGFloat)u + 0.5f, (CGFloat)v + 0.5f));
+            NSInteger sx = (NSInteger)floor(f.x), sy = (NSInteger)floor(f.y);
+            if (sx < 0) sx = 0; else if (sx > maxX) sx = maxX;
+            if (sy < 0) sy = 0; else if (sy > maxY) sy = maxY;
+            memcpy(row + u * 4, _pixels + (size_t)sy * _pixelStride + (size_t)sx * 4, 4);
+        }
     }
-    [raw drawInRect:CGRectMake(0, 0, size.width, size.height)];
-    UIImage *result = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    return result ?: raw;
+
+    CGImageRef cg = CGBitmapContextCreateImage(ctx);
+    CGContextRelease(ctx);
+    if (!cg) return nil;
+    UIImage *image = [UIImage imageWithCGImage:cg scale:1.0 orientation:UIImageOrientationUp];
+    CGImageRelease(cg);
+    return image;
 }
 
 - (void)updateImageFrame {
@@ -1531,6 +1558,42 @@ static UInt8 *PKCopyPixels(UIImage *image, size_t *outW, size_t *outH, size_t *o
     _canvas.pickedRect = CGRectZero;
     _canvas.hasRect = NO;
     _cornerSeg.hidden = YES;
+    [self updateReadout];
+}
+
+// 方向按钮：自动 → 1 → 3 → 4 → 2 → 自动。画面正没正一眼就能看出来，
+// 转到正为止；这个选择同时写进全局方向，点击落点跟着一起对。
+- (void)cycleOrientationTapped {
+    static const int kCycle[] = { 0, 1, 3, 4, 2 };
+    const int count = (int)(sizeof(kCycle) / sizeof(kCycle[0]));
+    int current = ZXOrientationOverride();
+    int index = 0;
+    for (int i = 0; i < count; i++) {
+        if (kCycle[i] == current) { index = i; break; }
+    }
+    ZXSetOrientationOverride(kCycle[(index + 1) % count]);
+    [self refreshOrientationUI];
+}
+
+- (void)refreshOrientationUI {
+    int override = ZXOrientationOverride();
+    [_orientBtn setTitle:(override == 0 ? @"方向 自动"
+                                        : [NSString stringWithFormat:@"方向 %d", override])
+                forState:UIControlStateNormal];
+
+    int orientation = ZXEffectiveOrientation();
+    BOOL changed = (orientation != _orientation);
+    _orientation = orientation;
+    UIImage *image = [self shownImageWithOrientation:orientation];
+    if (!image) return;
+
+    _shownFrame = image;
+    _freezeView.image = image;
+    [_mag setSourceImage:image.CGImage];
+    [self updateImageFrame];
+    // 方向一变，同一个视图坐标对应的像素就全变了：留着旧框只会存下错的区域，直接清掉重框
+    if (changed && _hasRect) [self redrawRectTapped];
+    [self pushGeometry];
     [self updateReadout];
 }
 

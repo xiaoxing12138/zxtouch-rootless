@@ -1355,6 +1355,18 @@ static NSString *ZXExitText(id value) {
                         NSString *touchErr = [touch[@"last_error"] isKindOfClass:[NSString class]] ? touch[@"last_error"] : @"";
                         if (touchErr.length > 0) [full appendFormat:@"  最近一次失败原因：%@\n", touchErr];
                         [full appendFormat:@"  SpringBoard 端口 6000：%@\n", [touch[@"socket_ready"] boolValue] ? @"已监听" : @"未监听"];
+                        NSString *oriName = nil;
+                        switch ([touch[@"orientation"] intValue]) {
+                            case 1: oriName = @"竖屏"; break;
+                            case 2: oriName = @"竖屏倒置"; break;
+                            case 3: oriName = @"横屏左"; break;
+                            case 4: oriName = @"横屏右"; break;
+                            default: oriName = @"未知"; break;
+                        }
+                        [full appendFormat:@"  方向判定：%@（=%@）  原始读值=%@  手动覆盖=%@\n",
+                         oriName, touch[@"orientation"] ?: @"?", touch[@"orientation_raw"] ?: @"?",
+                         [touch[@"orientation_override"] intValue] == 0 ? @"无" : touch[@"orientation_override"]];
+                        [full appendFormat:@"  屏幕像素：%@ × %@\n", touch[@"screen_w"] ?: @"?", touch[@"screen_h"] ?: @"?"];
                     } else {
                         [full appendString:@"  无数据（tweak 版本过旧，请升级小新Lap）\n"];
                     }

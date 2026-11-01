@@ -276,7 +276,8 @@ static UIInterfaceOrientation currentIndicatorOrientation(void)
     if (isSpringBoard && isValidInterfaceOrientation(deviceOrientation)) {
         // SpringBoard can report the outgoing app's orientation briefly after a
         // swipe Home. The physical orientation is the authoritative source here.
-        selectedOrientation = (UIInterfaceOrientation)deviceOrientation;
+        // 注意：设备方向和界面方向的横屏定义相反，必须走映射，不能强转
+        selectedOrientation = ZXInterfaceFromDeviceOrientation(deviceOrientation);
     } else if (isValidInterfaceOrientation(frontOrientation) &&
                orientationMaskSupports(supportedMask, (UIInterfaceOrientation)frontOrientation)) {
         selectedOrientation = (UIInterfaceOrientation)frontOrientation;
@@ -285,10 +286,16 @@ static UIInterfaceOrientation currentIndicatorOrientation(void)
         // locked app. Keep the last valid app orientation instead of following it.
         selectedOrientation = cachedOrientation;
     } else if (isValidInterfaceOrientation(deviceOrientation) &&
-               orientationMaskSupports(supportedMask, (UIInterfaceOrientation)deviceOrientation)) {
-        selectedOrientation = (UIInterfaceOrientation)deviceOrientation;
+               orientationMaskSupports(supportedMask, ZXInterfaceFromDeviceOrientation(deviceOrientation))) {
+        selectedOrientation = ZXInterfaceFromDeviceOrientation(deviceOrientation);
     } else {
         selectedOrientation = firstOrientationInMask(supportedMask);
+    }
+
+    // 用户在框选面板里手动定过方向：红点和坐标标签必须跟着同一套，否则「看到哪」和「点到哪」又分家
+    int forcedOrientation = ZXOrientationOverride();
+    if (forcedOrientation >= 1 && forcedOrientation <= 4) {
+        selectedOrientation = (UIInterfaceOrientation)forcedOrientation;
     }
 
     indicatorOrientationMask = supportedMask;
