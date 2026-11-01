@@ -733,7 +733,7 @@ static NSArray<NSString *> *ZXShortcutScriptPaths(void)
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"点击测试", @"secondary_title": @"记录点击位置、次数与点击频率", @"row_click_handler": NSStringFromSelector(@selector(handleClickTestTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"点四角验证映射；左下角「测偏移」量注入精度", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
         ],
         @[
@@ -805,7 +805,7 @@ static NSArray<NSString *> *ZXShortcutScriptPaths(void)
         @[
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"点击测试", @"secondary_title": @"记录点击位置、次数与点击频率", @"row_click_handler": NSStringFromSelector(@selector(handleClickTestTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"悬浮窗调试", @"secondary_title": @"查看当前位置/方向/变换矩阵等", @"row_click_handler": NSStringFromSelector(@selector(handleDebugFloatWindowTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"旋转屏幕点四角，验证坐标系映射", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"屏幕坐标测试", @"secondary_title": @"点四角验证映射；左下角「测偏移」量注入精度", @"row_click_handler": NSStringFromSelector(@selector(handleTapTestWindowTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Python 依赖检测", @"secondary_title": @"检查 python3 是否存在、能否运行、模块路径", @"row_click_handler": NSStringFromSelector(@selector(handlePythonCheckTap:))}
         ],
         @[
@@ -1288,6 +1288,20 @@ static NSString *ZXExitText(id value) {
                         [panelText appendFormat:@"抓屏帧：%@ × %@  窗口：%@ × %@\n",
                          touch[@"frame_w"] ?: @"?", touch[@"frame_h"] ?: @"?",
                          touch[@"window_w"] ?: @"?", touch[@"window_h"] ?: @"?"];
+                        // 注入归一化的分母用抓屏帧。原生尺寸跟它不一致的机型，
+                        // 旧版就是在这里按比例点偏的（设 x120、实点 x130 这类症状）
+                        double frameW = [touch[@"frame_w"] doubleValue];
+                        double nativeW = [touch[@"native_w"] doubleValue];
+                        if (nativeW > 0) {
+                            if (fabs(nativeW - frameW) >= 1.0) {
+                                [panelText appendFormat:@"原生：%@ × %@ ⚠️ 与抓屏帧不一致 %.1f%%（已按抓屏帧归一化）\n",
+                                 touch[@"native_w"] ?: @"?", touch[@"native_h"] ?: @"?",
+                                 frameW > 0 ? (nativeW / frameW - 1.0) * 100.0 : 0.0];
+                            } else {
+                                [panelText appendFormat:@"原生：%@ × %@（与抓屏帧一致）\n",
+                                 touch[@"native_w"] ?: @"?", touch[@"native_h"] ?: @"?"];
+                            }
+                        }
                     } else {
                         [panelText appendString:@"无数据（tweak 版本过旧）\n"];
                     }
@@ -1378,6 +1392,10 @@ static NSString *ZXExitText(id value) {
                         [full appendFormat:@"  抓屏帧：%@ × %@   SpringBoard 窗口：%@ × %@\n",
                          touch[@"frame_w"] ?: @"?", touch[@"frame_h"] ?: @"?",
                          touch[@"window_w"] ?: @"?", touch[@"window_h"] ?: @"?"];
+                        [full appendFormat:@"  原生像素：%@ × %@   逻辑像素：%@ × %@（scale %@）\n",
+                         touch[@"native_w"] ?: @"?", touch[@"native_h"] ?: @"?",
+                         touch[@"bounds_w"] ?: @"?", touch[@"bounds_h"] ?: @"?",
+                         touch[@"scale"] ?: @"?"];
                     } else {
                         [full appendString:@"  无数据（tweak 版本过旧，请升级小新Lap）\n"];
                     }

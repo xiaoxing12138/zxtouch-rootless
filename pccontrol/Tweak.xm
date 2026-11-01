@@ -458,11 +458,9 @@ Boolean init()
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            // nativeBounds is always in portrait physical pixels, unaffected by rotation
-            CGRect nativeBounds = [UIScreen mainScreen].nativeBounds;
-            CGFloat width = nativeBounds.size.width;
-            CGFloat height = nativeBounds.size.height;
-            [Screen setScreenSize:(width<height?width:height) height:(width>height?width:height)];
+            // 注入归一化的分母必须和脚本坐标、抓屏帧同一进制（见 Screen.h 的 ZXScreenPixelSize）
+            CGSize pixel = ZXScreenPixelSize();
+            [Screen setScreenSize:pixel.width height:pixel.height];
 
             initTouchGetScreenSize();
             // senderID 是注入触摸的前提，只能在「抓到一次真实触摸」时确定。

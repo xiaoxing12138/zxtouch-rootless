@@ -210,9 +210,25 @@ int ZXEffectiveOrientation(void)
     return UIInterfaceOrientationPortrait;
 }
 
+CGSize ZXScreenPixelSize(void)
+{
+    // 抓过帧就以帧缓冲的实际尺寸为准（它由「bounds × scale」推出来，见 renderFrameLocked）
+    if (gFrameWidth > 0 && gFrameHeight > 0) return CGSizeMake(gFrameWidth, gFrameHeight);
+
+    CGSize bounds = [UIScreen mainScreen].bounds.size;
+    CGFloat scale = [UIScreen mainScreen].scale;
+    if (scale <= 0) scale = 1;
+    CGFloat w = bounds.width * scale;
+    CGFloat h = bounds.height * scale;
+    if (w <= 0 || h <= 0) return CGSizeZero;
+    if (w > h) { CGFloat t = w; w = h; h = t; }
+    return CGSizeMake(w, h);
+}
+
 CGPoint ZXFramePointFromIndicatorPoint(CGPoint p)
 {
-    CGFloat w = device_screen_width, h = device_screen_height;  // w 短边、h 长边
+    CGSize screen = ZXScreenPixelSize();
+    CGFloat w = screen.width, h = screen.height;  // w 短边、h 长边
     if (w <= 0 || h <= 0) return p;
 
     // 横屏的两个方向以「框选/取点那张转正的图」为准（旧版实测正确的那一套），
@@ -231,7 +247,8 @@ CGPoint ZXFramePointFromIndicatorPoint(CGPoint p)
 
 CGPoint ZXIndicatorPointFromFramePoint(CGPoint p)
 {
-    CGFloat w = device_screen_width, h = device_screen_height;
+    CGSize screen = ZXScreenPixelSize();
+    CGFloat w = screen.width, h = screen.height;
     if (w <= 0 || h <= 0) return p;
 
     switch (ZXEffectiveOrientation())
