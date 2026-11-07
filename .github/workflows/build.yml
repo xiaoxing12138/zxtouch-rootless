@@ -1,4 +1,4 @@
-name: Build ZXTouch Package
+name: build
 
 run-name: v3.1.91
 
@@ -223,18 +223,7 @@ jobs:
           RF="final/小新Lap_${VERSION}（有根rootful）.deb"
 
           cat > release-notes.md <<EOF
-          ## 小新Lap ${VERSION}
-
-          | File | 用途 | 越狱 | iOS |
-          |------|------|------|-----|
-          | \`小新Lap_${VERSION}（无根rootless）.deb\` | 无根越狱一键安装（含 App + 触摸引擎） | Dopamine, Dopamine 3, NathanLR | 15.0 - 17.7 |
-          | \`小新Lap_${VERSION}（有根rootful）.deb\` | 有根越狱一键安装（含 App + 触摸引擎） | palera1n (rootful), checkra1n | 15.0 - 16.x |
-
-          ### 安装
-          1. 下载对应自己越狱方式的 \`.deb\`
-          2. 用 Filza 打开安装，或 SSH 执行 \`dpkg -i <file>.deb && killall SpringBoard\`
-
-          > \`.py\` 脚本需要 Python 3：安装本包时会自动从 Procursus 源带上 \`python3\`，不用另外装。
+          ## v${VERSION}
           EOF
 
           if gh release view "$TAG" >/dev/null 2>&1; then
